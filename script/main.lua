@@ -14,6 +14,11 @@ if wdt then
     sys.timerLoopStart(wdt.feed, 3000)--3s喂一次狗
 end
 
+--定时GC一下
+sys.timerLoopStart(function()
+    collectgarbage("collect")
+end, 1000)
+
 --状态灯
 led = require("led")
 --串口处理
@@ -25,6 +30,11 @@ sys.taskInit(function()
     led.status = 1
     log.info("air780","sync at")
     --同步AT命令看通不通
+    air780.loopAT("AT","AT_AT")
+
+    --重启
+    air780.write("AT+RESET")
+    --同步AT命令看通不通（确保重启完）
     air780.loopAT("AT","AT_AT")
 
     led.status = 3
@@ -57,6 +67,7 @@ sys.taskInit(function()
     log.info("air780","connected! wait sms")
 
     while true do
+        collectgarbage("collect")--防止内存不足
         local _,phone,data,time,long,total,id = sys.waitUntil("AT_CMT")
         if long and id == 1 then--是长短信！而且是第一条
             log.info("air780","found a long sms",total,id)
@@ -74,12 +85,12 @@ sys.taskInit(function()
                         if #smsTemp == total then
                             --收到完整的长短信
                             data = table.concat(smsTemp)
-                            log.info("air780","got a long sms",data)
+                            log.info("air780","got a long sms")
                             break
                         end
                     else--手机号不一样了？那就是两条不同的短信了
                         data = table.concat(smsTemp)--这是长短信的内容
-                        log.info("air780","a long sms cut",data)
+                        log.info("air780","a long sms cut")
                         notify.add(phone,dataTemp)--这次的短信
                         break
                     end

@@ -1,6 +1,6 @@
 local air780 = {}
 
-local pdu = require("pdu")
+pdu = require("pdu")
 
 local uartid = 1
 local result = uart.setup(

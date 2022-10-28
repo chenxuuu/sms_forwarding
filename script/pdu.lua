@@ -134,7 +134,7 @@ local function gsm7bitdecode(data, longsms)
     return ucsdata, ucslen
 end
 
-local function ucs2_utf8(s)
+function libT.ucs2_utf8(s)
     local temp = {}
     for i=1,#s,2 do
         local d1,d2 = s:byte(i),s:byte(i+1)
@@ -220,7 +220,7 @@ function libT.decodePDU(pdu,len)
             t = i < 6 and (t .. ":") or (t .. "+")
         end
     end
-    return convnum, ucs2_utf8(data), t,longsms, total, idx
+    return convnum, data, t,longsms, total, idx
 end
 
 return libT

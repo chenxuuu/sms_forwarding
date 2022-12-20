@@ -1,0 +1,18 @@
+name: issue
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  auto_close_issues:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+      - name: Automatically close issues that don't follow the issue template
+        uses: lucasbento/auto-close-issues@v1.0.2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          issue-close-message: "@${issue.user.login}: 你好！ :wave:\n\n因为你没有按模板新建issue，所以此issue已被自动关闭！请重新按issue模板新建issue" # optional property
+          closed-issues-label: "🙁 未按模板新建issue" # optional property

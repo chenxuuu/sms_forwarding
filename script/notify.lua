@@ -50,7 +50,7 @@ sys.taskInit(function()
                 if useServerChan then--server酱
                     local data = pdu.ucs2_utf8(sms[2])
                     log.info("notify","send to serverChan",data)
-                    code, h, body = http2.request(
+                    code, h, body = http.request(
                             "POST",
                             "https://sctapi.ftqq.com/"..serverKey..".send",
                             {["Content-Type"] = "application/x-www-form-urlencoded"},
@@ -69,7 +69,7 @@ sys.taskInit(function()
                         log.info("notify","send to luatos push server",data)
                         --多试几次好了
                         for i=1,10 do
-                            code, h, body = http2.request(
+                            code, h, body = http.request(
                                 "GET",
                                 "https://push.luatos.org/"..luatosPush..".send/sms"..sms[1].."/"..string.urlEncode(data)
                             ).wait()

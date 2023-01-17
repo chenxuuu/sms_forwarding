@@ -35,6 +35,25 @@ if wdt then
 end
 log.info("main", "sms demo")
 
+--检查一下固件版本，防止用户乱刷
+do
+    local fw = rtos.firmware():lower()--全转成小写
+    local ver,bsp = fw:match("luatos%-soc_v(%d-)_(.+)")
+    ver = ver and tonumber(ver) or nil
+    local r
+    if ver and bsp then
+        if ver >= 1003 and bsp == "ec618" then
+            r = true
+        end
+    end
+    if not r then
+        sys.timerLoopStart(function ()
+            wdt.feed()
+            log.info("警告","固件类型或版本不满足要求，请使用air780(ec618)v1003及以上版本固件。当前："..rtos.firmware())
+        end,500)
+    end
+end
+
 --运营商给的dns经常抽风，手动指定
 socket.setDNS(nil, 1, "119.29.29.29")
 socket.setDNS(nil, 2, "223.5.5.5")

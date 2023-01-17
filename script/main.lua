@@ -14,6 +14,25 @@ if wdt then
     sys.timerLoopStart(wdt.feed, 3000)--3s喂一次狗
 end
 
+--检查一下固件版本，防止用户乱刷
+do
+    local fw = rtos.firmware():lower()--全转成小写
+    local ver,bsp = fw:match("luatos%-soc_v(%d-)_(.+)")
+    ver = ver and tonumber(ver) or nil
+    local r
+    if ver and bsp then
+        if ver >= 1002 and bsp == "esp32c3" then
+            r = true
+        end
+    end
+    if not r then
+        sys.timerLoopStart(function ()
+            wdt.feed()
+            log.info("警告","固件类型或版本不满足要求，请使用esp32c3 v1002及以上版本固件。当前："..rtos.firmware())
+        end,500)
+    end
+end
+
 --定时GC一下
 sys.timerLoopStart(function()
     collectgarbage("collect")

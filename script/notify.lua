@@ -38,17 +38,17 @@ sys.taskInit(function()
     wlan.connect(wifiName, wifiPasswd)
     log.info("wlan", "wait for IP_READY")
     sys.waitUntil("IP_READY", 30000)
-    print("qq",collectgarbage("count"))
+    print("gc1",collectgarbage("count"))
     if wlan.ready() then
         log.info("wlan", "ready !!")
         while true do
-            print("ww",collectgarbage("count"))
+            print("gc2",collectgarbage("count"))
             while #buff > 0 do--把消息读完
                 collectgarbage("collect")--防止内存不足
                 local sms = table.remove(buff,1)
                 local code,h, body
+                local data = pdu.ucs2_utf8(sms[2])
                 if useServerChan then--server酱
-                    local data = pdu.ucs2_utf8(sms[2])
                     log.info("notify","send to serverChan",data)
                     code, h, body = http.request(
                             "POST",
@@ -58,35 +58,27 @@ sys.taskInit(function()
                         ).wait()
                     log.info("notify","pushed sms notify",code,h,body,sms[1])
                 else--luatos推送服务
-                    --如果太长则需要分割，乐鑫的sdk默认buffer很小
-                    local maxLen = 40
-                    local len = #sms[2]//2--长度不能超
-                    local offset = 0
-                    while len > 0 do
-                        collectgarbage("collect")--防止内存不足
-                        log.info("notify","len,offset",len,offset)
-                        local data = pdu.ucs2_utf8(sms[2]:sub(offset*2+1,(offset+maxLen)*2))
-                        log.info("notify","send to luatos push server",data)
-                        --多试几次好了
-                        for i=1,10 do
-                            code, h, body = http.request(
-                                "GET",
-                                "https://push.luatos.org/"..luatosPush..".send/sms"..sms[1].."/"..string.urlEncode(data)
-                            ).wait()
-                            log.info("notify","pushed sms notify",code,h,body,sms[1])
-                            if code == 200 then
-                                break
-                            end
-                            sys.wait(5000)
+                    data = data:gsub("%%","%%25")
+                    :gsub("+","%%2B")
+                    :gsub("/","%%2F")
+                    :gsub("?","%%3F")
+                    :gsub("#","%%23")
+                    :gsub("&","%%26")
+                    local url = "https://push.luatos.org/"..luatosPush..".send/sms"..sms[1].."/"..data
+                    log.info("notify","send to luatos push server",data,url)
+                    --多试几次好了
+                    for i=1,10 do
+                        code, h, body = http.request("GET",url).wait()
+                        log.info("notify","pushed sms notify",code,h,body,sms[1])
+                        if code == 200 then
+                            break
                         end
-                        offset = offset + maxLen
-                        len = len - maxLen
-                        log.info("notify","len,offset2",len,offset)
+                        sys.wait(5000)
                     end
                 end
             end
             log.info("notify","wait for a new sms~")
-            print("zzz",collectgarbage("count"))
+            print("gc3",collectgarbage("count"))
             sys.waitUntil("SMS_ADD")
         end
     else

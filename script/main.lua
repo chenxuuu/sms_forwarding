@@ -21,7 +21,7 @@ do
     ver = ver and tonumber(ver) or nil
     local r
     if ver and bsp then
-        if ver >= 1002 and bsp == "esp32c3" then
+        if ver >= 1004 and bsp == "esp32c3" then
             r = true
         end
     end

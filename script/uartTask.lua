@@ -29,6 +29,7 @@ end)
 function air780.write(s)
     uart.write(uartid,s)
     uart.write(uartid,"\r\n")
+    log.info("air780","sent at",s)
 end
 
 -- 向串口发送收到的字符串

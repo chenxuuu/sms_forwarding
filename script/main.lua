@@ -28,7 +28,7 @@ do
     if not r then
         sys.timerLoopStart(function ()
             wdt.feed()
-            log.info("警告","固件类型或版本不满足要求，请使用esp32c3 v1002及以上版本固件。当前："..rtos.firmware())
+            log.info("警告","固件类型或版本不满足要求，请使用esp32c3 v1004及以上版本固件。当前："..rtos.firmware())
         end,500)
     end
 end

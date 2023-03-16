@@ -91,13 +91,17 @@ sys.taskInit(function()
                     sys.wait(5000)
                 end
             else--luatos推送服务
-                log.info("notify","send to luatos push server",data)
+                data = data:gsub("%%","%%25")
+                :gsub("+","%%2B")
+                :gsub("/","%%2F")
+                :gsub("?","%%3F")
+                :gsub("#","%%23")
+                :gsub("&","%%26")
+                local url = "https://push.luatos.org/"..luatosPush..".send/sms"..sms[1].."/"..data
+                log.info("notify","send to luatos push server",data,url)
                 --多试几次好了
                 for i=1,10 do
-                    code, h, body = http.request(
-                        "GET",
-                        "https://push.luatos.org/"..luatosPush..".send/sms"..sms[1].."/"..string.urlEncode(data)
-                    ).wait()
+                    code, h, body = http.request("GET",url).wait()
                     log.info("notify","pushed sms notify",code,h,body,sms[1])
                     if code == 200 then
                         break

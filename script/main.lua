@@ -55,6 +55,10 @@ sys.taskInit(function()
     air780.write("AT+RESET")
     --同步AT命令看通不通（确保重启完）
     air780.loopAT("AT","AT_AT")
+    air780.loopAT("AT","AT_ATE1")
+
+    --关闭自动升级
+    air780.loopAT("AT+UPGRADE=\"AUTO\",0","AT_UPGRADE")
 
     led.status = 3
     log.info("air780","check sim card")

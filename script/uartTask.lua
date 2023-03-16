@@ -48,8 +48,16 @@ sys.subscribe(recvReady, function()
     while #s > 0 do
         local line = table.remove(s,1)
         --log.info("uart", "line",line, line:toHex())
-        if line == "AT" then
+        if line == "AT" or line == "OK" then
             sys.publish("AT_AT")
+            return
+        end
+        if line == "ATE1" then
+            sys.publish("AT_ATE1")
+            return
+        end
+        if line == "AT+UPGRADE=\"AUTO\",0" then
+            sys.publish("AT_UPGRADE")
             return
         end
         if line == "AT+CMGF=0" then

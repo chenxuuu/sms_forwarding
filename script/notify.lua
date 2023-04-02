@@ -10,6 +10,7 @@ local wifiPasswd = ""
 
 --是否使用server酱，false则使用LuatOS社区提供的推送服务
 local useServerChan = false
+local usePushover = false
 
 --LuatOS社区提供的推送服务 https://push.luatos.org/
 --这里填.send前的字符串就好了
@@ -20,6 +21,11 @@ local luatosPush = "ABCDEF1234567890ABCD"
 --server酱的SendKey，如果你用的是这个就需要填一个
 --https://sct.ftqq.com/sendkey 申请一个
 local serverKey = ""
+
+--pushover配置
+local pushoverApiToken = ""
+local pushoverUserKey = ""
+
 
 --缓存消息
 local buff = {}
@@ -55,6 +61,21 @@ sys.taskInit(function()
                             "https://sctapi.ftqq.com/"..serverKey..".send",
                             {["Content-Type"] = "application/x-www-form-urlencoded"},
                             "title="..string.urlEncode("sms"..sms[1]).."&desp="..string.urlEncode(data)
+                        ).wait()
+                    log.info("notify","pushed sms notify",code,h,body,sms[1])
+                elseif usePushover then --Pushover
+                    log.info("notify","send to Pushover",data)
+                    local body = {
+                        token = pushoverApiToken,
+                        user = pushoverUserKey,
+                        message = data
+                    }
+                    local json_body = string.gsub(json.encode(body), "\\b", "\\n")
+                    code, h, body = http.request(
+                            "POST",
+                            "https://api.pushover.net/1/messages.json",
+                            {["Content-Type"] = "application/json; charset=utf-8"},
+                            json_body
                         ).wait()
                     log.info("notify","pushed sms notify",code,h,body,sms[1])
                 else--luatos推送服务

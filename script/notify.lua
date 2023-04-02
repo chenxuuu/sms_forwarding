@@ -8,7 +8,7 @@ local wifiPasswd = ""
 --官网：https://push.luatos.org/ 点击GitHub图标登陆即可
 --支持邮件/企业微信/钉钉/飞书/电报/IOS Bark
 
---是否使用server酱，false则使用LuatOS社区提供的推送服务
+--是否使用server酱或pushover,二选一，若均为false则使用LuatOS社区提供的推送服务
 local useServerChan = false
 local usePushover = false
 
@@ -68,9 +68,10 @@ sys.taskInit(function()
                     local body = {
                         token = pushoverApiToken,
                         user = pushoverUserKey,
+                        title = "sms"..sms[1],
                         message = data
                     }
-                    local json_body = string.gsub(json.encode(body), "\\b", "\\n")
+                    local json_body = string.gsub(json.encode(body), "\\b", "\\n") --luatos bug
                     code, h, body = http.request(
                             "POST",
                             "https://api.pushover.net/1/messages.json",

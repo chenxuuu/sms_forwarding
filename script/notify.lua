@@ -64,6 +64,7 @@ sys.taskInit(function()
                     :gsub("?","%%3F")
                     :gsub("#","%%23")
                     :gsub("&","%%26")
+                    :gsub(" ","%%20")
                     local url = "https://push.luatos.org/"..luatosPush..".send/sms"..sms[1].."/"..data
                     log.info("notify","send to luatos push server",data,url)
                     --多试几次好了

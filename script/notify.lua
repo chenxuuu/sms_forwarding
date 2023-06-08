@@ -8,21 +8,21 @@ local wifiPasswd = ""
 --官网：https://push.luatos.org/ 点击GitHub图标登陆即可
 --支持邮件/企业微信/钉钉/飞书/电报/IOS Bark
 
---是否使用server酱或pushover二选一，若均为false则使用LuatOS社区提供的推送服务
-local useServerChan = false
-local usePushover = false
+--使用哪个推送服务
+--可选：luatos/serverChan/pushover
+local useServer = "luatos"
 
---LuatOS社区提供的推送服务 https://push.luatos.org/
+--LuatOS社区提供的推送服务 https://push.luatos.org/ ，用不到可留空
 --这里填.send前的字符串就好了
 --如：https://push.luatos.org/ABCDEF1234567890ABCD.send/{title}/{data} 填入 ABCDEF1234567890ABCD
 local luatosPush = "ABCDEF1234567890ABCD"
 
---server酱的配置，免费用户每天仅可发送五条推送消息
+--server酱的配置，用不到可留空，免费用户每天仅可发送五条推送消息
 --server酱的SendKey，如果你用的是这个就需要填一个
 --https://sct.ftqq.com/sendkey 申请一个
 local serverKey = ""
 
---pushover配置
+--pushover配置，用不到可留空
 local pushoverApiToken = ""
 local pushoverUserKey = ""
 
@@ -54,7 +54,7 @@ sys.taskInit(function()
                 local sms = table.remove(buff,1)
                 local code,h, body
                 local data = pdu.ucs2_utf8(sms[2])
-                if useServerChan then--server酱
+                if useServer == "serverChan" then--server酱
                     log.info("notify","send to serverChan",data)
                     code, h, body = http.request(
                             "POST",
@@ -63,7 +63,7 @@ sys.taskInit(function()
                             "title="..string.urlEncode("sms"..sms[1]).."&desp="..string.urlEncode(data)
                         ).wait()
                     log.info("notify","pushed sms notify",code,h,body,sms[1])
-                elseif usePushover then --Pushover
+                elseif useServer == "pushover" then --Pushover
                     log.info("notify","send to Pushover",data)
                     local body = {
                         token = pushoverApiToken,
@@ -72,13 +72,20 @@ sys.taskInit(function()
                         message = data
                     }
                     local json_body = string.gsub(json.encode(body), "\\b", "\\n") --luatos bug
-                    code, h, body = http.request(
-                            "POST",
-                            "https://api.pushover.net/1/messages.json",
-                            {["Content-Type"] = "application/json; charset=utf-8"},
-                            json_body
-                        ).wait()
-                    log.info("notify","pushed sms notify",code,h,body,sms[1])
+                    --多试几次好了
+                    for i=1,10 do
+                        code, h, body = http.request(
+                                "POST",
+                                "https://api.pushover.net/1/messages.json",
+                                {["Content-Type"] = "application/json; charset=utf-8"},
+                                json_body
+                            ).wait()
+                        log.info("notify","pushed sms notify",code,h,body,sms[1])
+                        if code == 200 then
+                            break
+                        end
+                        sys.wait(5000)
+                    end
                 else--luatos推送服务
                     data = data:gsub("%%","%%25")
                     :gsub("+","%%2B")

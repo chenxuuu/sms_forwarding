@@ -4,6 +4,14 @@ local notify = {}
 local wifiName = ""
 local wifiPasswd = ""
 
+--短信接收指令的标记（密码）
+--[[
+目前支持命令（[cmdTag]表示你的tag）
+C[cmdTag]REBOOT：重启
+C[cmdTag]SEND[手机号][空格][短信内容]：主动发短信
+]]
+local cmdTag = "1234"
+
 --这里默认用的是LuatOS社区提供的推送服务，无使用限制
 --官网：https://push.luatos.org/ 点击GitHub图标登陆即可
 --支持邮件/企业微信/钉钉/飞书/电报/IOS Bark
@@ -32,7 +40,34 @@ local buff = {}
 
 --来新消息了
 function notify.add(phone,data)
+    data = pdu.ucs2_utf8(data)--转码
     log.info("notify","got sms",phone,data)
+    --匹配上了指令
+    if data:find("C"..cmdTag) == 1 then
+        log.info("cmd","matched cmd")
+        if data:find("C"..cmdTag.."REBOOT") == 1 then
+            sys.timerStart(rtos.reboot,10000)
+            data = "reboot command done"
+        elseif data:find("C"..cmdTag.."SEND") == 1 then
+            local _,_,phone,text = data:find("C"..cmdTag.."SEND(%d+) +(.+)")
+            if phone and text then
+                log.info("cmd","cmd send sms",phone,text)
+                local d,len = pdu.encodePDU(phone,text)
+                if d and len then
+                    air780.write("AT+CMGS="..len.."\r\n")
+                    local r = sys.waitUntil("AT_SEND_SMS", 5000)
+                    if r then
+                        air780.write(d,true)
+                        sys.wait(500)
+                        air780.write(string.char(0x1A),true)
+                        data = "send sms at command done"
+                    else
+                        data = "send sms at command error!"
+                    end
+                end
+            end
+        end
+    end
     table.insert(buff,{phone,data})
     sys.publish("SMS_ADD")--推个事件
 end
@@ -53,7 +88,7 @@ sys.taskInit(function()
                 collectgarbage("collect")--防止内存不足
                 local sms = table.remove(buff,1)
                 local code,h, body
-                local data = pdu.ucs2_utf8(sms[2])
+                local data = sms[2]
                 if useServer == "serverChan" then--server酱
                     log.info("notify","send to serverChan",data)
                     code, h, body = http.request(

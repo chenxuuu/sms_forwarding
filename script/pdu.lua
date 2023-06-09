@@ -3,6 +3,36 @@
 local libT = {}
 
 --[[
+函数名：numtobcdnum
+功能  ：号码ASCII字符串 转化为 BCD编码格式字符串，仅支持数字和+，例如"+8618126324567" -> 91688121364265f7 （表示第1个字节是0x91，第2个字节为0x68，......）
+参数  ：
+num：待转换字符串
+返回值：转换后的字符串
+]]
+local function numtobcdnum(num)
+    local len, numfix, convnum = #num, "81", ""
+
+    if num:sub(1, 1) == "+" then
+        numfix = "91"
+        len = len - 1
+        num = num:sub(2, -1)
+    end
+
+    if len % 2 ~= 0 then --奇数位
+        for i = 1, (len - (len % 2)) / 2 do
+            convnum = convnum .. num:sub(i * 2, i * 2) .. num:sub(i * 2 - 1, i * 2 - 1)
+        end
+        convnum = convnum .. "F" .. num:sub(len, len)
+    else --偶数位
+        for i = 1, (len - (len % 2)) / 2 do
+            convnum = convnum .. num:sub(i * 2, i * 2) .. num:sub(i * 2 - 1, i * 2 - 1)
+        end
+    end
+
+    return numfix .. convnum
+end
+
+--[[
 函数名：bcdnumtonum
 功能  ：BCD编码格式字符串 转化为 号码ASCII字符串，仅支持数字和+，例如91688121364265f7 （表示第1个字节是0x91，第2个字节为0x68，......） -> "+8618126324567"
 参数  ：
@@ -149,6 +179,33 @@ function libT.ucs2_utf8(s)
     return table.concat(temp)
 end
 
+--utf8转ucs2（copilot写的）
+function libT.utf8_ucs2(s)
+    local ucsdata = ""
+    local i = 1
+    while i <= #s do
+        local c = string.byte(s, i)
+        local resdata = 0
+        local nbyte = 0
+        if c < 128 then
+            resdata = c
+            nbyte = 1
+        elseif c < 224 then
+            resdata = (c - 192) * 64 + (string.byte(s, i + 1) - 128)
+            nbyte = 2
+        elseif c < 240 then
+            resdata = (c - 224) * 4096 + (string.byte(s, i + 1) - 128) * 64 + (string.byte(s, i + 2) - 128)
+            nbyte = 3
+        elseif c < 248 then
+            resdata = (c - 240) * 262144 + (string.byte(s, i + 1) - 128) * 4096 + (string.byte(s, i + 2) - 128) * 64 + (string.byte(s, i + 3) - 128)
+            nbyte = 4
+        end
+        ucsdata = ucsdata .. string.format("%04X", resdata):fromHex()
+        i = i + nbyte
+    end
+    return ucsdata
+end
+
 ---解析PDU短信
 --返回值：
 --发送者号码
@@ -222,5 +279,20 @@ function libT.decodePDU(pdu,len)
     end
     return convnum, data, t,longsms, total, idx
 end
+
+---生成PDU短信编码
+--仅支持单条短信，传入数据为utf8编码
+--返回值为pdu编码与长度
+function libT.encodePDU(num,data)
+    data = libT.utf8_ucs2(data):toHex()
+    local numlen, datalen, pducnt, pdu, pdulen, udhi = string.format("%02X", #num), #data / 2, 1, "", "", ""
+    if datalen > 140 then--短信内容太长啦
+        data = data:sub(1, 140 * 2)
+    end
+    datalen = string.format("%02X", datalen)
+    pdu = "001110" .. numlen .. numtobcdnum(num) .. "000800" .. datalen .. data
+    return pdu, #pdu // 2 - 1
+end
+
 
 return libT

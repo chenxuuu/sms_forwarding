@@ -26,10 +26,11 @@ uart.on(uartid, "receive", function(id, len)
 end)
 
 --发送AT指令
-function air780.write(s)
+function air780.write(s,notNeedCRLF)
     uart.write(uartid,s)
-    uart.write(uartid,"\r\n")
     log.info("air780","sent at",s)
+    if notNeedCRLF then return end
+    uart.write(uartid,"\r\n")
 end
 
 -- 向串口发送收到的字符串
@@ -47,7 +48,7 @@ sys.subscribe(recvReady, function()
 
     while #s > 0 do
         local line = table.remove(s,1)
-        --log.info("uart", "line",line, line:toHex())
+        log.info("uart", "line",line, line:toHex())
         if line == "AT" or line == "OK" then
             sys.publish("AT_AT")
             return
@@ -70,6 +71,10 @@ sys.subscribe(recvReady, function()
         end
         if line == "AT+CNMI=2,2,0,0,0" then
             sys.publish("AT_CNMI")
+            return
+        end
+        if line == "> " then
+            sys.publish("AT_SEND_SMS")
             return
         end
         local urc = line:match("^%+(%w+)")

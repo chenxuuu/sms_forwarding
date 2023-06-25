@@ -33,6 +33,11 @@ do
     end
 end
 
+
+--运营商给的dns经常抽风，手动指定
+socket.setDNS(nil, 1, "119.29.29.29")
+socket.setDNS(nil, 2, "223.5.5.5")
+
 --定时GC一下
 sys.timerLoopStart(function()
     collectgarbage("collect")
@@ -95,30 +100,30 @@ sys.taskInit(function()
         if long and id == 1 then--是长短信！而且是第一条
             log.info("air780","found a long sms",total,id)
             --缓存，长短信存放处
-            local smsTemp = {data}
+            local smsTemp = {{id,data}}
             --发件人
             local lastPhone = phone
             --等待下一条
-            for i=1,total do
+            while true do
                 local r,phone,dataTemp,time,long,total,id = sys.waitUntil("AT_CMT",60000)
-                if r then
-                    if phone == lastPhone then
-                        log.info("air780","a part of long sms",total,id)
-                        table.insert(smsTemp,dataTemp)
-                        if #smsTemp == total then
-                            --收到完整的长短信
-                            data = table.concat(smsTemp)
-                            log.info("air780","got a long sms")
-                            break
-                        end
-                    else--手机号不一样了？那就是两条不同的短信了
-                        data = table.concat(smsTemp)--这是长短信的内容
-                        log.info("air780","a long sms cut")
-                        notify.add(phone,dataTemp)--这次的短信
-                        break
-                    end
+                if not r then break end--没等到了，退出
+                if phone == lastPhone then
+                    log.info("air780","a part of long sms",total,id)
+                    table.insert(smsTemp,{id,dataTemp})
+                    if #smsTemp == total then break end --收齐了，退出
+                else--手机号不一样了？那就是两条不同的短信了
+                    log.info("air780","another sms received")
+                    notify.add(phone,dataTemp)--这次的短信
                 end
             end
+
+            --拼接长短信
+            table.sort(smsTemp,function(a,b) return a[1] < b[1] end)
+            local sms = {}
+            for _,v in ipairs(smsTemp) do
+                table.insert(sms,v[2])
+            end
+            data = table.concat(sms)
         end
         notify.add(phone,data)--这次的短信
     end

@@ -1,0 +1,48 @@
+name: "\U0001F680 请求某功能 / Feature request"
+description: "为这个项目出一个好点子 / Suggest an idea for this project"
+labels: ["待分类"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你提供新的想法！ / Thanks for taking the time to fill out this Feature request!
+  - type: textarea
+    id: problem
+    attributes:
+      label: 您的功能请求是否与解决某些问题有关？请描述一下。/ Is your feature request related to a problem? Please describe.
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: 描述您想要的解决方案 / Describe the solution you'd like
+    validations:
+      required: true
+  - type: textarea
+    id: usage
+    attributes:
+      label: 描述您想要的详细使用步骤描述 / Describe the solution you'd like to use in what way
+    validations:
+      required: true
+  - type: textarea
+    id: other
+    attributes:
+      label: 其他备注信息或截图 / Add any other context or screenshots about the feature request here
+    validations:
+      required: false
+  - type: checkboxes
+    id: checkboxes
+    attributes:
+      label: 确认信息
+      description: 提交前请确认已经做过以下操作 / Before submitting the issue, please make sure you do the following
+      options:
+        - label: 检查过该需求，之前没有人提过 / Check that there isn't already an issue that reports the same bug to avoid creating a duplicate.
+          required: true
+        - label: 这个需求是真实存在的，并且对于本项目来说是必要的
+          required: true
+        - label: 我已经提供了该需求的清晰、详细、完整的方案，请按该方案进行实施
+          required: true
+        - label: 我认为我提供的信息已经足够，不需要其他人继续完善该需求的其他细节
+          required: true
+        - label: 我同意跟进该需求的实施进程，并在适时提供合理的解释与纠正
+          required: true

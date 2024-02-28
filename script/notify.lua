@@ -24,6 +24,10 @@ local useServer = "luatos"
 --这里填.send前的字符串就好了
 --如：https://push.luatos.org/ABCDEF1234567890ABCD.send/{title}/{data} 填入 ABCDEF1234567890ABCD
 local luatosPush = "ABCDEF1234567890ABCD"
+--默认的接口网址，推荐优先使用（由于服务器在国外某些地方可能连不上，如果连不上就换另一个）
+local luatosPushApi = "https://push.luatos.org/"
+--备用的接口网址，从国内中转（有严格的QPS限制，请求频率过高会被屏蔽）
+-- local luatosPushApi = "http://push.papapoi.com/"
 
 --server酱的配置，用不到可留空，免费用户每天仅可发送五条推送消息
 --server酱的SendKey，如果你用的是这个就需要填一个
@@ -129,7 +133,7 @@ sys.taskInit(function()
                     :gsub("#","%%23")
                     :gsub("&","%%26")
                     :gsub(" ","%%20")
-                    local url = "https://push.luatos.org/"..luatosPush..".send/sms"..sms[1].."/"..data
+                    local url = luatosPushApi..luatosPush..".send/sms"..sms[1].."/"..data
                     log.info("notify","send to luatos push server",data,url)
                     --多试几次好了
                     for i=1,10 do

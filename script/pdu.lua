@@ -32,6 +32,76 @@ local function numtobcdnum(num)
     return numfix .. convnum
 end
 
+local gsm7bit_map = {
+    [0] = '@', [1] = '£', [2] = '$', [3] = '¥', [4] = 'è', [5] = 'é', [6] = 'ù', [7] = 'ì', [8] = 'ò', [9] = 'Ç',
+    [10] = '\n', [11] = 'Ø', [12] = 'ø', [13] = '\r', [14] = 'Å', [15] = 'å', [16] = '\u{0394}', [17] = '_', [18] = '\u{03a6}', [19] = '\u{0393}',
+    [20] = '\u{039b}', [21] = '\u{03a9}', [22] = '\u{03a0}', [23] = '\u{03a8}', [24] = '\u{03a3}', [25] = '\u{0398}', [26] = '\u{039e}', [28] = 'Æ', [29] = 'æ',
+    [30] = 'ß', [31] = 'É', [32] = ' ', [33] = '!', [34] = '"', [35] = '#', [36] = '¤', [37] = '%', [38] = '&', [39] = '\'',
+    [40] = '(', [41] = ')', [42] = '*', [43] = '+', [44] = ',', [45] = '-', [46] = '.', [47] = '/', [48] = '0', [49] = '1',
+    [50] = '2', [51] = '3', [52] = '4', [53] = '5', [54] = '6', [55] = '7', [56] = '8', [57] = '9', [58] = ':', [59] = ';',
+    [60] = '<', [61] = '=', [62] = '>', [63] = '?', [64] = '¡', [65] = 'A', [66] = 'B', [67] = 'C', [68] = 'D', [69] = 'E',
+    [70] = 'F', [71] = 'G', [72] = 'H', [73] = 'I', [74] = 'J', [75] = 'K', [76] = 'L', [77] = 'M', [78] = 'N', [79] = 'O',
+    [80] = 'P', [81] = 'Q', [82] = 'R', [83] = 'S', [84] = 'T', [85] = 'U', [86] = 'V', [87] = 'W', [88] = 'X', [89] = 'Y',
+    [90] = 'Z', [91] = 'Ä', [92] = 'Ö', [93] = 'Ñ', [94] = 'Ü', [95] = '§', [96] = '¿', [97] = 'a', [98] = 'b', [99] = 'c',
+    [100] = 'd', [101] = 'e', [102] = 'f', [103] = 'g', [104] = 'h', [105] = 'i', [106] = 'j', [107] = 'k', [108] = 'l', [109] = 'm',
+    [110] = 'n', [111] = 'o', [112] = 'p', [113] = 'q', [114] = 'r', [115] = 's', [116] = 't', [117] = 'u', [118] = 'v', [119] = 'w',
+    [120] = 'x', [121] = 'y', [122] = 'z', [123] = 'ä', [124] = 'ö', [125] = 'ñ', [126] = 'ü', [127] = 'à',
+}
+
+local function hexToBin(hexStr)
+    local binStr = ""
+    for i = 1, #hexStr, 2 do
+        local byte = tonumber(hexStr:sub(i, i+1), 16)
+        local binByte = ""
+        for j = 1, 8 do
+            binByte = tostring(byte % 2) .. binByte
+            byte = math.floor(byte / 2)
+        end
+        binStr = binStr .. binByte
+    end
+    return binStr
+end
+
+local function decodeGSM7Bit(hexStr, padding)
+    local binStr = hexToBin(hexStr)
+    local result = ""
+    local nextChar = ""
+    local padding = padding or 0
+
+    if padding > 0 then
+        nextChar = string.sub(binStr, 1, 8 - padding)
+        binStr = string.sub(binStr, 8 - padding + 1)
+    end
+
+    local function getChar()
+        if #nextChar == 7 then
+            local thisChar = nextChar
+            nextChar = ""
+            return thisChar
+        end
+
+        local octet = string.sub(binStr, 1, 8)
+        binStr = string.sub(binStr, 9)
+        local bitsFromNextChar = #nextChar + 1
+        local thisChar = string.sub(octet, bitsFromNextChar + 1) .. nextChar
+        nextChar = string.sub(octet, 1, bitsFromNextChar)
+        return thisChar
+    end
+
+    while #binStr > 0 or #nextChar > 1 do
+        local thisCharBin = getChar()
+        local charCode = tonumber(thisCharBin, 2)
+        local character = gsm7bit_map[charCode]
+        if character then
+            result = result .. character
+        else
+            result = result .. "?"
+        end
+    end
+
+    return result
+end
+
 --[[
 函数名：bcdnumtonum
 功能  ：BCD编码格式字符串 转化为 号码ASCII字符串，仅支持数字和+，例如91688121364265f7 （表示第1个字节是0x91，第2个字节为0x68，......） -> "+8618126324567"
@@ -43,6 +113,12 @@ local function bcdnumtonum(num)
     local len, numfix, convnum = #num, "", ""
     if len % 2 ~= 0 then print("your bcdnum is err " .. num) return end
     if num:sub(1, 2) == "91" then numfix = "+" end
+    if num:sub(1, 2):upper() == "D0" then
+        --将convnum按gsm 7bit decode转换为字符串
+        --长度为lenend
+        convnum = gsm7bit_decode(num:sub(3))
+        return numfix .. convnum
+    end
     len, num = len - 2, num:sub(3, -1)
     for i = 1, (len - (len % 2)) / 2 do
         convnum = convnum .. num:sub(i * 2, i * 2) .. num:sub(i * 2 - 1, i * 2 - 1)

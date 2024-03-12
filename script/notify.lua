@@ -1,8 +1,9 @@
 local notify = {}
 
 --你的wifi名称和密码,仅2.4G
-local wifiName = ""
-local wifiPasswd = ""
+local wifis = {}
+table.insert(wifis, {name = "", password = ""})
+-- 多个 wifi 继续使用 table.insert 添加，会逐个尝试
 
 --短信接收指令的标记（密码）
 --[[
@@ -80,9 +81,18 @@ end
 sys.taskInit(function()
     sys.wait(1000)
     wlan.init()--初始化wifi
-    wlan.connect(wifiName, wifiPasswd)
-    log.info("wlan", "wait for IP_READY")
-    sys.waitUntil("IP_READY", 30000)
+    for i, wifi in ipairs(wifis) do
+        log.info("wlan", "trying wifi #".. i .. " " .. wifi.name)
+        wlan.connect(wifi.name, wifi.password)
+        log.info("wlan", "wait for IP_READY")
+        sys.waitUntil("IP_READY", 30*1000)
+        if wlan.ready() then
+            break
+        end
+        wlan.disconnect()
+        wlan.init()
+        sys.wait(5*1000)
+    end
     print("gc1",collectgarbage("count"))
     if wlan.ready() then
         log.info("wlan", "ready !!")

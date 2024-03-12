@@ -50,6 +50,52 @@ air780 = require("uartTask")
 --服务器上传处理
 notify = require("notify")
 
+local function clear_table(table)
+    for i = 0, #table do
+        table[i] = nil
+    end
+end
+
+local function fix_time(time)
+    return string.format("20%s-%s-%s %s:%s:%s %s", time:sub(1,2), time:sub(4,5), time:sub(7,8),
+    time:sub(10,11), time:sub(13,14), time:sub(16,17), time:sub(18,20))
+end
+
+local long_sms_buffer = {}
+
+local function concat_and_send_long_sms(phone, time, sms)
+    --拼接长短信
+    local full_content = ""
+
+    table.sort(sms, function(a,b) return a.id < b.id end)
+
+    for _, v in ipairs(sms) do
+        log.debug("long_sms", "message id: " .. v.id .. ", content: " .. v.data .. ", time: " .. v.time)
+        full_content = full_content .. v.data
+    end
+
+    notify.add(phone, full_content)
+
+    -- 清空缓冲区
+    clear_table(sms)
+end
+
+local function clean_sms_buffer(phone, time)
+    if not long_sms_buffer[phone] then
+        return
+    end
+
+    if not long_sms_buffer[phone][time] then
+        return
+    end
+
+    log.warn("sms", "long sms receive timeout from ", phone, time)
+    if #long_sms_buffer[phone][time] > 0 then
+        concat_and_send_long_sms(phone, time, long_sms_buffer[phone][time])
+        long_sms_buffer[phone][time] = nil
+    end
+end
+
 sys.taskInit(function()
     led.status = 1
     log.info("air780","sync at")
@@ -96,36 +142,30 @@ sys.taskInit(function()
 
     while true do
         collectgarbage("collect")--防止内存不足
-        local _,phone,data,time,long,total,id = sys.waitUntil("AT_CMT")
-        if long and id == 1 then--是长短信！而且是第一条
-            log.info("air780","found a long sms",total,id)
+        local _, phone, data, time, long, total, id = sys.waitUntil("AT_CMT")
+        time = fix_time(time)
+
+        if long then--是长短信！
+            log.info("air780","receive a long sms", phone, id .. " / " .. total, time)
             --缓存，长短信存放处
-            local smsTemp = {{id,data}}
-            --发件人
-            local lastPhone = phone
-            --等待下一条
-            while true do
-                local r,phone,dataTemp,time,long,total,id = sys.waitUntil("AT_CMT",60000)
-                if not r then break end--没等到了，退出
-                if phone == lastPhone then
-                    log.info("air780","a part of long sms",total,id)
-                    table.insert(smsTemp,{id,dataTemp})
-                    if #smsTemp == total then break end --收齐了，退出
-                else--手机号不一样了？那就是两条不同的短信了
-                    log.info("air780","another sms received")
-                    notify.add(phone,dataTemp)--这次的短信
-                end
+            if not long_sms_buffer[phone] then
+                long_sms_buffer[phone] = {}
+            end
+            if not long_sms_buffer[phone][time] then
+                long_sms_buffer[phone][time] = {}
+                sys.timerStart(clean_sms_buffer, 30*1000, phone, time)
             end
 
-            --拼接长短信
-            table.sort(smsTemp,function(a,b) return a[1] < b[1] end)
-            local sms = {}
-            for _,v in ipairs(smsTemp) do
-                table.insert(sms,v[2])
+            table.insert(long_sms_buffer[phone][time], {id = id, data = data, time = time})
+
+            if long_sms_buffer[phone][time] and #long_sms_buffer[phone][time] == total then
+                concat_and_send_long_sms(phone, time, long_sms_buffer[phone][time])
+                long_sms_buffer[phone][time] = nil
             end
-            data = table.concat(sms)
+        else
+            log.info("air780", "receive a sms", phone, time)
+            notify.add(phone, data)--这次的短信
         end
-        notify.add(phone,data)--这次的短信
     end
 end)
 

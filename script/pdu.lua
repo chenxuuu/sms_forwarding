@@ -256,13 +256,13 @@ function libT.decodePDU(pdu,len)
     txtlen = tonumber(string.format("%d", "0x" .. pdu:sub(offset, offset + 1)))--短信文本长度
     offset = offset + 2
     local data = pdu:sub(offset, offset + txtlen * 2 - 1)--短信文本
-    local total, idx
+    local sms_id, total, idx
     if longsms then
         if tonumber("0x" .. data:sub(5, 6)) == 3 then
-            total, idx = tonumber("0x" .. data:sub(9, 10)), tonumber("0x" .. data:sub(11, 12))
+            sms_id, total, idx = tonumber("0x" .. data:sub(7, 8)), tonumber("0x" .. data:sub(9, 10)), tonumber("0x" .. data:sub(11, 12))
             data = data:sub(13, -1)--去掉报头6个字节
         elseif tonumber("0x" .. data:sub(5, 6)) == 4 then
-            total, idx = tonumber("0x" .. data:sub(11, 12)), tonumber("0x" .. data:sub(13, 14))
+            sms_id, total, idx = tonumber("0x" .. data:sub(7, 10)), tonumber("0x" .. data:sub(11, 12)), tonumber("0x" .. data:sub(13, 14))
             data = data:sub(15, -1)--去掉报头7个字节
         end
     end
@@ -304,7 +304,7 @@ function libT.decodePDU(pdu,len)
     end
     t = t..string.format("%+03d",timezone)
 
-    return convnum, data, t,longsms, total, idx
+    return convnum, data, t,longsms, total, idx, sms_id
 end
 
 ---生成PDU短信编码

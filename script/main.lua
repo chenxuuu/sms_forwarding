@@ -80,19 +80,19 @@ local function concat_and_send_long_sms(phone, time, sms)
     clear_table(sms)
 end
 
-local function clean_sms_buffer(phone, time)
+local function clean_sms_buffer(phone, time, sms_id)
     if not long_sms_buffer[phone] then
         return
     end
 
-    if not long_sms_buffer[phone][time] then
+    if not long_sms_buffer[phone][sms_id] then
         return
     end
 
-    log.warn("sms", "long sms receive timeout from ", phone, time)
-    if #long_sms_buffer[phone][time] > 0 then
-        concat_and_send_long_sms(phone, time, long_sms_buffer[phone][time])
-        long_sms_buffer[phone][time] = nil
+    log.warn("sms", "long sms receive timeout from ", phone, time, sms_id)
+    if #long_sms_buffer[phone][sms_id] > 0 then
+        concat_and_send_long_sms(phone, time, long_sms_buffer[phone][sms_id])
+        long_sms_buffer[phone][sms_id] = nil
     end
 end
 
@@ -142,25 +142,25 @@ sys.taskInit(function()
 
     while true do
         collectgarbage("collect")--防止内存不足
-        local _, phone, data, time, long, total, id = sys.waitUntil("AT_CMT")
+        local _, phone, data, time, long, total, id, sms_id = sys.waitUntil("AT_CMT")
         time = fix_time(time)
 
         if long then--是长短信！
-            log.info("air780","receive a long sms", phone, id .. " / " .. total, time)
+            log.info("air780","receive a long sms", phone, sms_id, id .. " / " .. total, time)
             --缓存，长短信存放处
             if not long_sms_buffer[phone] then
                 long_sms_buffer[phone] = {}
             end
-            if not long_sms_buffer[phone][time] then
-                long_sms_buffer[phone][time] = {}
-                sys.timerStart(clean_sms_buffer, 30*1000, phone, time)
+            if not long_sms_buffer[phone][sms_id] then
+                long_sms_buffer[phone][sms_id] = {}
+                sys.timerStart(clean_sms_buffer, 30*1000, phone, time, sms_id)
             end
 
-            table.insert(long_sms_buffer[phone][time], {id = id, data = data, time = time})
+            table.insert(long_sms_buffer[phone][sms_id], {id = id, data = data, time = time})
 
-            if long_sms_buffer[phone][time] and #long_sms_buffer[phone][time] == total then
-                concat_and_send_long_sms(phone, time, long_sms_buffer[phone][time])
-                long_sms_buffer[phone][time] = nil
+            if long_sms_buffer[phone][sms_id] and #long_sms_buffer[phone][sms_id] == total then
+                concat_and_send_long_sms(phone, time, long_sms_buffer[phone][sms_id])
+                long_sms_buffer[phone][sms_id] = nil
             end
         else
             log.info("air780", "receive a sms", phone, time)

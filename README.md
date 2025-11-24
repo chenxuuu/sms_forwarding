@@ -19,9 +19,9 @@
 - ESP32C3运行自己的`Arduino`固件，负责连接WiFi和接收ML307R-DC发送过来的短信数据，然后转发到指定HTTP接口或邮箱
 - ML307R-DC运行默认的AT固件，不用动
 
-需要在`Arduino IED`中单独安装这些库：
+需要在`Arduino IDE`中单独安装这些库：
 
 - **ReadyMail** by Mobizt
 - **pdulib** by David Henry
 
-需要在`Arduino IED`中安装ESP32开发板支持，参考[官方文档](https://docs.espressif.com/projects/arduino-esp32/en/latest/installing.html)，版型选`MakerGO ESP32 C3 SuperMini`。
+需要在`Arduino IDE`中安装ESP32开发板支持，参考[官方文档](https://docs.espressif.com/projects/arduino-esp32/en/latest/installing.html)，版型选`MakerGO ESP32 C3 SuperMini`。

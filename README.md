@@ -1,6 +1,9 @@
 # 低成本短信转发器
 
-> 该项目已更新硬件组合，如需查看老方案，请前往[luatos分支](https://github.com/chenxuuu/sms_forwarding/tree/old-luatos)。
+> 当前分支为新方案，老方案请前往[luatos分支](https://github.com/chenxuuu/sms_forwarding/tree/old-luatos)。
+
+> 该项目可能不支持电信卡（CDMA），具体请自测。
+该项目当前不会，以后不会支持任何形式的`主动发短信`或`主动拨打电话`功能，仅限于`接收短信并转发`。
 
 本项目旨在使用低成本的硬件设备，实现短信的自动转发功能，发送到指定的HTTP或邮箱。
 

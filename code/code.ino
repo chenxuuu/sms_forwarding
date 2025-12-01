@@ -50,6 +50,31 @@ unsigned long lastPrintTime = 0;  // 上次打印IP的时间
 char serialBuf[SERIAL_BUFFER_SIZE];
 int serialBufLen = 0;
 
+// 长短信合并相关定义
+#define MAX_CONCAT_PARTS 10       // 最大支持的长短信分段数
+#define CONCAT_TIMEOUT_MS 30000   // 长短信等待超时时间(毫秒)
+#define MAX_CONCAT_MESSAGES 5     // 最多同时缓存的长短信组数
+
+// 长短信分段结构
+struct SmsPart {
+  bool valid;           // 该分段是否有效
+  String text;          // 分段内容
+};
+
+// 长短信缓存结构
+struct ConcatSms {
+  bool inUse;                           // 是否正在使用
+  int refNumber;                        // 参考号
+  String sender;                        // 发送者
+  String timestamp;                     // 时间戳（使用第一个收到的分段的时间戳）
+  int totalParts;                       // 总分段数
+  int receivedParts;                    // 已收到的分段数
+  unsigned long firstPartTime;          // 收到第一个分段的时间
+  SmsPart parts[MAX_CONCAT_PARTS];      // 各分段内容
+};
+
+ConcatSms concatBuffer[MAX_CONCAT_MESSAGES];  // 长短信缓存
+
 // 保存配置到NVS
 void saveConfig() {
   preferences.begin("sms_config", false);
@@ -598,6 +623,126 @@ void processAdminCommand(const char* sender, const char* text) {
   }
 }
 
+// 初始化长短信缓存
+void initConcatBuffer() {
+  for (int i = 0; i < MAX_CONCAT_MESSAGES; i++) {
+    concatBuffer[i].inUse = false;
+    concatBuffer[i].receivedParts = 0;
+    for (int j = 0; j < MAX_CONCAT_PARTS; j++) {
+      concatBuffer[i].parts[j].valid = false;
+      concatBuffer[i].parts[j].text = "";
+    }
+  }
+}
+
+// 查找或创建长短信缓存槽位
+int findOrCreateConcatSlot(int refNumber, const char* sender, int totalParts) {
+  // 先查找是否已存在
+  for (int i = 0; i < MAX_CONCAT_MESSAGES; i++) {
+    if (concatBuffer[i].inUse && 
+        concatBuffer[i].refNumber == refNumber &&
+        concatBuffer[i].sender.equals(sender)) {
+      return i;
+    }
+  }
+  
+  // 查找空闲槽位
+  for (int i = 0; i < MAX_CONCAT_MESSAGES; i++) {
+    if (!concatBuffer[i].inUse) {
+      concatBuffer[i].inUse = true;
+      concatBuffer[i].refNumber = refNumber;
+      concatBuffer[i].sender = String(sender);
+      concatBuffer[i].totalParts = totalParts;
+      concatBuffer[i].receivedParts = 0;
+      concatBuffer[i].firstPartTime = millis();
+      for (int j = 0; j < MAX_CONCAT_PARTS; j++) {
+        concatBuffer[i].parts[j].valid = false;
+        concatBuffer[i].parts[j].text = "";
+      }
+      return i;
+    }
+  }
+  
+  // 没有空闲槽位，查找最老的槽位覆盖
+  int oldestSlot = 0;
+  unsigned long oldestTime = concatBuffer[0].firstPartTime;
+  for (int i = 1; i < MAX_CONCAT_MESSAGES; i++) {
+    if (concatBuffer[i].firstPartTime < oldestTime) {
+      oldestTime = concatBuffer[i].firstPartTime;
+      oldestSlot = i;
+    }
+  }
+  
+  // 覆盖最老的槽位
+  Serial.println("⚠️ 长短信缓存已满，覆盖最老的槽位");
+  concatBuffer[oldestSlot].inUse = true;
+  concatBuffer[oldestSlot].refNumber = refNumber;
+  concatBuffer[oldestSlot].sender = String(sender);
+  concatBuffer[oldestSlot].totalParts = totalParts;
+  concatBuffer[oldestSlot].receivedParts = 0;
+  concatBuffer[oldestSlot].firstPartTime = millis();
+  for (int j = 0; j < MAX_CONCAT_PARTS; j++) {
+    concatBuffer[oldestSlot].parts[j].valid = false;
+    concatBuffer[oldestSlot].parts[j].text = "";
+  }
+  return oldestSlot;
+}
+
+// 合并长短信各分段
+String assembleConcatSms(int slot) {
+  String result = "";
+  for (int i = 0; i < concatBuffer[slot].totalParts; i++) {
+    if (concatBuffer[slot].parts[i].valid) {
+      result += concatBuffer[slot].parts[i].text;
+    } else {
+      result += "[缺失分段" + String(i + 1) + "]";
+    }
+  }
+  return result;
+}
+
+// 清空长短信槽位
+void clearConcatSlot(int slot) {
+  concatBuffer[slot].inUse = false;
+  concatBuffer[slot].receivedParts = 0;
+  concatBuffer[slot].sender = "";
+  concatBuffer[slot].timestamp = "";
+  for (int j = 0; j < MAX_CONCAT_PARTS; j++) {
+    concatBuffer[slot].parts[j].valid = false;
+    concatBuffer[slot].parts[j].text = "";
+  }
+}
+
+// 前置声明
+void processSmsContent(const char* sender, const char* text, const char* timestamp);
+
+// 检查长短信超时并转发
+void checkConcatTimeout() {
+  unsigned long now = millis();
+  for (int i = 0; i < MAX_CONCAT_MESSAGES; i++) {
+    if (concatBuffer[i].inUse) {
+      if (now - concatBuffer[i].firstPartTime >= CONCAT_TIMEOUT_MS) {
+        Serial.println("⏰ 长短信超时，强制转发不完整消息");
+        Serial.printf("  参考号: %d, 已收到: %d/%d\n", 
+                      concatBuffer[i].refNumber,
+                      concatBuffer[i].receivedParts,
+                      concatBuffer[i].totalParts);
+        
+        // 合并已收到的分段
+        String fullText = assembleConcatSms(i);
+        
+        // 处理短信内容
+        processSmsContent(concatBuffer[i].sender.c_str(), 
+                         fullText.c_str(), 
+                         concatBuffer[i].timestamp.c_str());
+        
+        // 清空槽位
+        clearConcatSlot(i);
+      }
+    }
+  }
+}
+
 // 发送短信数据到服务器
 void sendSMSToServer(const char* sender, const char* message, const char* timestamp) {
   if (WiFi.status() != WL_CONNECTED || config.httpCallbackUrl.length() == 0)
@@ -661,6 +806,38 @@ bool isHexString(const String& str) {
   return true;
 }
 
+// 处理最终的短信内容（管理员命令检查和转发）
+void processSmsContent(const char* sender, const char* text, const char* timestamp) {
+  Serial.println("=== 处理短信内容 ===");
+  Serial.println("发送者: " + String(sender));
+  Serial.println("时间戳: " + String(timestamp));
+  Serial.println("内容: " + String(text));
+  Serial.println("====================");
+
+  // 检查是否为管理员命令
+  if (isAdmin(sender)) {
+    Serial.println("收到管理员短信，检查命令...");
+    String smsText = String(text);
+    smsText.trim();
+    
+    // 检查是否为命令格式
+    if (smsText.startsWith("SMS:") || smsText.equals("RESET")) {
+      processAdminCommand(sender, text);
+      // 命令已处理，不再发送普通通知邮件
+      return;
+    }
+  }
+
+  // 发送通知http
+  if (config.httpCallbackUrl.length() > 0) {
+    sendSMSToServer(sender, text, timestamp);
+  }
+  // 发送通知邮件
+  String subject = ""; subject+="短信";subject+=sender;subject+=",";subject+=text;
+  String body = ""; body+="来自：";body+=sender;body+="，时间：";body+=timestamp;body+="，内容：";body+=text;
+  sendEmailNotification(subject.c_str(), body.c_str());
+}
+
 // 处理URC和PDU
 void checkSerial1URC() {
   static enum { IDLE,
@@ -698,31 +875,65 @@ void checkSerial1URC() {
         Serial.println("发送者: " + String(pdu.getSender()));
         Serial.println("时间戳: " + String(pdu.getTimeStamp()));
         Serial.println("内容: " + String(pdu.getText()));
+        
+        // 获取长短信信息
+        int* concatInfo = pdu.getConcatInfo();
+        int refNumber = concatInfo[0];
+        int partNumber = concatInfo[1];
+        int totalParts = concatInfo[2];
+        
+        Serial.printf("长短信信息: 参考号=%d, 当前=%d, 总计=%d\n", refNumber, partNumber, totalParts);
         Serial.println("===============");
 
-        // 检查是否为管理员命令
-        if (isAdmin(pdu.getSender())) {
-          Serial.println("收到管理员短信，检查命令...");
-          String smsText = String(pdu.getText());
-          smsText.trim();
+        // 判断是否为长短信
+        if (totalParts > 1 && partNumber > 0) {
+          // 这是长短信的一部分
+          Serial.printf("📧 收到长短信分段 %d/%d\n", partNumber, totalParts);
           
-          // 检查是否为命令格式
-          if (smsText.startsWith("SMS:") || smsText.equals("RESET")) {
-            processAdminCommand(pdu.getSender(), pdu.getText());
-            // 命令已处理，不再发送普通通知邮件
-            state = IDLE;
-            return;
+          // 查找或创建缓存槽位
+          int slot = findOrCreateConcatSlot(refNumber, pdu.getSender(), totalParts);
+          
+          // 存储该分段（partNumber从1开始，数组从0开始）
+          int partIndex = partNumber - 1;
+          if (partIndex >= 0 && partIndex < MAX_CONCAT_PARTS) {
+            if (!concatBuffer[slot].parts[partIndex].valid) {
+              concatBuffer[slot].parts[partIndex].valid = true;
+              concatBuffer[slot].parts[partIndex].text = String(pdu.getText());
+              concatBuffer[slot].receivedParts++;
+              
+              // 如果是第一个收到的分段，保存时间戳
+              if (concatBuffer[slot].receivedParts == 1) {
+                concatBuffer[slot].timestamp = String(pdu.getTimeStamp());
+              }
+              
+              Serial.printf("  已缓存分段 %d，当前已收到 %d/%d\n", 
+                           partNumber, 
+                           concatBuffer[slot].receivedParts, 
+                           totalParts);
+            } else {
+              Serial.printf("  ⚠️ 分段 %d 已存在，跳过\n", partNumber);
+            }
           }
+          
+          // 检查是否已收齐所有分段
+          if (concatBuffer[slot].receivedParts >= totalParts) {
+            Serial.println("✅ 长短信已收齐，开始合并转发");
+            
+            // 合并所有分段
+            String fullText = assembleConcatSms(slot);
+            
+            // 处理完整短信
+            processSmsContent(concatBuffer[slot].sender.c_str(), 
+                             fullText.c_str(), 
+                             concatBuffer[slot].timestamp.c_str());
+            
+            // 清空槽位
+            clearConcatSlot(slot);
+          }
+        } else {
+          // 普通短信，直接处理
+          processSmsContent(pdu.getSender(), pdu.getText(), pdu.getTimeStamp());
         }
-
-        // 发送通知http
-        if (config.httpCallbackUrl.length() > 0) {
-          sendSMSToServer(pdu.getSender(), pdu.getText(), pdu.getTimeStamp());
-        }
-        // 发送通知邮件
-        String subject = ""; subject+="短信";subject+=pdu.getSender();subject+=",";subject+=pdu.getText();
-        String body = ""; body+="来自：";body+=pdu.getSender();body+="，时间：";body+=pdu.getTimeStamp();body+="，内容：";body+=pdu.getText();
-        sendEmailNotification(subject.c_str(), body.c_str());
       }
       
       // 返回IDLE状态
@@ -780,6 +991,9 @@ void setup() {
   Serial.begin(115200);
   Serial1.begin(115200, SERIAL_8N1, RXD, TXD);
   Serial1.setRxBufferSize(SERIAL_BUFFER_SIZE);
+  
+  // 初始化长短信缓存
+  initConcatBuffer();
   
   // 加载配置
   loadConfig();
@@ -846,6 +1060,9 @@ void loop() {
       Serial.println("⚠️ 请访问 " + getDeviceUrl() + " 配置系统参数");
     }
   }
+  
+  // 检查长短信超时
+  checkConcatTimeout();
   
   // 本地透传
   if (Serial.available()) Serial1.write(Serial.read());

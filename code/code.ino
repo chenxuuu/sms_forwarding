@@ -156,7 +156,7 @@ const char* htmlPage = R"rawliteral(
     <h1>📱 短信转发器</h1>
     <div class="nav">
       <a href="/" class="active">⚙️ 系统配置</a>
-      <a href="/sms">📤 发送短信</a>
+      <a href="/tools">🧰 工具箱</a>
     </div>
     <div class="status" id="status">设备IP: <strong>%IP%</strong></div>
     
@@ -221,14 +221,14 @@ const char* htmlPage = R"rawliteral(
 </html>
 )rawliteral";
 
-// HTML发送短信页面
-const char* htmlSmsPage = R"rawliteral(
+// HTML工具箱页面
+const char* htmlToolsPage = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>发送短信</title>
+  <title>工具箱</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
     .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
@@ -239,6 +239,13 @@ const char* htmlSmsPage = R"rawliteral(
     textarea { resize: vertical; min-height: 100px; }
     button { width: 100%; padding: 12px; background: #2196F3; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-top: 10px; }
     button:hover { background: #1976D2; }
+    .btn-query { background: #9C27B0; }
+    .btn-query:hover { background: #7B1FA2; }
+    .btn-ping { background: #FF9800; }
+    .btn-ping:hover { background: #F57C00; }
+    .btn-info { background: #607D8B; }
+    .btn-info:hover { background: #455A64; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
     .section { border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
     .section-title { font-size: 18px; color: #333; margin-bottom: 10px; }
     .status { padding: 10px; background: #e7f3fe; border-left: 4px solid #2196F3; margin-bottom: 20px; }
@@ -246,6 +253,17 @@ const char* htmlSmsPage = R"rawliteral(
     .nav a { flex: 1; text-align: center; padding: 10px; background: #eee; border-radius: 5px; text-decoration: none; color: #333; }
     .nav a.active { background: #2196F3; color: white; }
     .char-count { font-size: 12px; color: #888; text-align: right; }
+    .hint { font-size: 12px; color: #888; margin-top: 5px; }
+    .result-box { margin-top: 10px; padding: 10px; border-radius: 5px; display: none; }
+    .result-success { background: #e8f5e9; border-left: 4px solid #4CAF50; color: #2e7d32; }
+    .result-error { background: #ffebee; border-left: 4px solid #f44336; color: #c62828; }
+    .result-loading { background: #fff3e0; border-left: 4px solid #FF9800; color: #e65100; }
+    .result-info { background: #e3f2fd; border-left: 4px solid #2196F3; color: #1565c0; }
+    .info-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    .info-table td { padding: 5px 8px; border-bottom: 1px solid #ddd; }
+    .info-table td:first-child { font-weight: bold; width: 40%; color: #555; }
+    .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn-group button { flex: 1; min-width: 120px; }
   </style>
 </head>
 <body>
@@ -253,7 +271,7 @@ const char* htmlSmsPage = R"rawliteral(
     <h1>📱 短信转发器</h1>
     <div class="nav">
       <a href="/">⚙️ 系统配置</a>
-      <a href="/sms" class="active">📤 发送短信</a>
+      <a href="/tools" class="active">🧰 工具箱</a>
     </div>
     <div class="status" id="status">设备IP: <strong>%IP%</strong></div>
     
@@ -272,10 +290,84 @@ const char* htmlSmsPage = R"rawliteral(
         <button type="submit">📨 发送短信</button>
       </div>
     </form>
+    
+    <div class="section">
+      <div class="section-title">📊 模组信息查询</div>
+      <div class="btn-group">
+        <button type="button" class="btn-query" onclick="queryInfo('ati')">📋 固件信息</button>
+        <button type="button" class="btn-query" onclick="queryInfo('signal')">📶 信号质量</button>
+      </div>
+      <div class="btn-group">
+        <button type="button" class="btn-info" onclick="queryInfo('siminfo')">💳 SIM卡信息</button>
+        <button type="button" class="btn-info" onclick="queryInfo('network')">🌍 网络状态</button>
+      </div>
+      <div class="result-box" id="queryResult"></div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">🌐 网络测试</div>
+      <button type="button" class="btn-ping" id="pingBtn" onclick="doPing()">📡 点我消耗一点流量</button>
+      <div class="hint">将向 8.8.8.8 进行 ping 操作，一次性消耗极少流量费用</div>
+      <div class="result-box" id="pingResult"></div>
+    </div>
   </div>
   <script>
     function updateCount(el) {
       document.getElementById('charCount').textContent = el.value.length;
+    }
+    
+    function queryInfo(type) {
+      var result = document.getElementById('queryResult');
+      result.className = 'result-box result-loading';
+      result.style.display = 'block';
+      result.textContent = '正在查询，请稍候...';
+      
+      fetch('/query?type=' + type)
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            result.className = 'result-box result-info';
+            result.innerHTML = data.message;
+          } else {
+            result.className = 'result-box result-error';
+            result.innerHTML = '❌ 查询失败<br>' + data.message;
+          }
+        })
+        .catch(error => {
+          result.className = 'result-box result-error';
+          result.textContent = '❌ 请求失败: ' + error;
+        });
+    }
+    
+    function doPing() {
+      var btn = document.getElementById('pingBtn');
+      var result = document.getElementById('pingResult');
+      
+      btn.disabled = true;
+      btn.textContent = '⏳ 正在 Ping...';
+      result.className = 'result-box result-loading';
+      result.style.display = 'block';
+      result.textContent = '正在执行 Ping 操作，请稍候（最长等待30秒）...';
+      
+      fetch('/ping', { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+          btn.disabled = false;
+          btn.textContent = '📡 点我消耗一点流量';
+          if (data.success) {
+            result.className = 'result-box result-success';
+            result.innerHTML = '✅ Ping 成功！<br>' + data.message;
+          } else {
+            result.className = 'result-box result-error';
+            result.innerHTML = '❌ Ping 失败<br>' + data.message;
+          }
+        })
+        .catch(error => {
+          btn.disabled = false;
+          btn.textContent = '📡 点我消耗一点流量';
+          result.className = 'result-box result-error';
+          result.textContent = '❌ 请求失败: ' + error;
+        });
     }
   </script>
 </body>
@@ -309,13 +401,277 @@ void handleRoot() {
   server.send(200, "text/html", html);
 }
 
-// 处理发送短信页面请求
-void handleSmsPage() {
+// 处理工具箱页面请求
+void handleToolsPage() {
   if (!checkAuth()) return;
   
-  String html = String(htmlSmsPage);
+  String html = String(htmlToolsPage);
   html.replace("%IP%", WiFi.localIP().toString());
   server.send(200, "text/html", html);
+}
+
+// 发送AT命令并获取响应
+String sendATCommand(const char* cmd, unsigned long timeout) {
+  while (Serial1.available()) Serial1.read();
+  Serial1.println(cmd);
+  
+  unsigned long start = millis();
+  String resp = "";
+  while (millis() - start < timeout) {
+    while (Serial1.available()) {
+      char c = Serial1.read();
+      resp += c;
+      if (resp.indexOf("OK") >= 0 || resp.indexOf("ERROR") >= 0) {
+        delay(50);  // 等待剩余数据
+        while (Serial1.available()) resp += (char)Serial1.read();
+        return resp;
+      }
+    }
+  }
+  return resp;
+}
+
+// 处理模组信息查询请求
+void handleQuery() {
+  if (!checkAuth()) return;
+  
+  String type = server.arg("type");
+  String json = "{";
+  bool success = false;
+  String message = "";
+  
+  if (type == "ati") {
+    // 固件信息查询
+    String resp = sendATCommand("ATI", 2000);
+    Serial.println("ATI响应: " + resp);
+    
+    if (resp.indexOf("OK") >= 0) {
+      success = true;
+      // 解析ATI响应
+      String manufacturer = "未知";
+      String model = "未知";
+      String version = "未知";
+      
+      // 按行解析
+      int lineStart = 0;
+      int lineNum = 0;
+      for (int i = 0; i < resp.length(); i++) {
+        if (resp.charAt(i) == '\n' || i == resp.length() - 1) {
+          String line = resp.substring(lineStart, i);
+          line.trim();
+          if (line.length() > 0 && line != "ATI" && line != "OK") {
+            lineNum++;
+            if (lineNum == 1) manufacturer = line;
+            else if (lineNum == 2) model = line;
+            else if (lineNum == 3) version = line;
+          }
+          lineStart = i + 1;
+        }
+      }
+      
+      message = "<table class='info-table'>";
+      message += "<tr><td>制造商</td><td>" + manufacturer + "</td></tr>";
+      message += "<tr><td>模组型号</td><td>" + model + "</td></tr>";
+      message += "<tr><td>固件版本</td><td>" + version + "</td></tr>";
+      message += "</table>";
+    } else {
+      message = "查询失败";
+    }
+  }
+  else if (type == "signal") {
+    // 信号质量查询
+    String resp = sendATCommand("AT+CESQ", 2000);
+    Serial.println("CESQ响应: " + resp);
+    
+    if (resp.indexOf("+CESQ:") >= 0) {
+      success = true;
+      // 解析 +CESQ: <rxlev>,<ber>,<rscp>,<ecno>,<rsrq>,<rsrp>
+      int idx = resp.indexOf("+CESQ:");
+      String params = resp.substring(idx + 6);
+      int endIdx = params.indexOf('\r');
+      if (endIdx < 0) endIdx = params.indexOf('\n');
+      if (endIdx > 0) params = params.substring(0, endIdx);
+      params.trim();
+      
+      // 分割参数
+      String values[6];
+      int valIdx = 0;
+      int startPos = 0;
+      for (int i = 0; i <= params.length() && valIdx < 6; i++) {
+        if (i == params.length() || params.charAt(i) == ',') {
+          values[valIdx] = params.substring(startPos, i);
+          values[valIdx].trim();
+          valIdx++;
+          startPos = i + 1;
+        }
+      }
+      
+      // RSRP转换为dBm (0-97映射到-140到-44 dBm, 99表示未知)
+      int rsrp = values[5].toInt();
+      String rsrpStr;
+      if (rsrp == 99 || rsrp == 255) {
+        rsrpStr = "未知";
+      } else {
+        int rsrpDbm = -140 + rsrp;
+        rsrpStr = String(rsrpDbm) + " dBm";
+        if (rsrpDbm >= -80) rsrpStr += " (信号极好)";
+        else if (rsrpDbm >= -90) rsrpStr += " (信号良好)";
+        else if (rsrpDbm >= -100) rsrpStr += " (信号一般)";
+        else if (rsrpDbm >= -110) rsrpStr += " (信号较弱)";
+        else rsrpStr += " (信号很差)";
+      }
+      
+      // RSRQ转换 (0-34映射到-19.5到-3 dB)
+      int rsrq = values[4].toInt();
+      String rsrqStr;
+      if (rsrq == 99 || rsrq == 255) {
+        rsrqStr = "未知";
+      } else {
+        float rsrqDb = -19.5 + rsrq * 0.5;
+        rsrqStr = String(rsrqDb, 1) + " dB";
+      }
+      
+      message = "<table class='info-table'>";
+      message += "<tr><td>信号强度 (RSRP)</td><td>" + rsrpStr + "</td></tr>";
+      message += "<tr><td>信号质量 (RSRQ)</td><td>" + rsrqStr + "</td></tr>";
+      message += "<tr><td>原始数据</td><td>" + params + "</td></tr>";
+      message += "</table>";
+    } else {
+      message = "查询失败";
+    }
+  }
+  else if (type == "siminfo") {
+    // SIM卡信息查询
+    success = true;
+    message = "<table class='info-table'>";
+    
+    // 查询IMSI
+    String resp = sendATCommand("AT+CIMI", 2000);
+    String imsi = "未知";
+    if (resp.indexOf("OK") >= 0) {
+      int start = resp.indexOf('\n');
+      if (start >= 0) {
+        int end = resp.indexOf('\n', start + 1);
+        if (end < 0) end = resp.indexOf('\r', start + 1);
+        if (end > start) {
+          imsi = resp.substring(start + 1, end);
+          imsi.trim();
+          if (imsi == "OK" || imsi.length() < 10) imsi = "未知";
+        }
+      }
+    }
+    message += "<tr><td>IMSI</td><td>" + imsi + "</td></tr>";
+    
+    // 查询ICCID
+    resp = sendATCommand("AT+ICCID", 2000);
+    String iccid = "未知";
+    if (resp.indexOf("+ICCID:") >= 0) {
+      int idx = resp.indexOf("+ICCID:");
+      String tmp = resp.substring(idx + 7);
+      int endIdx = tmp.indexOf('\r');
+      if (endIdx < 0) endIdx = tmp.indexOf('\n');
+      if (endIdx > 0) iccid = tmp.substring(0, endIdx);
+      iccid.trim();
+    }
+    message += "<tr><td>ICCID</td><td>" + iccid + "</td></tr>";
+    
+    // 查询本机号码 (如果SIM卡支持)
+    resp = sendATCommand("AT+CNUM", 2000);
+    String phoneNum = "未存储或不支持";
+    if (resp.indexOf("+CNUM:") >= 0) {
+      int idx = resp.indexOf(",\"");
+      if (idx >= 0) {
+        int endIdx = resp.indexOf("\"", idx + 2);
+        if (endIdx > idx) {
+          phoneNum = resp.substring(idx + 2, endIdx);
+        }
+      }
+    }
+    message += "<tr><td>本机号码</td><td>" + phoneNum + "</td></tr>";
+    
+    message += "</table>";
+  }
+  else if (type == "network") {
+    // 网络状态查询
+    success = true;
+    message = "<table class='info-table'>";
+    
+    // 查询网络注册状态
+    String resp = sendATCommand("AT+CEREG?", 2000);
+    String regStatus = "未知";
+    if (resp.indexOf("+CEREG:") >= 0) {
+      int idx = resp.indexOf("+CEREG:");
+      String tmp = resp.substring(idx + 7);
+      int commaIdx = tmp.indexOf(',');
+      if (commaIdx >= 0) {
+        String stat = tmp.substring(commaIdx + 1, commaIdx + 2);
+        int s = stat.toInt();
+        switch(s) {
+          case 0: regStatus = "未注册，未搜索"; break;
+          case 1: regStatus = "已注册，本地网络"; break;
+          case 2: regStatus = "未注册，正在搜索"; break;
+          case 3: regStatus = "注册被拒绝"; break;
+          case 4: regStatus = "未知"; break;
+          case 5: regStatus = "已注册，漫游"; break;
+          default: regStatus = "状态码: " + stat;
+        }
+      }
+    }
+    message += "<tr><td>网络注册</td><td>" + regStatus + "</td></tr>";
+    
+    // 查询运营商
+    resp = sendATCommand("AT+COPS?", 2000);
+    String oper = "未知";
+    if (resp.indexOf("+COPS:") >= 0) {
+      int idx = resp.indexOf(",\"");
+      if (idx >= 0) {
+        int endIdx = resp.indexOf("\"", idx + 2);
+        if (endIdx > idx) {
+          oper = resp.substring(idx + 2, endIdx);
+        }
+      }
+    }
+    message += "<tr><td>运营商</td><td>" + oper + "</td></tr>";
+    
+    // 查询PDP上下文激活状态
+    resp = sendATCommand("AT+CGACT?", 2000);
+    String pdpStatus = "未激活";
+    if (resp.indexOf("+CGACT: 1,1") >= 0) {
+      pdpStatus = "已激活";
+    } else if (resp.indexOf("+CGACT:") >= 0) {
+      pdpStatus = "未激活";
+    }
+    message += "<tr><td>数据连接</td><td>" + pdpStatus + "</td></tr>";
+    
+    // 查询APN
+    resp = sendATCommand("AT+CGDCONT?", 2000);
+    String apn = "未知";
+    if (resp.indexOf("+CGDCONT:") >= 0) {
+      int idx = resp.indexOf(",\"");
+      if (idx >= 0) {
+        idx = resp.indexOf(",\"", idx + 2);  // 跳过PDP类型
+        if (idx >= 0) {
+          int endIdx = resp.indexOf("\"", idx + 2);
+          if (endIdx > idx) {
+            apn = resp.substring(idx + 2, endIdx);
+            if (apn.length() == 0) apn = "(自动)";
+          }
+        }
+      }
+    }
+    message += "<tr><td>APN</td><td>" + apn + "</td></tr>";
+    
+    message += "</table>";
+  }
+  else {
+    message = "未知的查询类型";
+  }
+  
+  json += "\"success\":" + String(success ? "true" : "false") + ",";
+  json += "\"message\":\"" + message + "\"";
+  json += "}";
+  
+  server.send(200, "application/json", json);
 }
 
 // 前置声明
@@ -376,6 +732,144 @@ void handleSendSms() {
   html.replace("%MSG%", resultMsg);
   
   server.send(200, "text/html", html);
+}
+
+// 处理Ping请求
+void handlePing() {
+  if (!checkAuth()) return;
+  
+  Serial.println("网页端发起Ping请求");
+  
+  // 清空串口缓冲区
+  while (Serial1.available()) Serial1.read();
+  
+  // 发送MPING命令，ping 8.8.8.8，超时30秒，ping 1次
+  Serial1.println("AT+MPING=\"8.8.8.8\",30,1");
+  
+  // 等待响应
+  unsigned long start = millis();
+  String resp = "";
+  bool gotOK = false;
+  bool gotError = false;
+  bool gotPingResult = false;
+  String pingResultMsg = "";
+  
+  // 等待最多35秒（30秒超时 + 5秒余量）
+  while (millis() - start < 35000) {
+    while (Serial1.available()) {
+      char c = Serial1.read();
+      resp += c;
+      Serial.print(c);  // 调试输出
+      
+      // 检查是否收到OK
+      if (resp.indexOf("OK") >= 0 && !gotOK) {
+        gotOK = true;
+      }
+      
+      // 检查是否收到ERROR
+      if (resp.indexOf("+CME ERROR") >= 0 || resp.indexOf("ERROR") >= 0) {
+        gotError = true;
+        pingResultMsg = "模组返回错误";
+        break;
+      }
+      
+      // 检查是否收到Ping结果URC
+      // 成功格式: +MPING: 1,8.8.8.8,32,xxx,xxx
+      // 失败格式: +MPING: 2 或其他
+      int mpingIdx = resp.indexOf("+MPING:");
+      if (mpingIdx >= 0) {
+        // 找到换行符确定完整的一行
+        int lineEnd = resp.indexOf('\n', mpingIdx);
+        if (lineEnd >= 0) {
+          String mpingLine = resp.substring(mpingIdx, lineEnd);
+          mpingLine.trim();
+          Serial.println("收到MPING结果: " + mpingLine);
+          
+          // 解析结果
+          // +MPING: <result>[,<ip>,<packet_len>,<time>,<ttl>]
+          int colonIdx = mpingLine.indexOf(':');
+          if (colonIdx >= 0) {
+            String params = mpingLine.substring(colonIdx + 1);
+            params.trim();
+            
+            // 获取第一个参数（result）
+            int commaIdx = params.indexOf(',');
+            String resultStr;
+            if (commaIdx >= 0) {
+              resultStr = params.substring(0, commaIdx);
+            } else {
+              resultStr = params;
+            }
+            resultStr.trim();
+            int result = resultStr.toInt();
+            
+            gotPingResult = true;
+            
+            if (result == 1) {
+              // 成功，解析详细信息
+              // 格式: 1,8.8.8.8,32,时间,TTL
+              int idx1 = params.indexOf(',');
+              if (idx1 >= 0) {
+                String rest = params.substring(idx1 + 1);
+                int idx2 = rest.indexOf(',');  // IP后
+                if (idx2 >= 0) {
+                  String ip = rest.substring(0, idx2);
+                  rest = rest.substring(idx2 + 1);
+                  int idx3 = rest.indexOf(',');  // packet_len后
+                  if (idx3 >= 0) {
+                    rest = rest.substring(idx3 + 1);
+                    int idx4 = rest.indexOf(',');  // time后
+                    String timeStr, ttlStr;
+                    if (idx4 >= 0) {
+                      timeStr = rest.substring(0, idx4);
+                      ttlStr = rest.substring(idx4 + 1);
+                    } else {
+                      timeStr = rest;
+                      ttlStr = "N/A";
+                    }
+                    timeStr.trim();
+                    ttlStr.trim();
+                    pingResultMsg = "目标: " + ip + ", 延迟: " + timeStr + "ms, TTL: " + ttlStr;
+                  }
+                }
+              }
+              if (pingResultMsg.length() == 0) {
+                pingResultMsg = "Ping成功";
+              }
+            } else {
+              // 失败
+              pingResultMsg = "Ping超时或目标不可达 (错误码: " + String(result) + ")";
+            }
+            break;
+          }
+        }
+      }
+    }
+    
+    if (gotError || gotPingResult) break;
+    delay(10);
+  }
+  
+  Serial.println("\nPing操作完成");
+  
+  // 构建JSON响应
+  String json = "{";
+  if (gotPingResult && pingResultMsg.indexOf("延迟") >= 0) {
+    json += "\"success\":true,";
+    json += "\"message\":\"" + pingResultMsg + "\"";
+  } else if (gotError) {
+    json += "\"success\":false,";
+    json += "\"message\":\"" + pingResultMsg + "\"";
+  } else if (gotPingResult) {
+    json += "\"success\":false,";
+    json += "\"message\":\"" + pingResultMsg + "\"";
+  } else {
+    json += "\"success\":false,";
+    json += "\"message\":\"操作超时，未收到Ping结果\"";
+  }
+  json += "}";
+  
+  server.send(200, "application/json", json);
 }
 
 // 处理保存配置请求
@@ -1009,8 +1503,11 @@ void setup() {
   // 启动HTTP服务器
   server.on("/", handleRoot);
   server.on("/save", HTTP_POST, handleSave);
-  server.on("/sms", handleSmsPage);
+  server.on("/tools", handleToolsPage);
+  server.on("/sms", handleToolsPage);  // 兼容旧链接
   server.on("/sendsms", HTTP_POST, handleSendSms);
+  server.on("/ping", HTTP_POST, handlePing);
+  server.on("/query", handleQuery);
   server.begin();
   Serial.println("HTTP服务器已启动");
   

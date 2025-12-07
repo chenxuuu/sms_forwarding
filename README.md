@@ -16,8 +16,10 @@
 - 支持通过WEB界面主动发送短信，以便消耗余额
 - 支持通过WEB界面进行Ping测试，以极低的成本消耗余额
 
-![](assets/status.png)
-![](assets/ping.png)
+|状态信息|主动ping|
+|-|-|
+|![](assets/status.png)|![](assets/ping.png)|
+
 
 ## 硬件搭配
 

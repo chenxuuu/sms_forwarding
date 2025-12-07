@@ -7,6 +7,18 @@
 
 <img src="assets/photo.png" width="200" />
 
+## 功能
+
+- 支持使用通用AT指令与模块进行通信
+- 开启后支持通过WEB界面配置短信转发参数、查询当前状态
+- 支持将收到的短信转发到指定的HTTP接口
+- 支持将收到的短信转发到指定的邮箱
+- 支持通过WEB界面主动发送短信，以便消耗余额
+- 支持通过WEB界面进行Ping测试，以极低的成本消耗余额
+
+![](assets/status.png)
+![](assets/ping.png)
+
 ## 硬件搭配
 
 - ESP32C3开发板，当前选用[ESP32C3 Super Mini](https://item.taobao.com/item.htm?id=852057780489&skuId=5813710390565)，¥9.5包邮

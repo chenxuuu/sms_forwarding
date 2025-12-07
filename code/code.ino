@@ -10,12 +10,12 @@
 #include <ReadyMail.h>
 #include <HTTPClient.h>
 
+//wifi信息，需要你打开这个去改
+#include "wifi_config.h"
+
 //串口映射
 #define TXD 3
 #define RXD 4
-//WIFI - 仍使用宏定义，因为需要先联网才能配置其他参数
-#define WIFI_SSID "你家wifi"
-#define WIFI_PASS "你家wifi密码"
 
 // 配置参数结构体
 struct Config {

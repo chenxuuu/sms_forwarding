@@ -301,6 +301,9 @@ const char* htmlToolsPage = R"rawliteral(
         <button type="button" class="btn-info" onclick="queryInfo('siminfo')">💳 SIM卡信息</button>
         <button type="button" class="btn-info" onclick="queryInfo('network')">🌍 网络状态</button>
       </div>
+      <div class="btn-group">
+        <button type="button" class="btn-info" onclick="queryInfo('wifi')" style="background:#00BCD4;">📡 WiFi状态</button>
+      </div>
       <div class="result-box" id="queryResult"></div>
     </div>
     
@@ -663,6 +666,54 @@ void handleQuery() {
     
     message += "</table>";
   }
+  else if (type == "wifi") {
+    // WiFi状态查询
+    success = true;
+    message = "<table class='info-table'>";
+    
+    // WiFi连接状态
+    String wifiStatus = WiFi.isConnected() ? "已连接" : "未连接";
+    message += "<tr><td>连接状态</td><td>" + wifiStatus + "</td></tr>";
+    
+    // SSID
+    String ssid = WiFi.SSID();
+    if (ssid.length() == 0) ssid = "未知";
+    message += "<tr><td>当前SSID</td><td>" + ssid + "</td></tr>";
+    
+    // 信号强度 RSSI
+    int rssi = WiFi.RSSI();
+    String rssiStr = String(rssi) + " dBm";
+    if (rssi >= -50) rssiStr += " (信号极好)";
+    else if (rssi >= -60) rssiStr += " (信号很好)";
+    else if (rssi >= -70) rssiStr += " (信号良好)";
+    else if (rssi >= -80) rssiStr += " (信号一般)";
+    else if (rssi >= -90) rssiStr += " (信号较弱)";
+    else rssiStr += " (信号很差)";
+    message += "<tr><td>信号强度 (RSSI)</td><td>" + rssiStr + "</td></tr>";
+    
+    // IP地址
+    message += "<tr><td>IP地址</td><td>" + WiFi.localIP().toString() + "</td></tr>";
+    
+    // 网关
+    message += "<tr><td>网关</td><td>" + WiFi.gatewayIP().toString() + "</td></tr>";
+    
+    // 子网掩码
+    message += "<tr><td>子网掩码</td><td>" + WiFi.subnetMask().toString() + "</td></tr>";
+    
+    // DNS
+    message += "<tr><td>DNS服务器</td><td>" + WiFi.dnsIP().toString() + "</td></tr>";
+    
+    // MAC地址
+    message += "<tr><td>MAC地址</td><td>" + WiFi.macAddress() + "</td></tr>";
+    
+    // BSSID (路由器MAC)
+    message += "<tr><td>路由器BSSID</td><td>" + WiFi.BSSIDstr() + "</td></tr>";
+    
+    // 信道
+    message += "<tr><td>WiFi信道</td><td>" + String(WiFi.channel()) + "</td></tr>";
+    
+    message += "</table>";
+  }
   else {
     message = "未知的查询类型";
   }
@@ -743,6 +794,21 @@ void handlePing() {
   // 清空串口缓冲区
   while (Serial1.available()) Serial1.read();
   
+  // 先激活PDP上下文（数据连接）
+  Serial.println("激活数据连接...");
+  String activateResp = sendATCommand("AT+CGACT=1,1", 10000);
+  Serial.println("CGACT响应: " + activateResp);
+  
+  // 检查激活是否成功（OK或已激活的情况）
+  bool networkActivated = (activateResp.indexOf("OK") >= 0);
+  if (!networkActivated) {
+    Serial.println("数据连接激活失败，尝试继续执行...");
+  }
+  
+  // 清空串口缓冲区
+  while (Serial1.available()) Serial1.read();
+  delay(500);  // 等待网络稳定
+  
   // 发送MPING命令，ping 8.8.8.8，超时30秒，ping 1次
   Serial1.println("AT+MPING=\"8.8.8.8\",30,1");
   
@@ -805,15 +871,35 @@ void handlePing() {
             
             gotPingResult = true;
             
-            if (result == 1) {
+            // result=0或1都表示成功（不同模组可能返回不同值）
+            // 如果有完整的响应参数（IP、时间等），也视为成功
+            bool pingSuccess = (result == 0 || result == 1) || (params.indexOf(',') >= 0 && params.length() > 5);
+            
+            if (pingSuccess) {
               // 成功，解析详细信息
-              // 格式: 1,8.8.8.8,32,时间,TTL
+              // 格式: 0/1,"8.8.8.8",16,时间,TTL
               int idx1 = params.indexOf(',');
               if (idx1 >= 0) {
                 String rest = params.substring(idx1 + 1);
-                int idx2 = rest.indexOf(',');  // IP后
+                // 处理IP地址（可能带引号）
+                String ip;
+                int idx2;
+                if (rest.startsWith("\"")) {
+                  // 带引号的IP
+                  int quoteEnd = rest.indexOf('\"', 1);
+                  if (quoteEnd >= 0) {
+                    ip = rest.substring(1, quoteEnd);
+                    idx2 = rest.indexOf(',', quoteEnd);
+                  } else {
+                    idx2 = rest.indexOf(',');
+                    ip = rest.substring(0, idx2);
+                  }
+                } else {
+                  idx2 = rest.indexOf(',');
+                  ip = rest.substring(0, idx2);
+                }
+                
                 if (idx2 >= 0) {
-                  String ip = rest.substring(0, idx2);
                   rest = rest.substring(idx2 + 1);
                   int idx3 = rest.indexOf(',');  // packet_len后
                   if (idx3 >= 0) {
@@ -851,6 +937,11 @@ void handlePing() {
   }
   
   Serial.println("\nPing操作完成");
+  
+  // 关闭数据连接以节省流量
+  Serial.println("关闭数据连接...");
+  String deactivateResp = sendATCommand("AT+CGACT=0,1", 5000);
+  Serial.println("CGACT关闭响应: " + deactivateResp);
   
   // 构建JSON响应
   String json = "{";
@@ -1495,6 +1586,7 @@ void setup() {
   
   WiFiMulti.addAP(WIFI_SSID, WIFI_PASS);
   Serial.println("连接wifi");
+  Serial.println(WIFI_SSID);
   while (WiFiMulti.run() != WL_CONNECTED) blink_short();
   Serial.println("wifi已连接");
   Serial.print("IP地址: ");

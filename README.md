@@ -5,6 +5,8 @@
 
 本项目旨在使用低成本的硬件设备，实现短信的自动转发功能，发送到指定的HTTP或邮箱。
 
+> 视频教程：[B站视频](https://www.bilibili.com/video/BV1cSmABYEiX)
+
 <img src="assets/photo.png" width="200" />
 
 ## 功能
@@ -19,7 +21,6 @@
 |状态信息|主动ping|
 |-|-|
 |![](assets/status.png)|![](assets/ping.png)|
-
 
 ## 硬件搭配
 

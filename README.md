@@ -3,7 +3,7 @@
 > 当前分支为新方案，老方案请前往[luatos分支](https://github.com/chenxuuu/sms_forwarding/tree/old-luatos)。
 该项目可能不支持电信卡（CDMA），具体请自测。
 
-本项目旨在使用低成本的硬件设备，实现短信的自动转发功能，发送到指定的HTTP或邮箱。
+本项目旨在使用低成本的硬件设备，实现短信的自动转发功能，支持多种推送方式同时启用。
 
 > 视频教程：[B站视频](https://www.bilibili.com/video/BV1cSmABYEiX)
 
@@ -13,10 +13,36 @@
 
 - 支持使用通用AT指令与模块进行通信
 - 开启后支持通过WEB界面配置短信转发参数、查询当前状态
-- 支持将收到的短信转发到指定的HTTP接口
+- **支持多达5个推送通道同时启用**，每个通道可独立配置
 - 支持将收到的短信转发到指定的邮箱
 - 支持通过WEB界面主动发送短信，以便消耗余额
 - 支持通过WEB界面进行Ping测试，以极低的成本消耗余额
+- 支持长短信自动合并（30秒超时）
+- 支持管理员短信远程发送短信和重启设备
+
+## 推送通道支持
+
+支持以下7种推送方式，可同时启用多个通道：
+
+| 推送方式 | 说明 | 需要配置 |
+|---------|------|---------|
+| **POST JSON** | 通用HTTP POST | URL |
+| **Bark** | iOS推送服务 | Bark服务器URL |
+| **GET请求** | URL参数方式 | URL |
+| **钉钉机器人** | 企业群通知 | Webhook URL，可选Secret加签 |
+| **PushPlus** | 微信公众号推送 | Token |
+| **Server酱** | 微信推送服务 | SendKey |
+| **自定义模板** | 灵活的JSON模板 | URL + 请求体模板 |
+
+### 推送格式说明
+
+- **POST JSON**: `{"sender":"发送者号码","message":"短信内容","timestamp":"时间戳"}`
+- **Bark**: `{"title":"发送者号码","body":"短信内容"}`
+- **GET请求**: `URL?sender=xxx&message=xxx&timestamp=xxx`（自动URL编码）
+- **钉钉机器人**: 文本消息格式，支持加签验证
+- **PushPlus**: 使用Token推送，支持HTML格式
+- **Server酱**: 使用SendKey推送，支持Markdown格式
+- **自定义模板**: 使用`{sender}`、`{message}`、`{timestamp}`占位符
 
 |状态信息|主动ping|
 |-|-|

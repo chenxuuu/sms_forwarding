@@ -26,6 +26,7 @@ struct Config {
   String smtpSendTo;
   String adminPhone;
   String httpCallbackUrl;
+  bool barkMode;
   String webUser;      // Web管理账号
   String webPass;      // Web管理密码
 };
@@ -85,6 +86,7 @@ void saveConfig() {
   preferences.putString("smtpSendTo", config.smtpSendTo);
   preferences.putString("adminPhone", config.adminPhone);
   preferences.putString("httpUrl", config.httpCallbackUrl);
+  preferences.putUChar("barkMode", config.barkMode ? 1 : 0);
   preferences.putString("webUser", config.webUser);
   preferences.putString("webPass", config.webPass);
   preferences.end();
@@ -101,6 +103,7 @@ void loadConfig() {
   config.smtpSendTo = preferences.getString("smtpSendTo", "");
   config.adminPhone = preferences.getString("adminPhone", "");
   config.httpCallbackUrl = preferences.getString("httpUrl", "");
+  config.barkMode = preferences.getUChar("barkMode", 0) != 0;
   config.webUser = preferences.getString("webUser", DEFAULT_WEB_USER);
   config.webPass = preferences.getString("webPass", DEFAULT_WEB_PASS);
   preferences.end();
@@ -140,6 +143,7 @@ const char* htmlPage = R"rawliteral(
     textarea { resize: vertical; min-height: 80px; }
     button { width: 100%; padding: 12px; background: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-top: 10px; }
     button:hover { background: #45a049; }
+    .label-inline { display:inline; font-weight:normal; }
     .btn-send { background: #2196F3; }
     .btn-send:hover { background: #1976D2; }
     .section { border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
@@ -163,7 +167,8 @@ const char* htmlPage = R"rawliteral(
     <form action="/save" method="POST">
       <div class="section">
         <div class="section-title">🔐 Web管理账号设置</div>
-        <div class="warning">⚠️ 首次使用请修改默认密码！默认账号: admin，默认密码: admin123</div>
+        <div class="warning">⚠️ 首次使用请修改默认密码！默认账号: )rawliteral" DEFAULT_WEB_USER "，默认密码: " DEFAULT_WEB_PASS R"rawliteral(
+        </div>
         <div class="form-group">
           <label>管理账号</label>
           <input type="text" name="webUser" value="%WEB_USER%" placeholder="admin">
@@ -203,6 +208,7 @@ const char* htmlPage = R"rawliteral(
         <div class="form-group">
           <label>HTTP回调URL（可选）</label>
           <input type="text" name="httpUrl" value="%HTTP_URL%" placeholder="http://your-server.com/api/sms">
+          <input type="checkbox" name="barkMode" id="barkMode" %BARK_MODE%><label for="barkMode" class="label-inline">使用Bark格式的Post Body</label>
         </div>
       </div>
       
@@ -400,6 +406,7 @@ void handleRoot() {
   html.replace("%SMTP_PASS%", config.smtpPass);
   html.replace("%SMTP_SEND_TO%", config.smtpSendTo);
   html.replace("%HTTP_URL%", config.httpCallbackUrl);
+  html.replace("%BARK_MODE%", config.barkMode ? "checked" : "");
   html.replace("%ADMIN_PHONE%", config.adminPhone);
   server.send(200, "text/html", html);
 }
@@ -984,6 +991,7 @@ void handleSave() {
   config.smtpPass = server.arg("smtpPass");
   config.smtpSendTo = server.arg("smtpSendTo");
   config.httpCallbackUrl = server.arg("httpUrl");
+  config.barkMode = server.arg("barkMode") == "on";
   config.adminPhone = server.arg("adminPhone");
   
   saveConfig();
@@ -1339,9 +1347,17 @@ void sendSMSToServer(const char* sender, const char* message, const char* timest
   
   // 构造JSON
   String jsonData = "{";
-  jsonData += "\"sender\":\"" + String(sender) + "\",";
-  jsonData += "\"message\":\"" + String(message) + "\",";
-  jsonData += "\"timestamp\":\"" + String(timestamp) + "\"";
+
+  // bark适配
+  if (config.barkMode) {
+    jsonData += "\"title\":\"" + String(sender) + "\",";
+    jsonData += "\"body\":\"" + String(message) + "\"";
+  }
+  else {
+    jsonData += "\"sender\":\"" + String(sender) + "\",";
+    jsonData += "\"message\":\"" + String(message) + "\",";
+    jsonData += "\"timestamp\":\"" + String(timestamp) + "\"";
+  }
   jsonData += "}";
   Serial.println("发送数据: " + jsonData);
   int httpCode = http.POST(jsonData);

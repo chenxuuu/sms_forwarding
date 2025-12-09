@@ -9,6 +9,8 @@
 #define ENABLE_DEBUG
 #include <ReadyMail.h>
 #include <HTTPClient.h>
+#include <mbedtls/md.h>  // 用于钉钉签名的HMAC-SHA256
+#include <base64.h>      // Base64编码
 
 //wifi信息，需要你打开这个去改
 #include "wifi_config.h"
@@ -16,6 +18,32 @@
 //串口映射
 #define TXD 3
 #define RXD 4
+
+// 推送通道类型
+enum PushType {
+  PUSH_TYPE_NONE = 0,      // 未启用
+  PUSH_TYPE_POST_JSON = 1, // POST JSON格式 {"sender":"xxx","message":"xxx","timestamp":"xxx"}
+  PUSH_TYPE_BARK = 2,      // Bark格式 POST {"title":"xxx","body":"xxx"}
+  PUSH_TYPE_GET = 3,       // GET请求，参数放URL中
+  PUSH_TYPE_DINGTALK = 4,  // 钉钉机器人
+  PUSH_TYPE_PUSHPLUS = 5,  // PushPlus
+  PUSH_TYPE_SERVERCHAN = 6,// Server酱
+  PUSH_TYPE_CUSTOM = 7     // 自定义模板
+};
+
+// 最大推送通道数
+#define MAX_PUSH_CHANNELS 5
+
+// 推送通道配置（通用设计，支持多种推送方式）
+struct PushChannel {
+  bool enabled;           // 是否启用
+  PushType type;          // 推送类型
+  String name;            // 通道名称（用于显示）
+  String url;             // 推送URL（webhook地址）
+  String key1;            // 额外参数1（如：钉钉secret、pushplus token等）
+  String key2;            // 额外参数2（备用）
+  String customBody;      // 自定义请求体模板（使用 {sender} {message} {timestamp} 占位符）
+};
 
 // 配置参数结构体
 struct Config {
@@ -25,8 +53,7 @@ struct Config {
   String smtpPass;
   String smtpSendTo;
   String adminPhone;
-  String httpCallbackUrl;
-  bool barkMode;
+  PushChannel pushChannels[MAX_PUSH_CHANNELS];  // 多推送通道
   String webUser;      // Web管理账号
   String webPass;      // Web管理密码
 };
@@ -85,10 +112,21 @@ void saveConfig() {
   preferences.putString("smtpPass", config.smtpPass);
   preferences.putString("smtpSendTo", config.smtpSendTo);
   preferences.putString("adminPhone", config.adminPhone);
-  preferences.putString("httpUrl", config.httpCallbackUrl);
-  preferences.putUChar("barkMode", config.barkMode ? 1 : 0);
   preferences.putString("webUser", config.webUser);
   preferences.putString("webPass", config.webPass);
+  
+  // 保存推送通道配置
+  for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
+    String prefix = "push" + String(i);
+    preferences.putBool((prefix + "en").c_str(), config.pushChannels[i].enabled);
+    preferences.putUChar((prefix + "type").c_str(), (uint8_t)config.pushChannels[i].type);
+    preferences.putString((prefix + "url").c_str(), config.pushChannels[i].url);
+    preferences.putString((prefix + "name").c_str(), config.pushChannels[i].name);
+    preferences.putString((prefix + "k1").c_str(), config.pushChannels[i].key1);
+    preferences.putString((prefix + "k2").c_str(), config.pushChannels[i].key2);
+    preferences.putString((prefix + "body").c_str(), config.pushChannels[i].customBody);
+  }
+  
   preferences.end();
   Serial.println("配置已保存");
 }
@@ -102,22 +140,70 @@ void loadConfig() {
   config.smtpPass = preferences.getString("smtpPass", "");
   config.smtpSendTo = preferences.getString("smtpSendTo", "");
   config.adminPhone = preferences.getString("adminPhone", "");
-  config.httpCallbackUrl = preferences.getString("httpUrl", "");
-  config.barkMode = preferences.getUChar("barkMode", 0) != 0;
   config.webUser = preferences.getString("webUser", DEFAULT_WEB_USER);
   config.webPass = preferences.getString("webPass", DEFAULT_WEB_PASS);
+  
+  // 加载推送通道配置
+  for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
+    String prefix = "push" + String(i);
+    config.pushChannels[i].enabled = preferences.getBool((prefix + "en").c_str(), false);
+    config.pushChannels[i].type = (PushType)preferences.getUChar((prefix + "type").c_str(), PUSH_TYPE_POST_JSON);
+    config.pushChannels[i].url = preferences.getString((prefix + "url").c_str(), "");
+    config.pushChannels[i].name = preferences.getString((prefix + "name").c_str(), "通道" + String(i + 1));
+    config.pushChannels[i].key1 = preferences.getString((prefix + "k1").c_str(), "");
+    config.pushChannels[i].key2 = preferences.getString((prefix + "k2").c_str(), "");
+    config.pushChannels[i].customBody = preferences.getString((prefix + "body").c_str(), "");
+  }
+  
+  // 兼容旧配置：如果有旧的httpUrl配置，迁移到第一个通道
+  String oldHttpUrl = preferences.getString("httpUrl", "");
+  if (oldHttpUrl.length() > 0 && !config.pushChannels[0].enabled) {
+    config.pushChannels[0].enabled = true;
+    config.pushChannels[0].url = oldHttpUrl;
+    config.pushChannels[0].type = preferences.getUChar("barkMode", 0) != 0 ? PUSH_TYPE_BARK : PUSH_TYPE_POST_JSON;
+    config.pushChannels[0].name = "迁移通道";
+    Serial.println("已迁移旧HTTP配置到推送通道1");
+  }
+  
   preferences.end();
   Serial.println("配置已加载");
 }
 
-// 检查配置是否有效（至少配置了邮件或HTTP回调）
+// 检查推送通道是否有效配置
+bool isPushChannelValid(const PushChannel& ch) {
+  if (!ch.enabled) return false;
+  
+  switch (ch.type) {
+    case PUSH_TYPE_POST_JSON:
+    case PUSH_TYPE_BARK:
+    case PUSH_TYPE_GET:
+    case PUSH_TYPE_DINGTALK:
+    case PUSH_TYPE_CUSTOM:
+      return ch.url.length() > 0;
+    case PUSH_TYPE_PUSHPLUS:
+    case PUSH_TYPE_SERVERCHAN:
+      return ch.key1.length() > 0;  // 这两个主要靠key1（token/sendkey）
+    default:
+      return false;
+  }
+}
+
+// 检查配置是否有效（至少配置了邮件或任一推送通道）
 bool isConfigValid() {
   bool emailValid = config.smtpServer.length() > 0 && 
                     config.smtpUser.length() > 0 && 
                     config.smtpPass.length() > 0 && 
                     config.smtpSendTo.length() > 0;
-  bool httpValid = config.httpCallbackUrl.length() > 0;
-  return emailValid || httpValid;
+  
+  bool pushValid = false;
+  for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
+    if (isPushChannelValid(config.pushChannels[i])) {
+      pushValid = true;
+      break;
+    }
+  }
+  
+  return emailValid || pushValid;
 }
 
 // 获取当前设备URL
@@ -139,20 +225,28 @@ const char* htmlPage = R"rawliteral(
     h1 { color: #333; text-align: center; }
     .form-group { margin-bottom: 15px; }
     label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
-    input[type="text"], input[type="password"], input[type="number"], textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+    input[type="text"], input[type="password"], input[type="number"], textarea, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
     textarea { resize: vertical; min-height: 80px; }
     button { width: 100%; padding: 12px; background: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-top: 10px; }
     button:hover { background: #45a049; }
-    .label-inline { display:inline; font-weight:normal; }
+    .label-inline { display:inline; font-weight:normal; margin-left: 5px; }
     .btn-send { background: #2196F3; }
     .btn-send:hover { background: #1976D2; }
     .section { border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
     .section-title { font-size: 18px; color: #333; margin-bottom: 10px; }
     .status { padding: 10px; background: #e7f3fe; border-left: 4px solid #2196F3; margin-bottom: 20px; }
     .warning { padding: 10px; background: #fff3cd; border-left: 4px solid #ffc107; margin-bottom: 20px; font-size: 12px; }
+    .hint { font-size: 12px; color: #888; }
     .nav { display: flex; gap: 10px; margin-bottom: 20px; }
     .nav a { flex: 1; text-align: center; padding: 10px; background: #eee; border-radius: 5px; text-decoration: none; color: #333; }
     .nav a.active { background: #4CAF50; color: white; }
+    .push-channel { border: 1px solid #e0e0e0; padding: 12px; margin-bottom: 15px; border-radius: 5px; background: #fafafa; }
+    .push-channel-header { display: flex; align-items: center; margin-bottom: 10px; }
+    .push-channel-header input[type="checkbox"] { width: auto; margin-right: 8px; }
+    .push-channel-header label { margin: 0; font-weight: bold; }
+    .push-channel-body { display: none; }
+    .push-channel.enabled .push-channel-body { display: block; }
+    .push-type-hint { font-size: 11px; color: #666; margin-top: 5px; padding: 8px; background: #f0f0f0; border-radius: 3px; }
   </style>
 </head>
 <body>
@@ -204,12 +298,10 @@ const char* htmlPage = R"rawliteral(
       </div>
       
       <div class="section">
-        <div class="section-title">🔗 HTTP回调设置</div>
-        <div class="form-group">
-          <label>HTTP回调URL（可选）</label>
-          <input type="text" name="httpUrl" value="%HTTP_URL%" placeholder="http://your-server.com/api/sms">
-          <input type="checkbox" name="barkMode" id="barkMode" %BARK_MODE%><label for="barkMode" class="label-inline">使用Bark格式的Post Body</label>
-        </div>
+        <div class="section-title">🔗 HTTP推送通道设置</div>
+        <div class="hint" style="margin-bottom:15px;">可同时启用多个推送通道，每个通道独立配置。支持POST JSON、Bark、GET、钉钉、PushPlus、Server酱等多种方式。</div>
+        
+        %PUSH_CHANNELS%
       </div>
       
       <div class="section">
@@ -223,6 +315,64 @@ const char* htmlPage = R"rawliteral(
       <button type="submit">💾 保存配置</button>
     </form>
   </div>
+  <script>
+    function toggleChannel(idx) {
+      var ch = document.getElementById('channel' + idx);
+      var cb = document.getElementById('push' + idx + 'en');
+      if (cb.checked) {
+        ch.classList.add('enabled');
+      } else {
+        ch.classList.remove('enabled');
+      }
+    }
+    function updateTypeHint(idx) {
+      var sel = document.getElementById('push' + idx + 'type');
+      var hint = document.getElementById('hint' + idx);
+      var extraFields = document.getElementById('extra' + idx);
+      var customFields = document.getElementById('custom' + idx);
+      var type = parseInt(sel.value);
+      
+      // 隐藏所有额外字段
+      extraFields.style.display = 'none';
+      customFields.style.display = 'none';
+      document.getElementById('key1label' + idx).innerText = '参数1';
+      document.getElementById('key2label' + idx).innerText = '参数2';
+      document.getElementById('key1' + idx).placeholder = '';
+      document.getElementById('key2' + idx).placeholder = '';
+      
+      if (type == 1) {
+        hint.innerHTML = '<b>POST JSON格式：</b><br>{"sender":"发送者号码","message":"短信内容","timestamp":"时间戳"}';
+      } else if (type == 2) {
+        hint.innerHTML = '<b>Bark格式：</b><br>POST {"title":"发送者号码","body":"短信内容"}';
+      } else if (type == 3) {
+        hint.innerHTML = '<b>GET请求格式：</b><br>URL?sender=xxx&message=xxx&timestamp=xxx';
+      } else if (type == 4) {
+        hint.innerHTML = '<b>钉钉机器人：</b><br>填写Webhook地址，如需加签请填Secret';
+        extraFields.style.display = 'block';
+        document.getElementById('key1label' + idx).innerText = 'Secret（加签密钥，可选）';
+        document.getElementById('key1' + idx).placeholder = 'SEC...';
+      } else if (type == 5) {
+        hint.innerHTML = '<b>PushPlus：</b><br>填写Token，URL留空使用默认';
+        extraFields.style.display = 'block';
+        document.getElementById('key1label' + idx).innerText = 'Token';
+        document.getElementById('key1' + idx).placeholder = 'pushplus的token';
+      } else if (type == 6) {
+        hint.innerHTML = '<b>Server酱：</b><br>填写SendKey，URL留空使用默认';
+        extraFields.style.display = 'block';
+        document.getElementById('key1label' + idx).innerText = 'SendKey';
+        document.getElementById('key1' + idx).placeholder = 'SCT...';
+      } else if (type == 7) {
+        hint.innerHTML = '<b>自定义模板：</b><br>在请求体模板中使用 {sender} {message} {timestamp} 作为占位符';
+        customFields.style.display = 'block';
+      }
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+      for (var i = 0; i < 5; i++) {
+        toggleChannel(i);
+        updateTypeHint(i);
+      }
+    });
+  </script>
 </body>
 </html>
 )rawliteral";
@@ -405,9 +555,73 @@ void handleRoot() {
   html.replace("%SMTP_USER%", config.smtpUser);
   html.replace("%SMTP_PASS%", config.smtpPass);
   html.replace("%SMTP_SEND_TO%", config.smtpSendTo);
-  html.replace("%HTTP_URL%", config.httpCallbackUrl);
-  html.replace("%BARK_MODE%", config.barkMode ? "checked" : "");
   html.replace("%ADMIN_PHONE%", config.adminPhone);
+  
+  // 生成推送通道HTML
+  String channelsHtml = "";
+  for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
+    String idx = String(i);
+    String enabledClass = config.pushChannels[i].enabled ? " enabled" : "";
+    String checked = config.pushChannels[i].enabled ? " checked" : "";
+    
+    channelsHtml += "<div class=\"push-channel" + enabledClass + "\" id=\"channel" + idx + "\">";
+    channelsHtml += "<div class=\"push-channel-header\">";
+    channelsHtml += "<input type=\"checkbox\" name=\"push" + idx + "en\" id=\"push" + idx + "en\" onchange=\"toggleChannel(" + idx + ")\"" + checked + ">";
+    channelsHtml += "<label for=\"push" + idx + "en\" class=\"label-inline\">启用推送通道 " + String(i + 1) + "</label>";
+    channelsHtml += "</div>";
+    channelsHtml += "<div class=\"push-channel-body\">";
+    
+    // 通道名称
+    channelsHtml += "<div class=\"form-group\">";
+    channelsHtml += "<label>通道名称</label>";
+    channelsHtml += "<input type=\"text\" name=\"push" + idx + "name\" value=\"" + config.pushChannels[i].name + "\" placeholder=\"自定义名称\">";
+    channelsHtml += "</div>";
+    
+    // 推送类型
+    channelsHtml += "<div class=\"form-group\">";
+    channelsHtml += "<label>推送方式</label>";
+    channelsHtml += "<select name=\"push" + idx + "type\" id=\"push" + idx + "type\" onchange=\"updateTypeHint(" + idx + ")\">";
+    channelsHtml += "<option value=\"1\"" + String(config.pushChannels[i].type == PUSH_TYPE_POST_JSON ? " selected" : "") + ">POST JSON（通用格式）</option>";
+    channelsHtml += "<option value=\"2\"" + String(config.pushChannels[i].type == PUSH_TYPE_BARK ? " selected" : "") + ">Bark（iOS推送）</option>";
+    channelsHtml += "<option value=\"3\"" + String(config.pushChannels[i].type == PUSH_TYPE_GET ? " selected" : "") + ">GET请求（参数在URL中）</option>";
+    channelsHtml += "<option value=\"4\"" + String(config.pushChannels[i].type == PUSH_TYPE_DINGTALK ? " selected" : "") + ">钉钉机器人</option>";
+    channelsHtml += "<option value=\"5\"" + String(config.pushChannels[i].type == PUSH_TYPE_PUSHPLUS ? " selected" : "") + ">PushPlus</option>";
+    channelsHtml += "<option value=\"6\"" + String(config.pushChannels[i].type == PUSH_TYPE_SERVERCHAN ? " selected" : "") + ">Server酱</option>";
+    channelsHtml += "<option value=\"7\"" + String(config.pushChannels[i].type == PUSH_TYPE_CUSTOM ? " selected" : "") + ">自定义模板</option>";
+    channelsHtml += "</select>";
+    channelsHtml += "<div class=\"push-type-hint\" id=\"hint" + idx + "\"></div>";
+    channelsHtml += "</div>";
+    
+    // URL
+    channelsHtml += "<div class=\"form-group\">";
+    channelsHtml += "<label>推送URL/Webhook</label>";
+    channelsHtml += "<input type=\"text\" name=\"push" + idx + "url\" value=\"" + config.pushChannels[i].url + "\" placeholder=\"http://your-server.com/api 或 webhook地址\">";
+    channelsHtml += "</div>";
+    
+    // 额外参数区域（钉钉/PushPlus/Server酱等需要）
+    channelsHtml += "<div id=\"extra" + idx + "\" style=\"display:none;\">";
+    channelsHtml += "<div class=\"form-group\">";
+    channelsHtml += "<label id=\"key1label" + idx + "\">参数1</label>";
+    channelsHtml += "<input type=\"text\" name=\"push" + idx + "key1\" id=\"key1" + idx + "\" value=\"" + config.pushChannels[i].key1 + "\">";
+    channelsHtml += "</div>";
+    channelsHtml += "<div class=\"form-group\" style=\"display:none;\">";
+    channelsHtml += "<label id=\"key2label" + idx + "\">参数2</label>";
+    channelsHtml += "<input type=\"text\" name=\"push" + idx + "key2\" id=\"key2" + idx + "\" value=\"" + config.pushChannels[i].key2 + "\">";
+    channelsHtml += "</div>";
+    channelsHtml += "</div>";
+    
+    // 自定义模板区域
+    channelsHtml += "<div id=\"custom" + idx + "\" style=\"display:none;\">";
+    channelsHtml += "<div class=\"form-group\">";
+    channelsHtml += "<label>请求体模板（使用 {sender} {message} {timestamp} 占位符）</label>";
+    channelsHtml += "<textarea name=\"push" + idx + "body\" rows=\"4\" style=\"width:100%;font-family:monospace;\">" + config.pushChannels[i].customBody + "</textarea>";
+    channelsHtml += "</div>";
+    channelsHtml += "</div>";
+    
+    channelsHtml += "</div></div>";
+  }
+  html.replace("%PUSH_CHANNELS%", channelsHtml);
+  
   server.send(200, "text/html", html);
 }
 
@@ -990,9 +1204,22 @@ void handleSave() {
   config.smtpUser = server.arg("smtpUser");
   config.smtpPass = server.arg("smtpPass");
   config.smtpSendTo = server.arg("smtpSendTo");
-  config.httpCallbackUrl = server.arg("httpUrl");
-  config.barkMode = server.arg("barkMode") == "on";
   config.adminPhone = server.arg("adminPhone");
+  
+  // 保存推送通道配置
+  for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
+    String idx = String(i);
+    config.pushChannels[i].enabled = server.arg("push" + idx + "en") == "on";
+    config.pushChannels[i].type = (PushType)server.arg("push" + idx + "type").toInt();
+    config.pushChannels[i].url = server.arg("push" + idx + "url");
+    config.pushChannels[i].name = server.arg("push" + idx + "name");
+    config.pushChannels[i].key1 = server.arg("push" + idx + "key1");
+    config.pushChannels[i].key2 = server.arg("push" + idx + "key2");
+    config.pushChannels[i].customBody = server.arg("push" + idx + "body");
+    if (config.pushChannels[i].name.length() == 0) {
+      config.pushChannels[i].name = "通道" + String(i + 1);
+    }
+  }
   
   saveConfig();
   configValid = isConfigValid();
@@ -1337,40 +1564,250 @@ void checkConcatTimeout() {
 }
 
 // 发送短信数据到服务器
-void sendSMSToServer(const char* sender, const char* message, const char* timestamp) {
-  if (WiFi.status() != WL_CONNECTED || config.httpCallbackUrl.length() == 0)
-    return;
-  HTTPClient http;
-  Serial.println("\n发送短信数据到服务器...");
-  http.begin(config.httpCallbackUrl);
-  http.addHeader("Content-Type", "application/json");
-  
-  // 构造JSON
-  String jsonData = "{";
+// URL编码辅助函数
+String urlEncode(const String& str) {
+  String encoded = "";
+  char c;
+  char code0;
+  char code1;
+  for (unsigned int i = 0; i < str.length(); i++) {
+    c = str.charAt(i);
+    if (c == ' ') {
+      encoded += '+';
+    } else if (isalnum(c)) {
+      encoded += c;
+    } else {
+      code1 = (c & 0xf) + '0';
+      if ((c & 0xf) > 9) code1 = (c & 0xf) - 10 + 'A';
+      c = (c >> 4) & 0xf;
+      code0 = c + '0';
+      if (c > 9) code0 = c - 10 + 'A';
+      encoded += '%';
+      encoded += code0;
+      encoded += code1;
+    }
+  }
+  return encoded;
+}
 
-  // bark适配
-  if (config.barkMode) {
-    jsonData += "\"title\":\"" + String(sender) + "\",";
-    jsonData += "\"body\":\"" + String(message) + "\"";
+// 钉钉签名函数
+String dingtalkSign(const String& secret, long timestamp) {
+  String stringToSign = String(timestamp) + "\n" + secret;
+  
+  uint8_t hmacResult[32];
+  mbedtls_md_context_t ctx;
+  mbedtls_md_init(&ctx);
+  mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1);
+  mbedtls_md_hmac_starts(&ctx, (const unsigned char*)secret.c_str(), secret.length());
+  mbedtls_md_hmac_update(&ctx, (const unsigned char*)stringToSign.c_str(), stringToSign.length());
+  mbedtls_md_hmac_finish(&ctx, hmacResult);
+  mbedtls_md_free(&ctx);
+  
+  String base64Encoded = base64::encode(hmacResult, 32);
+  return urlEncode(base64Encoded);
+}
+
+// JSON转义函数
+String jsonEscape(const String& str) {
+  String result = "";
+  for (unsigned int i = 0; i < str.length(); i++) {
+    char c = str.charAt(i);
+    if (c == '"') result += "\\\"";
+    else if (c == '\\') result += "\\\\";
+    else if (c == '\n') result += "\\n";
+    else if (c == '\r') result += "\\r";
+    else if (c == '\t') result += "\\t";
+    else result += c;
   }
-  else {
-    jsonData += "\"sender\":\"" + String(sender) + "\",";
-    jsonData += "\"message\":\"" + String(message) + "\",";
-    jsonData += "\"timestamp\":\"" + String(timestamp) + "\"";
+  return result;
+}
+
+// 发送单个推送通道
+void sendToChannel(const PushChannel& channel, const char* sender, const char* message, const char* timestamp) {
+  if (!channel.enabled) return;
+  
+  // 对于某些推送方式，URL可以为空（使用默认URL）
+  bool needUrl = (channel.type == PUSH_TYPE_POST_JSON || channel.type == PUSH_TYPE_BARK || 
+                  channel.type == PUSH_TYPE_GET || channel.type == PUSH_TYPE_DINGTALK || 
+                  channel.type == PUSH_TYPE_CUSTOM);
+  if (needUrl && channel.url.length() == 0) return;
+  
+  HTTPClient http;
+  String channelName = channel.name.length() > 0 ? channel.name : ("通道" + String(channel.type));
+  Serial.println("发送到推送通道: " + channelName);
+  
+  int httpCode = 0;
+  String senderEscaped = jsonEscape(String(sender));
+  String messageEscaped = jsonEscape(String(message));
+  String timestampEscaped = jsonEscape(String(timestamp));
+  
+  switch (channel.type) {
+    case PUSH_TYPE_POST_JSON: {
+      // 标准POST JSON格式
+      http.begin(channel.url);
+      http.addHeader("Content-Type", "application/json");
+      String jsonData = "{";
+      jsonData += "\"sender\":\"" + senderEscaped + "\",";
+      jsonData += "\"message\":\"" + messageEscaped + "\",";
+      jsonData += "\"timestamp\":\"" + timestampEscaped + "\"";
+      jsonData += "}";
+      Serial.println("POST JSON: " + jsonData);
+      httpCode = http.POST(jsonData);
+      break;
+    }
+    
+    case PUSH_TYPE_BARK: {
+      // Bark推送格式
+      http.begin(channel.url);
+      http.addHeader("Content-Type", "application/json");
+      String jsonData = "{";
+      jsonData += "\"title\":\"" + senderEscaped + "\",";
+      jsonData += "\"body\":\"" + messageEscaped + "\"";
+      jsonData += "}";
+      Serial.println("BARK JSON: " + jsonData);
+      httpCode = http.POST(jsonData);
+      break;
+    }
+    
+    case PUSH_TYPE_GET: {
+      // GET请求，参数放URL里
+      String getUrl = channel.url;
+      if (getUrl.indexOf('?') == -1) {
+        getUrl += "?";
+      } else {
+        getUrl += "&";
+      }
+      getUrl += "sender=" + urlEncode(String(sender));
+      getUrl += "&message=" + urlEncode(String(message));
+      getUrl += "&timestamp=" + urlEncode(String(timestamp));
+      Serial.println("GET URL: " + getUrl);
+      http.begin(getUrl);
+      httpCode = http.GET();
+      break;
+    }
+    
+    case PUSH_TYPE_DINGTALK: {
+      // 钉钉机器人
+      String webhookUrl = channel.url;
+      
+      // 如果配置了secret，需要添加签名
+      if (channel.key1.length() > 0) {
+        long ts = millis() / 1000 + 1609459200; // 近似时间戳（2021-01-01起）
+        // 尝试获取更准确的时间戳
+        struct timeval tv;
+        if (gettimeofday(&tv, NULL) == 0) {
+          ts = tv.tv_sec * 1000 + tv.tv_usec / 1000;
+        } else {
+          ts = millis() + 1609459200000; // 毫秒级近似
+        }
+        String sign = dingtalkSign(channel.key1, ts);
+        if (webhookUrl.indexOf('?') == -1) {
+          webhookUrl += "?";
+        } else {
+          webhookUrl += "&";
+        }
+        webhookUrl += "timestamp=" + String(ts) + "&sign=" + sign;
+      }
+      
+      http.begin(webhookUrl);
+      http.addHeader("Content-Type", "application/json");
+      String jsonData = "{\"msgtype\":\"text\",\"text\":{\"content\":\"";
+      jsonData += "📱短信通知\\n发送者: " + senderEscaped + "\\n内容: " + messageEscaped + "\\n时间: " + timestampEscaped;
+      jsonData += "\"}}";
+      Serial.println("钉钉: " + jsonData);
+      httpCode = http.POST(jsonData);
+      break;
+    }
+    
+    case PUSH_TYPE_PUSHPLUS: {
+      // PushPlus
+      String pushUrl = channel.url.length() > 0 ? channel.url : "http://www.pushplus.plus/send";
+      http.begin(pushUrl);
+      http.addHeader("Content-Type", "application/json");
+      String jsonData = "{";
+      jsonData += "\"token\":\"" + channel.key1 + "\",";
+      jsonData += "\"title\":\"短信来自: " + senderEscaped + "\",";
+      jsonData += "\"content\":\"<b>发送者:</b> " + senderEscaped + "<br><b>时间:</b> " + timestampEscaped + "<br><b>内容:</b><br>" + messageEscaped + "\"";
+      jsonData += "}";
+      Serial.println("PushPlus: " + jsonData);
+      httpCode = http.POST(jsonData);
+      break;
+    }
+    
+    case PUSH_TYPE_SERVERCHAN: {
+      // Server酱
+      String scUrl = channel.url.length() > 0 ? channel.url : ("https://sctapi.ftqq.com/" + channel.key1 + ".send");
+      http.begin(scUrl);
+      http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+      String postData = "title=" + urlEncode("短信来自: " + String(sender));
+      postData += "&desp=" + urlEncode("**发送者:** " + String(sender) + "\n\n**时间:** " + String(timestamp) + "\n\n**内容:**\n\n" + String(message));
+      Serial.println("Server酱: " + postData);
+      httpCode = http.POST(postData);
+      break;
+    }
+    
+    case PUSH_TYPE_CUSTOM: {
+      // 自定义模板
+      if (channel.customBody.length() == 0) {
+        Serial.println("自定义模板为空，跳过");
+        return;
+      }
+      http.begin(channel.url);
+      http.addHeader("Content-Type", "application/json");
+      String body = channel.customBody;
+      body.replace("{sender}", senderEscaped);
+      body.replace("{message}", messageEscaped);
+      body.replace("{timestamp}", timestampEscaped);
+      Serial.println("自定义: " + body);
+      httpCode = http.POST(body);
+      break;
+    }
+    
+    default:
+      Serial.println("未知推送类型");
+      return;
   }
-  jsonData += "}";
-  Serial.println("发送数据: " + jsonData);
-  int httpCode = http.POST(jsonData);
+  
   if (httpCode > 0) {
-    Serial.printf("服务器响应码: %d\n", httpCode);
+    Serial.printf("[%s] 响应码: %d\n", channelName.c_str(), httpCode);
     if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
       String response = http.getString();
-      Serial.println("服务器响应: " + response);
+      Serial.println("响应: " + response);
     }
   } else {
-    Serial.printf("HTTP请求失败: %s\n", http.errorToString(httpCode).c_str());
+    Serial.printf("[%s] HTTP请求失败: %s\n", channelName.c_str(), http.errorToString(httpCode).c_str());
   }
   http.end();
+}
+
+// 发送短信到所有启用的推送通道
+void sendSMSToServer(const char* sender, const char* message, const char* timestamp) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi未连接，跳过推送");
+    return;
+  }
+  
+  bool hasEnabledChannel = false;
+  for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
+    if (isPushChannelValid(config.pushChannels[i])) {
+      hasEnabledChannel = true;
+      break;
+    }
+  }
+  
+  if (!hasEnabledChannel) {
+    Serial.println("没有启用的推送通道");
+    return;
+  }
+  
+  Serial.println("\n=== 开始多通道推送 ===");
+  for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
+    if (isPushChannelValid(config.pushChannels[i])) {
+      sendToChannel(config.pushChannels[i], sender, message, timestamp);
+      delay(100); // 短暂延迟避免请求过快
+    }
+  }
+  Serial.println("=== 多通道推送完成 ===\n");
 }
 
 // 读取串口一行（含回车换行），返回行字符串，无新行时返回空
@@ -1429,10 +1866,8 @@ void processSmsContent(const char* sender, const char* text, const char* timesta
     }
   }
 
-  // 发送通知http
-  if (config.httpCallbackUrl.length() > 0) {
-    sendSMSToServer(sender, text, timestamp);
-  }
+  // 发送通知http（推送到所有启用的通道）
+  sendSMSToServer(sender, text, timestamp);
   // 发送通知邮件
   String subject = ""; subject+="短信";subject+=sender;subject+=",";subject+=text;
   String body = ""; body+="来自：";body+=sender;body+="，时间：";body+=timestamp;body+="，内容：";body+=text;

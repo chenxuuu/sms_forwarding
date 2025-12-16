@@ -75,11 +75,11 @@
       <h2>🔐 登录认证</h2>
       <div class="form-group">
         <label>管理账号</label>
-        <input type="text" id="loginUser" placeholder="请输入账号">
+        <input type="text" id="loginUser" placeholder="请输入账号" value="admin">
       </div>
       <div class="form-group">
         <label>管理密码</label>
-        <input type="password" id="loginPass" placeholder="请输入密码">
+        <input type="password" id="loginPass" placeholder="请输入密码" value="admin123">
       </div>
       <button onclick="doLogin()">登录</button>
       <div class="login-error" id="loginError">账号或密码错误！</div>
@@ -297,6 +297,9 @@
       return auth === 'true';
     }
     
+    const config = loadConfig();
+    document.getElementById('loginUser').value = config.webUser;
+    document.getElementById('loginPass').value = config.webPass;
     // 登录
     function doLogin() {
       const user = document.getElementById('loginUser').value;

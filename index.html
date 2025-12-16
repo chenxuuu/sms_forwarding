@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>短信转发配置</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+    .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    h1 { color: #333; text-align: center; }
+    .form-group { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
+    input[type="text"], input[type="password"], input[type="number"], textarea, select { 
+      width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; 
+    }
+    textarea { resize: vertical; min-height: 80px; }
+    button { 
+      width: 100%; padding: 12px; background: #4CAF50; color: white; border: none; 
+      border-radius: 5px; cursor: pointer; font-size: 16px; margin-top: 10px; 
+    }
+    button:hover { background: #45a049; }
+    .label-inline { display:inline; font-weight:normal; margin-left: 5px; }
+    .btn-send { background: #2196F3; }
+    .btn-send:hover { background: #1976D2; }
+    .section { border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
+    .section-title { font-size: 18px; color: #333; margin-bottom: 10px; }
+    .status { padding: 10px; background: #e7f3fe; border-left: 4px solid #2196F3; margin-bottom: 20px; }
+    .warning { padding: 10px; background: #fff3cd; border-left: 4px solid #ffc107; margin-bottom: 20px; font-size: 12px; }
+    .hint { font-size: 12px; color: #888; }
+    .nav { display: flex; gap: 10px; margin-bottom: 20px; }
+    .nav a { 
+      flex: 1; text-align: center; padding: 10px; background: #eee; 
+      border-radius: 5px; text-decoration: none; color: #333; cursor: pointer;
+    }
+    .nav a.active { background: #4CAF50; color: white; }
+    .nav a:hover:not(.active) { background: #ddd; }
+    .push-channel { border: 1px solid #e0e0e0; padding: 12px; margin-bottom: 15px; border-radius: 5px; background: #fafafa; }
+    .push-channel-header { display: flex; align-items: center; margin-bottom: 10px; }
+    .push-channel-header input[type="checkbox"] { width: auto; margin-right: 8px; }
+    .push-channel-header label { margin: 0; font-weight: bold; }
+    .push-channel-body { display: none; }
+    .push-channel.enabled .push-channel-body { display: block; }
+    .push-type-hint { font-size: 11px; color: #666; margin-top: 5px; padding: 8px; background: #f0f0f0; border-radius: 3px; }
+    
+    /* 成功提示样式 */
+    .toast {
+      position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+      padding: 15px 30px; border-radius: 8px; color: white; font-weight: bold;
+      z-index: 1000; opacity: 0; transition: opacity 0.3s;
+    }
+    .toast.show { opacity: 1; }
+    .toast.success { background: #4CAF50; }
+    .toast.error { background: #f44336; }
+    
+    /* 登录框样式 */
+    .login-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.5); display: flex; align-items: center; 
+      justify-content: center; z-index: 2000;
+    }
+    .login-box {
+      background: white; padding: 30px; border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3); max-width: 350px; width: 90%;
+    }
+    .login-box h2 { margin-top: 0; text-align: center; color: #333; }
+    .login-box .form-group { margin-bottom: 15px; }
+    .login-error { color: #f44336; font-size: 12px; margin-top: 10px; text-align: center; display: none; }
+  </style>
+</head>
+<body>
+  <!-- 登录框 -->
+  <div class="login-overlay" id="loginOverlay">
+    <div class="login-box">
+      <h2>🔐 登录认证</h2>
+      <div class="form-group">
+        <label>管理账号</label>
+        <input type="text" id="loginUser" placeholder="请输入账号">
+      </div>
+      <div class="form-group">
+        <label>管理密码</label>
+        <input type="password" id="loginPass" placeholder="请输入密码">
+      </div>
+      <button onclick="doLogin()">登录</button>
+      <div class="login-error" id="loginError">账号或密码错误！</div>
+      <div class="hint" style="margin-top: 15px; text-align: center;">默认账号: admin，默认密码: admin123</div>
+    </div>
+  </div>
+
+  <!-- Toast提示 -->
+  <div class="toast" id="toast"></div>
+
+  <div class="container">
+    <h1>📱 短信转发器</h1>
+    <p>
+        本页面仅用于展示功能，具体请<a href="https://github.com/chenxuuu/sms_forwarding" target="_blank">访问GitHub仓库</a>。
+    </p>
+    <div class="nav">
+      <a class="active" id="navConfig" onclick="showPage('config')">⚙️ 系统配置</a>
+      <a id="navTools" onclick="showPage('tools')">🧰 工具箱</a>
+    </div>
+    <div class="status" id="status">设备IP: <strong>192.168.1.100</strong></div>
+    
+    <!-- 配置页面 -->
+    <div id="pageConfig">
+      <form id="configForm" onsubmit="saveConfig(event)">
+        <div class="section">
+          <div class="section-title">🔐 Web管理账号设置</div>
+          <div class="warning">⚠️ 首次使用请修改默认密码！默认账号: admin，默认密码: admin123</div>
+          <div class="form-group">
+            <label>管理账号</label>
+            <input type="text" name="webUser" id="webUser" placeholder="admin">
+          </div>
+          <div class="form-group">
+            <label>管理密码</label>
+            <input type="password" name="webPass" id="webPass" placeholder="请设置复杂密码">
+          </div>
+        </div>
+        
+        <div class="section">
+          <div class="section-title">📧 邮件通知设置</div>
+          <div class="form-group">
+            <label>SMTP服务器</label>
+            <input type="text" name="smtpServer" id="smtpServer" placeholder="smtp.qq.com">
+          </div>
+          <div class="form-group">
+            <label>SMTP端口</label>
+            <input type="number" name="smtpPort" id="smtpPort" placeholder="465">
+          </div>
+          <div class="form-group">
+            <label>邮箱账号</label>
+            <input type="text" name="smtpUser" id="smtpUser" placeholder="your@qq.com">
+          </div>
+          <div class="form-group">
+            <label>邮箱密码/授权码</label>
+            <input type="password" name="smtpPass" id="smtpPass" placeholder="授权码">
+          </div>
+          <div class="form-group">
+            <label>接收邮件地址</label>
+            <input type="text" name="smtpSendTo" id="smtpSendTo" placeholder="receiver@example.com">
+          </div>
+        </div>
+        
+        <div class="section">
+          <div class="section-title">🔗 HTTP推送通道设置</div>
+          <div class="hint" style="margin-bottom:15px;">可同时启用多个推送通道，每个通道独立配置。支持POST JSON、Bark、GET、钉钉、PushPlus、Server酱等多种方式。</div>
+          
+          <div id="pushChannelsContainer"></div>
+        </div>
+        
+        <div class="section">
+          <div class="section-title">👤 管理员设置</div>
+          <div class="form-group">
+            <label>管理员手机号</label>
+            <input type="text" name="adminPhone" id="adminPhone" placeholder="13800138000">
+          </div>
+        </div>
+        
+        <button type="submit">💾 保存配置</button>
+      </form>
+    </div>
+    
+    <!-- 工具箱页面 -->
+    <div id="pageTools" style="display: none;">
+      <div class="section">
+        <div class="section-title">📤 发送短信</div>
+        <div class="form-group">
+          <label>目标号码</label>
+          <input type="text" id="smsPhone" placeholder="13800138000">
+        </div>
+        <div class="form-group">
+          <label>短信内容</label>
+          <textarea id="smsContent" placeholder="请输入短信内容..." oninput="updateCharCount()"></textarea>
+          <div class="hint" style="text-align: right;">已输入 <span id="charCount">0</span> 字符</div>
+        </div>
+        <button class="btn-send" onclick="sendSms()">📨 发送短信</button>
+      </div>
+      
+      <div class="section">
+        <div class="section-title">📊 模组信息查询</div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button style="flex: 1; min-width: 120px; background: #9C27B0;" onclick="queryInfo('ati')">📋 固件信息</button>
+          <button style="flex: 1; min-width: 120px; background: #9C27B0;" onclick="queryInfo('signal')">📶 信号质量</button>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button style="flex: 1; min-width: 120px; background: #607D8B;" onclick="queryInfo('siminfo')">💳 SIM卡信息</button>
+          <button style="flex: 1; min-width: 120px; background: #607D8B;" onclick="queryInfo('network')">🌍 网络状态</button>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button style="flex: 1; min-width: 120px; background: #00BCD4;" onclick="queryInfo('wifi')">📡 WiFi状态</button>
+        </div>
+        <div class="result-box" id="queryResult" style="display: none; margin-top: 10px; padding: 10px; border-radius: 5px;"></div>
+      </div>
+      
+      <div class="section">
+        <div class="section-title">🌐 网络测试</div>
+        <button id="pingBtn" style="background: #FF9800;" onclick="doPing()">📡 点我消耗一点流量</button>
+        <div class="hint">将向 8.8.8.8 进行 ping 操作，一次性消耗极少流量费用</div>
+        <div class="result-box" id="pingResult" style="display: none; margin-top: 10px; padding: 10px; border-radius: 5px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 存储配置的key
+    const STORAGE_KEY = 'sms_forwarder_config';
+    const AUTH_KEY = 'sms_forwarder_auth';
+    
+    // 默认配置
+    const defaultConfig = {
+      webUser: 'admin',
+      webPass: 'admin123',
+      smtpServer: '',
+      smtpPort: 465,
+      smtpUser: '',
+      smtpPass: '',
+      smtpSendTo: '',
+      adminPhone: '',
+      pushChannels: [
+        { enabled: false, type: 1, name: '通道1', url: '', key1: '', key2: '', customBody: '' },
+        { enabled: false, type: 1, name: '通道2', url: '', key1: '', key2: '', customBody: '' },
+        { enabled: false, type: 1, name: '通道3', url: '', key1: '', key2: '', customBody: '' },
+        { enabled: false, type: 1, name: '通道4', url: '', key1: '', key2: '', customBody: '' },
+        { enabled: false, type: 1, name: '通道5', url: '', key1: '', key2: '', customBody: '' }
+      ]
+    };
+    
+    // 推送类型
+    const PUSH_TYPES = {
+      1: { name: 'POST JSON（通用格式）', hint: '<b>POST JSON格式：</b><br>{"sender":"发送者号码","message":"短信内容","timestamp":"时间戳"}' },
+      2: { name: 'Bark（iOS推送）', hint: '<b>Bark格式：</b><br>POST {"title":"发送者号码","body":"短信内容"}' },
+      3: { name: 'GET请求（参数在URL中）', hint: '<b>GET请求格式：</b><br>URL?sender=xxx&message=xxx&timestamp=xxx' },
+      4: { name: '钉钉机器人', hint: '<b>钉钉机器人：</b><br>填写Webhook地址，如需加签请填Secret', showExtra: true, key1Label: 'Secret（加签密钥，可选）', key1Placeholder: 'SEC...' },
+      5: { name: 'PushPlus', hint: '<b>PushPlus：</b><br>填写Token，URL留空使用默认', showExtra: true, key1Label: 'Token', key1Placeholder: 'pushplus的token' },
+      6: { name: 'Server酱', hint: '<b>Server酱：</b><br>填写SendKey，URL留空使用默认', showExtra: true, key1Label: 'SendKey', key1Placeholder: 'SCT...' },
+      7: { name: '自定义模板', hint: '<b>自定义模板：</b><br>在请求体模板中使用 {sender} {message} {timestamp} 作为占位符', showCustom: true }
+    };
+    
+    // 模拟数据
+    const mockData = {
+      ati: {
+        manufacturer: 'CMCC',
+        model: 'ML307R',
+        version: 'ML307R-DC-MBRH0S00'
+      },
+      signal: {
+        rsrp: -85,
+        rsrq: -10.5,
+        raw: '99,99,255,255,30,55'
+      },
+      siminfo: {
+        imsi: '460001234567890',
+        iccid: '89860123456789012345',
+        phoneNum: '未存储或不支持'
+      },
+      network: {
+        regStatus: '已注册，本地网络',
+        operator: 'CHINA MOBILE',
+        pdpStatus: '已激活',
+        apn: 'cmnet'
+      },
+      wifi: {
+        connected: true,
+        ssid: 'MyWiFi',
+        rssi: -55,
+        ip: '192.168.1.100',
+        gateway: '192.168.1.1',
+        subnet: '255.255.255.0',
+        dns: '192.168.1.1',
+        mac: 'AA:BB:CC:DD:EE:FF',
+        bssid: '11:22:33:44:55:66',
+        channel: 6
+      }
+    };
+    
+    // 加载配置
+    function loadConfig() {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        try {
+          return { ...defaultConfig, ...JSON.parse(saved) };
+        } catch (e) {
+          return { ...defaultConfig };
+        }
+      }
+      return { ...defaultConfig };
+    }
+    
+    // 保存配置
+    function saveConfigToStorage(config) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    }
+    
+    // 检查登录状态
+    function checkAuth() {
+      const auth = sessionStorage.getItem(AUTH_KEY);
+      return auth === 'true';
+    }
+    
+    // 登录
+    function doLogin() {
+      const user = document.getElementById('loginUser').value;
+      const pass = document.getElementById('loginPass').value;
+      const config = loadConfig();
+      
+      if (user === config.webUser && pass === config.webPass) {
+        sessionStorage.setItem(AUTH_KEY, 'true');
+        document.getElementById('loginOverlay').style.display = 'none';
+        showToast('登录成功！', 'success');
+      } else {
+        document.getElementById('loginError').style.display = 'block';
+      }
+    }
+    
+    // 显示Toast
+    function showToast(message, type) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = 'toast ' + type + ' show';
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 2000);
+    }
+    
+    // 页面切换
+    function showPage(page) {
+      document.getElementById('pageConfig').style.display = page === 'config' ? 'block' : 'none';
+      document.getElementById('pageTools').style.display = page === 'tools' ? 'block' : 'none';
+      document.getElementById('navConfig').classList.toggle('active', page === 'config');
+      document.getElementById('navTools').classList.toggle('active', page === 'tools');
+    }
+    
+    // 生成推送通道HTML
+    function generatePushChannels() {
+      const config = loadConfig();
+      const container = document.getElementById('pushChannelsContainer');
+      let html = '';
+      
+      for (let i = 0; i < 5; i++) {
+        const ch = config.pushChannels[i] || defaultConfig.pushChannels[i];
+        const enabledClass = ch.enabled ? ' enabled' : '';
+        const checked = ch.enabled ? ' checked' : '';
+        
+        html += `
+          <div class="push-channel${enabledClass}" id="channel${i}">
+            <div class="push-channel-header">
+              <input type="checkbox" id="push${i}en" onchange="toggleChannel(${i})"${checked}>
+              <label for="push${i}en" class="label-inline">启用推送通道 ${i + 1}</label>
+            </div>
+            <div class="push-channel-body">
+              <div class="form-group">
+                <label>通道名称</label>
+                <input type="text" id="push${i}name" value="${ch.name || ''}" placeholder="自定义名称">
+              </div>
+              <div class="form-group">
+                <label>推送方式</label>
+                <select id="push${i}type" onchange="updateTypeHint(${i})">
+                  ${Object.entries(PUSH_TYPES).map(([k, v]) => 
+                    `<option value="${k}"${ch.type == k ? ' selected' : ''}>${v.name}</option>`
+                  ).join('')}
+                </select>
+                <div class="push-type-hint" id="hint${i}"></div>
+              </div>
+              <div class="form-group">
+                <label>推送URL/Webhook</label>
+                <input type="text" id="push${i}url" value="${ch.url || ''}" placeholder="http://your-server.com/api 或 webhook地址">
+              </div>
+              <div id="extra${i}" style="display:none;">
+                <div class="form-group">
+                  <label id="key1label${i}">参数1</label>
+                  <input type="text" id="push${i}key1" value="${ch.key1 || ''}" placeholder="">
+                </div>
+              </div>
+              <div id="custom${i}" style="display:none;">
+                <div class="form-group">
+                  <label>请求体模板（使用 {sender} {message} {timestamp} 占位符）</label>
+                  <textarea id="push${i}body" rows="4" style="font-family:monospace;">${ch.customBody || ''}</textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      container.innerHTML = html;
+      
+      // 初始化所有通道的类型提示
+      for (let i = 0; i < 5; i++) {
+        updateTypeHint(i);
+      }
+    }
+    
+    // 切换通道启用状态
+    function toggleChannel(idx) {
+      const ch = document.getElementById('channel' + idx);
+      const cb = document.getElementById('push' + idx + 'en');
+      if (cb.checked) {
+        ch.classList.add('enabled');
+      } else {
+        ch.classList.remove('enabled');
+      }
+    }
+    
+    // 更新类型提示
+    function updateTypeHint(idx) {
+      const sel = document.getElementById('push' + idx + 'type');
+      const hint = document.getElementById('hint' + idx);
+      const extraFields = document.getElementById('extra' + idx);
+      const customFields = document.getElementById('custom' + idx);
+      const type = parseInt(sel.value);
+      const typeInfo = PUSH_TYPES[type];
+      
+      hint.innerHTML = typeInfo.hint;
+      
+      // 隐藏所有额外字段
+      extraFields.style.display = 'none';
+      customFields.style.display = 'none';
+      
+      if (typeInfo.showExtra) {
+        extraFields.style.display = 'block';
+        document.getElementById('key1label' + idx).innerText = typeInfo.key1Label || '参数1';
+        document.getElementById('push' + idx + 'key1').placeholder = typeInfo.key1Placeholder || '';
+      }
+      
+      if (typeInfo.showCustom) {
+        customFields.style.display = 'block';
+      }
+    }
+    
+    // 填充表单数据
+    function fillForm() {
+      const config = loadConfig();
+      document.getElementById('webUser').value = config.webUser || '';
+      document.getElementById('webPass').value = config.webPass || '';
+      document.getElementById('smtpServer').value = config.smtpServer || '';
+      document.getElementById('smtpPort').value = config.smtpPort || 465;
+      document.getElementById('smtpUser').value = config.smtpUser || '';
+      document.getElementById('smtpPass').value = config.smtpPass || '';
+      document.getElementById('smtpSendTo').value = config.smtpSendTo || '';
+      document.getElementById('adminPhone').value = config.adminPhone || '';
+    }
+    
+    // 保存配置
+    function saveConfig(event) {
+      event.preventDefault();
+      
+      const config = {
+        webUser: document.getElementById('webUser').value || 'admin',
+        webPass: document.getElementById('webPass').value || 'admin123',
+        smtpServer: document.getElementById('smtpServer').value,
+        smtpPort: parseInt(document.getElementById('smtpPort').value) || 465,
+        smtpUser: document.getElementById('smtpUser').value,
+        smtpPass: document.getElementById('smtpPass').value,
+        smtpSendTo: document.getElementById('smtpSendTo').value,
+        adminPhone: document.getElementById('adminPhone').value,
+        pushChannels: []
+      };
+      
+      for (let i = 0; i < 5; i++) {
+        config.pushChannels.push({
+          enabled: document.getElementById('push' + i + 'en').checked,
+          type: parseInt(document.getElementById('push' + i + 'type').value),
+          name: document.getElementById('push' + i + 'name').value || '通道' + (i + 1),
+          url: document.getElementById('push' + i + 'url').value,
+          key1: document.getElementById('push' + i + 'key1').value,
+          key2: '',
+          customBody: document.getElementById('push' + i + 'body').value
+        });
+      }
+      
+      saveConfigToStorage(config);
+      showToast('✅ 配置保存成功！', 'success');
+    }
+    
+    // 更新字符计数
+    function updateCharCount() {
+      const content = document.getElementById('smsContent').value;
+      document.getElementById('charCount').textContent = content.length;
+    }
+    
+    // 发送短信（模拟）
+    function sendSms() {
+      const phone = document.getElementById('smsPhone').value.trim();
+      const content = document.getElementById('smsContent').value.trim();
+      
+      if (!phone) {
+        showToast('❌ 请输入目标号码', 'error');
+        return;
+      }
+      if (!content) {
+        showToast('❌ 请输入短信内容', 'error');
+        return;
+      }
+      
+      // 模拟发送延迟
+      showToast('📨 正在发送短信...', 'success');
+      setTimeout(() => {
+        showToast('✅ 假装短信发送成功！', 'success');
+        document.getElementById('smsPhone').value = '';
+        document.getElementById('smsContent').value = '';
+        updateCharCount();
+      }, 1500);
+    }
+    
+    // 查询模组信息（模拟）
+    function queryInfo(type) {
+      const result = document.getElementById('queryResult');
+      result.style.display = 'block';
+      result.style.background = '#fff3e0';
+      result.style.borderLeft = '4px solid #FF9800';
+      result.innerHTML = '正在查询，请稍候...';
+      
+      setTimeout(() => {
+        result.style.background = '#e3f2fd';
+        result.style.borderLeft = '4px solid #2196F3';
+        
+        let html = '<table style="width:100%;border-collapse:collapse;">';
+        
+        if (type === 'ati') {
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">制造商</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.ati.manufacturer}</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">模组型号</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.ati.model}</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">固件版本</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.ati.version}</td></tr>`;
+        } else if (type === 'signal') {
+          const rsrp = mockData.signal.rsrp;
+          let rsrpDesc = '';
+          if (rsrp >= -80) rsrpDesc = '(信号极好)';
+          else if (rsrp >= -90) rsrpDesc = '(信号良好)';
+          else if (rsrp >= -100) rsrpDesc = '(信号一般)';
+          else if (rsrp >= -110) rsrpDesc = '(信号较弱)';
+          else rsrpDesc = '(信号很差)';
+          
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">信号强度 (RSRP)</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${rsrp} dBm ${rsrpDesc}</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">信号质量 (RSRQ)</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.signal.rsrq} dB</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">原始数据</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.signal.raw}</td></tr>`;
+        } else if (type === 'siminfo') {
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">IMSI</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.siminfo.imsi}</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">ICCID</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.siminfo.iccid}</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">本机号码</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.siminfo.phoneNum}</td></tr>`;
+        } else if (type === 'network') {
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">网络注册</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.network.regStatus}</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">运营商</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.network.operator}</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">数据连接</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.network.pdpStatus}</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">APN</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.network.apn}</td></tr>`;
+        } else if (type === 'wifi') {
+          const w = mockData.wifi;
+          let rssiDesc = '';
+          if (w.rssi >= -50) rssiDesc = '(信号极好)';
+          else if (w.rssi >= -60) rssiDesc = '(信号很好)';
+          else if (w.rssi >= -70) rssiDesc = '(信号良好)';
+          else if (w.rssi >= -80) rssiDesc = '(信号一般)';
+          else rssiDesc = '(信号较弱)';
+          
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">连接状态</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.connected ? '已连接' : '未连接'}</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">当前SSID</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.ssid}</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">信号强度 (RSSI)</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.rssi} dBm ${rssiDesc}</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">IP地址</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.ip}</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">网关</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.gateway}</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">子网掩码</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.subnet}</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">DNS服务器</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.dns}</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">MAC地址</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.mac}</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">路由器BSSID</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.bssid}</td></tr>`;
+          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">WiFi信道</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.channel}</td></tr>`;
+        }
+        
+        html += '</table>';
+        result.innerHTML = html;
+      }, 800);
+    }
+    
+    // Ping测试（模拟）
+    function doPing() {
+      const btn = document.getElementById('pingBtn');
+      const result = document.getElementById('pingResult');
+      
+      btn.disabled = true;
+      btn.textContent = '⏳ 正在 Ping...';
+      result.style.display = 'block';
+      result.style.background = '#fff3e0';
+      result.style.borderLeft = '4px solid #FF9800';
+      result.innerHTML = '正在执行 Ping 操作，请稍候（最长等待30秒）...';
+      
+      // 模拟Ping延迟
+      const delay = Math.floor(Math.random() * 100) + 20;
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = '📡 点我消耗一点流量';
+        result.style.background = '#e8f5e9';
+        result.style.borderLeft = '4px solid #4CAF50';
+        result.innerHTML = `✅ Ping 成功！<br>目标: 8.8.8.8, 延迟: ${delay}ms, TTL: 115`;
+      }, 2000);
+    }
+    
+    // 初始化
+    document.addEventListener('DOMContentLoaded', function() {
+      // 检查登录状态
+      if (checkAuth()) {
+        document.getElementById('loginOverlay').style.display = 'none';
+      }
+      
+      // 绑定登录框回车事件
+      document.getElementById('loginPass').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') doLogin();
+      });
+      document.getElementById('loginUser').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') document.getElementById('loginPass').focus();
+      });
+      
+      // 生成推送通道HTML
+      generatePushChannels();
+      
+      // 填充表单数据
+      fillForm();
+    });
+  </script>
+</body>
+</html>

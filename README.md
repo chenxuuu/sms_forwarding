@@ -3,6 +3,8 @@
 > 当前分支为新方案，老方案请前往[luatos分支](https://github.com/chenxuuu/sms_forwarding/tree/old-luatos)。
 该项目可能不支持电信卡（CDMA），具体请自测。
 
+[后台页面演示](https://sms.j2.cx/)
+
 本项目旨在使用低成本的硬件设备，实现短信的自动转发功能，支持多种推送方式同时启用。
 
 > 视频教程：[B站视频](https://www.bilibili.com/video/BV1cSmABYEiX)

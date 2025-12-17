@@ -71,6 +71,7 @@ SMTPClient smtp(ssl_client);
 WebServer server(80);
 
 bool configValid = false;  // 配置是否有效
+bool timeSynced = false;   // NTP时间是否已同步
 unsigned long lastPrintTime = 0;  // 上次打印IP的时间
 
 #define SERIAL_BUFFER_SIZE 500
@@ -1278,8 +1279,6 @@ void sendEmailNotification(const char* subject, const char* body) {
     msg.headers.add(rfc822_to, to.c_str());
     msg.headers.add(rfc822_subject, subject);
     msg.text.body(body);
-    configTime(0, 0, "ntp.ntsc.ac.cn");
-    while (time(nullptr) < 100000) delay(100);
     msg.timestamp = time(nullptr);
     smtp.send(msg);
     Serial.println("邮件发送完成");
@@ -1590,8 +1589,8 @@ String urlEncode(const String& str) {
   return encoded;
 }
 
-// 钉钉签名函数
-String dingtalkSign(const String& secret, long timestamp) {
+// 钉钉签名函数（时间戳为UTC毫秒级）
+String dingtalkSign(const String& secret, int64_t timestamp) {
   String stringToSign = String(timestamp) + "\n" + secret;
   
   uint8_t hmacResult[32];
@@ -1605,6 +1604,16 @@ String dingtalkSign(const String& secret, long timestamp) {
   
   String base64Encoded = base64::encode(hmacResult, 32);
   return urlEncode(base64Encoded);
+}
+
+// 获取当前UTC毫秒级时间戳（用于钉钉签名）
+int64_t getUtcMillis() {
+  struct timeval tv;
+  if (gettimeofday(&tv, NULL) == 0) {
+    return (int64_t)tv.tv_sec * 1000LL + tv.tv_usec / 1000;
+  }
+  // 如果获取失败，使用time()函数
+  return (int64_t)time(nullptr) * 1000LL;
 }
 
 // JSON转义函数
@@ -1692,21 +1701,18 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       
       // 如果配置了secret，需要添加签名
       if (channel.key1.length() > 0) {
-        long ts = millis() / 1000 + 1609459200; // 近似时间戳（2021-01-01起）
-        // 尝试获取更准确的时间戳
-        struct timeval tv;
-        if (gettimeofday(&tv, NULL) == 0) {
-          ts = tv.tv_sec * 1000 + tv.tv_usec / 1000;
-        } else {
-          ts = millis() + 1609459200000; // 毫秒级近似
-        }
+        // 获取UTC毫秒级时间戳（钉钉要求）
+        int64_t ts = getUtcMillis();
         String sign = dingtalkSign(channel.key1, ts);
         if (webhookUrl.indexOf('?') == -1) {
           webhookUrl += "?";
         } else {
           webhookUrl += "&";
         }
-        webhookUrl += "timestamp=" + String(ts) + "&sign=" + sign;
+        // 使用字符串拼接避免int64_t转换问题
+        char tsBuf[21];
+        snprintf(tsBuf, sizeof(tsBuf), "%lld", ts);
+        webhookUrl += "timestamp=" + String(tsBuf) + "&sign=" + sign;
       }
       
       http.begin(webhookUrl);
@@ -2042,6 +2048,24 @@ void setup() {
   Serial.println("wifi已连接");
   Serial.print("IP地址: ");
   Serial.println(WiFi.localIP());
+  
+  // NTP时间同步（获取UTC时间）
+  Serial.println("正在同步NTP时间...");
+  configTime(0, 0, "ntp.ntsc.ac.cn", "ntp.aliyun.com", "pool.ntp.org");
+  int ntpRetry = 0;
+  while (time(nullptr) < 100000 && ntpRetry < 100) {
+    delay(100);
+    ntpRetry++;
+  }
+  if (time(nullptr) >= 100000) {
+    timeSynced = true;
+    Serial.println("NTP时间同步成功");
+    time_t now = time(nullptr);
+    Serial.print("当前UTC时间戳: ");
+    Serial.println(now);
+  } else {
+    Serial.println("NTP时间同步失败，将使用设备时间");
+  }
   
   // 启动HTTP服务器
   server.on("/", handleRoot);

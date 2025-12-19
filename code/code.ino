@@ -28,7 +28,8 @@ enum PushType {
   PUSH_TYPE_DINGTALK = 4,  // 钉钉机器人
   PUSH_TYPE_PUSHPLUS = 5,  // PushPlus
   PUSH_TYPE_SERVERCHAN = 6,// Server酱
-  PUSH_TYPE_CUSTOM = 7     // 自定义模板
+  PUSH_TYPE_CUSTOM = 7,    // 自定义模板
+  PUSH_TYPE_FEISHU = 8     // 飞书机器人
 };
 
 // 最大推送通道数
@@ -179,6 +180,7 @@ bool isPushChannelValid(const PushChannel& ch) {
     case PUSH_TYPE_BARK:
     case PUSH_TYPE_GET:
     case PUSH_TYPE_DINGTALK:
+    case PUSH_TYPE_FEISHU:
     case PUSH_TYPE_CUSTOM:
       return ch.url.length() > 0;
     case PUSH_TYPE_PUSHPLUS:
@@ -365,6 +367,11 @@ const char* htmlPage = R"rawliteral(
       } else if (type == 7) {
         hint.innerHTML = '<b>自定义模板：</b><br>在请求体模板中使用 {sender} {message} {timestamp} 作为占位符';
         customFields.style.display = 'block';
+      } else if (type == 8) {
+        hint.innerHTML = '<b>飞书机器人：</b><br>填写Webhook地址，如需签名验证请填Secret';
+        extraFields.style.display = 'block';
+        document.getElementById('key1label' + idx).innerText = 'Secret（签名密钥，可选）';
+        document.getElementById('key1' + idx).placeholder = '飞书机器人的签名密钥';
       }
     }
     document.addEventListener('DOMContentLoaded', function() {
@@ -589,6 +596,7 @@ void handleRoot() {
     channelsHtml += "<option value=\"5\"" + String(config.pushChannels[i].type == PUSH_TYPE_PUSHPLUS ? " selected" : "") + ">PushPlus</option>";
     channelsHtml += "<option value=\"6\"" + String(config.pushChannels[i].type == PUSH_TYPE_SERVERCHAN ? " selected" : "") + ">Server酱</option>";
     channelsHtml += "<option value=\"7\"" + String(config.pushChannels[i].type == PUSH_TYPE_CUSTOM ? " selected" : "") + ">自定义模板</option>";
+    channelsHtml += "<option value=\"8\"" + String(config.pushChannels[i].type == PUSH_TYPE_FEISHU ? " selected" : "") + ">飞书机器人</option>";
     channelsHtml += "</select>";
     channelsHtml += "<div class=\"push-type-hint\" id=\"hint" + idx + "\"></div>";
     channelsHtml += "</div>";
@@ -1766,6 +1774,44 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       body.replace("{timestamp}", timestampEscaped);
       Serial.println("自定义: " + body);
       httpCode = http.POST(body);
+      break;
+    }
+    
+    case PUSH_TYPE_FEISHU: {
+      // 飞书机器人
+      String webhookUrl = channel.url;
+      String jsonData = "{";
+      
+      // 如果配置了secret，需要添加签名
+      if (channel.key1.length() > 0) {
+        // 飞书使用秒级时间戳
+        int64_t ts = time(nullptr);
+        // 飞书签名: base64(hmac-sha256(timestamp + "\n" + secret, secret))
+        String stringToSign = String(ts) + "\n" + channel.key1;
+        uint8_t hmacResult[32];
+        mbedtls_md_context_t ctx;
+        mbedtls_md_init(&ctx);
+        mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1);
+        mbedtls_md_hmac_starts(&ctx, (const unsigned char*)channel.key1.c_str(), channel.key1.length());
+        mbedtls_md_hmac_update(&ctx, (const unsigned char*)stringToSign.c_str(), stringToSign.length());
+        mbedtls_md_hmac_finish(&ctx, hmacResult);
+        mbedtls_md_free(&ctx);
+        String sign = base64::encode(hmacResult, 32);
+        
+        jsonData += "\"timestamp\":\"" + String(ts) + "\",";
+        jsonData += "\"sign\":\"" + sign + "\",";
+      }
+      
+      // 飞书消息体
+      jsonData += "\"msg_type\":\"text\",";
+      jsonData += "\"content\":{\"text\":\"";
+      jsonData += "📱短信通知\\n发送者: " + senderEscaped + "\\n内容: " + messageEscaped + "\\n时间: " + timestampEscaped;
+      jsonData += "\"}}";
+      
+      http.begin(webhookUrl);
+      http.addHeader("Content-Type", "application/json");
+      Serial.println("飞书: " + jsonData);
+      httpCode = http.POST(jsonData);
       break;
     }
     

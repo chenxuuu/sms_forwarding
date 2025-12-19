@@ -1,7 +1,8 @@
 # 低成本短信转发器
 
-> 当前分支为新方案，老方案请前往[luatos分支](https://github.com/chenxuuu/sms_forwarding/tree/old-luatos)。
-该项目可能不支持电信卡（CDMA），具体请自测。
+> 当前分支为新方案，老方案请前往[luatos分支](https://github.com/chenxuuu/sms_forwarding/tree/old-luatos)。  
+该项目可能不支持电信卡（CDMA），具体请自测。  
+本项目仅用于接收短信与进行保号相关功能。多卡控制、通话、主动拨号等功能永远不会支持，请勿提出相关需求。
 
 [后台页面演示](https://sms.j2.cx/)
 
@@ -35,6 +36,7 @@
 | **PushPlus** | 微信公众号推送 | Token |
 | **Server酱** | 微信推送服务 | SendKey |
 | **自定义模板** | 灵活的JSON模板 | URL + 请求体模板 |
+| **飞书机器人** | 自定义通知 | Webhook URL |
 
 ### 推送格式说明
 
@@ -45,6 +47,7 @@
 - **PushPlus**: 使用Token推送，支持HTML格式
 - **Server酱**: 使用SendKey推送，支持Markdown格式
 - **自定义模板**: 使用`{sender}`、`{message}`、`{timestamp}`占位符
+- **飞书机器人**: 文本消息格式，支持加签验证
 
 |状态信息|主动ping|
 |-|-|

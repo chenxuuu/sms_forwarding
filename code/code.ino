@@ -473,7 +473,7 @@ const char* htmlToolsPage = R"rawliteral(
     
     <div class="section">
       <div class="section-title">🌐 网络测试</div>
-      <button type="button" class="btn-ping" id="pingBtn" onclick="doPing()">📡 点我消耗一点流量</button>
+      <button type="button" class="btn-ping" id="pingBtn" onclick="confirmPing()">📡 点我消耗一点流量</button>
       <div class="hint">将向 8.8.8.8 进行 ping 操作，一次性消耗极少流量费用</div>
       <div class="result-box" id="pingResult"></div>
     </div>
@@ -505,7 +505,13 @@ const char* htmlToolsPage = R"rawliteral(
           result.textContent = '❌ 请求失败: ' + error;
         });
     }
-    
+
+    function confirmPing() {
+      if (confirm("确定要执行 Ping 操作吗？\n\n这将消耗少量流量。")) {
+        doPing();
+      }
+    }
+
     function doPing() {
       var btn = document.getElementById('pingBtn');
       var result = document.getElementById('pingResult');

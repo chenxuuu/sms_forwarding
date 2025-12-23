@@ -1030,8 +1030,18 @@ void handlePing() {
   // 清空串口缓冲区
   while (Serial1.available()) Serial1.read();
   
-  // 先激活PDP上下文（数据连接）
-  Serial.println("激活数据连接...");
+  // 先激活CGATT（附着到GPRS网络）
+  Serial.println("激活GPRS附着(CGATT=1)...");
+  String cgattResp = sendATCommand("AT+CGATT=1", 10000);
+  Serial.println("CGATT响应: " + cgattResp);
+  
+  bool cgattActivated = (cgattResp.indexOf("OK") >= 0);
+  if (!cgattActivated) {
+    Serial.println("CGATT激活失败");
+  }
+  
+  // 再激活PDP上下文（数据连接）
+  Serial.println("激活数据连接(CGACT)...");
   String activateResp = sendATCommand("AT+CGACT=1,1", 10000);
   Serial.println("CGACT响应: " + activateResp);
   
@@ -1175,9 +1185,14 @@ void handlePing() {
   Serial.println("\nPing操作完成");
   
   // 关闭数据连接以节省流量
-  Serial.println("关闭数据连接...");
+  Serial.println("关闭PDP上下文(CGACT=0)...");
   String deactivateResp = sendATCommand("AT+CGACT=0,1", 5000);
   Serial.println("CGACT关闭响应: " + deactivateResp);
+  
+  // 关闭GPRS附着，彻底断开移动网络数据连接
+  Serial.println("关闭GPRS附着(CGATT=0)...");
+  String cgattOffResp = sendATCommand("AT+CGATT=0", 5000);
+  Serial.println("CGATT关闭响应: " + cgattOffResp);
   
   // 构建JSON响应
   String json = "{";
@@ -2064,16 +2079,23 @@ bool sendATandWaitOK(const char* cmd, unsigned long timeout) {
   return false;
 }
 
-bool waitCGATT1() {
-  Serial1.println("AT+CGATT?");
+// 检测网络注册状态
+// CREG状态: 1=已注册本地, 5=已注册漫游
+bool waitCREG() {
+  Serial1.println("AT+CREG?");
   unsigned long start = millis();
   String resp = "";
   while (millis() - start < 2000) {
     while (Serial1.available()) {
       char c = Serial1.read();
       resp += c;
-      if (resp.indexOf("+CGATT: 1") >= 0) return true;
-      if (resp.indexOf("+CGATT: 0") >= 0) return false;
+      // +CREG: <n>,<stat> 其中stat=1或5表示已注册
+      if (resp.indexOf("+CREG:") >= 0) {
+        // 检查是否已注册（状态1或5）
+        if (resp.indexOf(",1") >= 0 || resp.indexOf(",5") >= 0) return true;
+        if (resp.indexOf(",0") >= 0 || resp.indexOf(",2") >= 0 || 
+            resp.indexOf(",3") >= 0 || resp.indexOf(",4") >= 0) return false;
+      }
     }
   }
   return false;
@@ -2092,6 +2114,42 @@ void setup() {
   // 加载配置
   loadConfig();
   configValid = isConfigValid();
+  
+  // ========== 先初始化模组 ==========
+  while (!sendATandWaitOK("AT", 1000)) {
+    Serial.println("AT未响应，重试...");
+    blink_short();
+  }
+  Serial.println("模组AT响应正常");
+  
+  //先设置CGATT=0，禁用数据连接
+  while (!sendATandWaitOK("AT+CGATT=0", 5000)) {
+    Serial.println("设置CGATT=0失败，重试...");
+    blink_short();
+  }
+  Serial.println("已禁用数据连接(CGATT=0)，防止流量消耗");
+  
+  //设置短信自动上报
+  while (!sendATandWaitOK("AT+CNMI=2,2,0,0,0", 1000)) {
+    Serial.println("设置CNMI失败，重试...");
+    blink_short();
+  }
+  Serial.println("CNMI参数设置完成");
+  
+  //配置PDU模式
+  while (!sendATandWaitOK("AT+CMGF=0", 1000)) {
+    Serial.println("设置PDU模式失败，重试...");
+    blink_short();
+  }
+  Serial.println("PDU模式设置完成");
+  
+  //等待网络注册
+  while (!waitCREG()) {
+    Serial.println("等待网络注册...");
+    blink_short();
+  }
+  Serial.println("网络已注册");
+  // ========== 模组初始化完成 ==========
   
   // 连接WiFi（支持隐藏SSID）
   // 参数: ssid, password, channel(0=自动), bssid(nullptr=自动), connect(true=连接隐藏网络)
@@ -2133,29 +2191,6 @@ void setup() {
   Serial.println("HTTP服务器已启动");
   
   ssl_client.setInsecure();
-  while (!sendATandWaitOK("AT", 1000)) {
-    Serial.println("AT未响应，重试...");
-    blink_short();
-  }
-  Serial.println("模组AT响应正常");
-  //设置短信自动上报
-  while (!sendATandWaitOK("AT+CNMI=2,2,0,0,0", 1000)) {
-    Serial.println("设置CNMI失败，重试...");
-    blink_short();
-  }
-  Serial.println("CNMI参数设置完成");
-  //配置PDU模式
-  while (!sendATandWaitOK("AT+CMGF=0", 1000)) {
-    Serial.println("设置PDU模式失败，重试...");
-    blink_short();
-  }
-  Serial.println("PDU模式设置完成");
-  //等待CGATT附着
-  while (!waitCGATT1()) {
-    Serial.println("等待CGATT附着...");
-    blink_short();
-  }
-  Serial.println("CGATT已附着");
   digitalWrite(LED_BUILTIN, LOW);
   
   // 如果配置有效，发送启动通知

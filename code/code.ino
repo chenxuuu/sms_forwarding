@@ -2093,10 +2093,12 @@ void setup() {
   loadConfig();
   configValid = isConfigValid();
   
-  WiFiMulti.addAP(WIFI_SSID, WIFI_PASS);
+  // 连接WiFi（支持隐藏SSID）
+  // 参数: ssid, password, channel(0=自动), bssid(nullptr=自动), connect(true=连接隐藏网络)
+  WiFi.begin(WIFI_SSID, WIFI_PASS, 0, nullptr, true);
   Serial.println("连接wifi");
   Serial.println(WIFI_SSID);
-  while (WiFiMulti.run() != WL_CONNECTED) blink_short();
+  while (WiFi.status() != WL_CONNECTED) blink_short();
   Serial.println("wifi已连接");
   Serial.print("IP地址: ");
   Serial.println(WiFi.localIP());

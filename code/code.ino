@@ -2079,18 +2079,18 @@ bool sendATandWaitOK(const char* cmd, unsigned long timeout) {
   return false;
 }
 
-// 检测网络注册状态
-// CREG状态: 1=已注册本地, 5=已注册漫游
-bool waitCREG() {
-  Serial1.println("AT+CREG?");
+// 检测网络注册状态（LTE/4G）
+// CEREG状态: 1=已注册本地, 5=已注册漫游
+bool waitCEREG() {
+  Serial1.println("AT+CEREG?");
   unsigned long start = millis();
   String resp = "";
   while (millis() - start < 2000) {
     while (Serial1.available()) {
       char c = Serial1.read();
       resp += c;
-      // +CREG: <n>,<stat> 其中stat=1或5表示已注册
-      if (resp.indexOf("+CREG:") >= 0) {
+      // +CEREG: <n>,<stat> 其中stat=1或5表示已注册
+      if (resp.indexOf("+CEREG:") >= 0) {
         // 检查是否已注册（状态1或5）
         if (resp.indexOf(",1") >= 0 || resp.indexOf(",5") >= 0) return true;
         if (resp.indexOf(",0") >= 0 || resp.indexOf(",2") >= 0 || 
@@ -2143,8 +2143,8 @@ void setup() {
   }
   Serial.println("PDU模式设置完成");
   
-  //等待网络注册
-  while (!waitCREG()) {
+  //等待网络注册（LTE/4G）
+  while (!waitCEREG()) {
     Serial.println("等待网络注册...");
     blink_short();
   }

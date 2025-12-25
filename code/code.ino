@@ -1030,17 +1030,7 @@ void handlePing() {
   // 清空串口缓冲区
   while (Serial1.available()) Serial1.read();
   
-  // 先激活CGATT（附着到GPRS网络）
-  Serial.println("激活GPRS附着(CGATT=1)...");
-  String cgattResp = sendATCommand("AT+CGATT=1", 10000);
-  Serial.println("CGATT响应: " + cgattResp);
-  
-  bool cgattActivated = (cgattResp.indexOf("OK") >= 0);
-  if (!cgattActivated) {
-    Serial.println("CGATT激活失败");
-  }
-  
-  // 再激活PDP上下文（数据连接）
+  // 激活PDP上下文（数据连接）
   Serial.println("激活数据连接(CGACT)...");
   String activateResp = sendATCommand("AT+CGACT=1,1", 10000);
   Serial.println("CGACT响应: " + activateResp);
@@ -1188,11 +1178,6 @@ void handlePing() {
   Serial.println("关闭PDP上下文(CGACT=0)...");
   String deactivateResp = sendATCommand("AT+CGACT=0,1", 5000);
   Serial.println("CGACT关闭响应: " + deactivateResp);
-  
-  // 关闭GPRS附着，彻底断开移动网络数据连接
-  Serial.println("关闭GPRS附着(CGATT=0)...");
-  String cgattOffResp = sendATCommand("AT+CGATT=0", 5000);
-  Serial.println("CGATT关闭响应: " + cgattOffResp);
   
   // 构建JSON响应
   String json = "{";
@@ -2122,12 +2107,12 @@ void setup() {
   }
   Serial.println("模组AT响应正常");
   
-  //先设置CGATT=0，禁用数据连接
-  while (!sendATandWaitOK("AT+CGATT=0", 5000)) {
-    Serial.println("设置CGATT=0失败，重试...");
+  //先设置CGACT，禁用数据连接
+  while (!sendATandWaitOK("AT+CGACT=0,1", 5000)) {
+    Serial.println("设置CGACT失败，重试...");
     blink_short();
   }
-  Serial.println("已禁用数据连接(CGATT=0)，防止流量消耗");
+  Serial.println("已禁用数据连接(AT+CGACT=0,1)，防止流量消耗");
   
   //设置短信自动上报
   while (!sendATandWaitOK("AT+CNMI=2,2,0,0,0", 1000)) {

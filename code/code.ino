@@ -29,7 +29,8 @@ enum PushType {
   PUSH_TYPE_PUSHPLUS = 5,  // PushPlus
   PUSH_TYPE_SERVERCHAN = 6,// Server酱
   PUSH_TYPE_CUSTOM = 7,    // 自定义模板
-  PUSH_TYPE_FEISHU = 8     // 飞书机器人
+  PUSH_TYPE_FEISHU = 8,    // 飞书机器人
+  PUSH_TYPE_GOTIFY = 9     // Gotify
 };
 
 // 最大推送通道数
@@ -186,6 +187,8 @@ bool isPushChannelValid(const PushChannel& ch) {
     case PUSH_TYPE_PUSHPLUS:
     case PUSH_TYPE_SERVERCHAN:
       return ch.key1.length() > 0;  // 这两个主要靠key1（token/sendkey）
+    case PUSH_TYPE_GOTIFY:
+      return ch.url.length() > 0 && ch.key1.length() > 0;  // 需要URL和Token
     default:
       return false;
   }
@@ -372,6 +375,11 @@ const char* htmlPage = R"rawliteral(
         extraFields.style.display = 'block';
         document.getElementById('key1label' + idx).innerText = 'Secret（签名密钥，可选）';
         document.getElementById('key1' + idx).placeholder = '飞书机器人的签名密钥';
+      } else if (type == 9) {
+        hint.innerHTML = '<b>Gotify：</b><br>填写服务器地址（如 http://gotify.example.com），Token填写应用Token';
+        extraFields.style.display = 'block';
+        document.getElementById('key1label' + idx).innerText = 'Token（应用Token）';
+        document.getElementById('key1' + idx).placeholder = 'A...';
       }
     }
     document.addEventListener('DOMContentLoaded', function() {
@@ -603,6 +611,7 @@ void handleRoot() {
     channelsHtml += "<option value=\"6\"" + String(config.pushChannels[i].type == PUSH_TYPE_SERVERCHAN ? " selected" : "") + ">Server酱</option>";
     channelsHtml += "<option value=\"7\"" + String(config.pushChannels[i].type == PUSH_TYPE_CUSTOM ? " selected" : "") + ">自定义模板</option>";
     channelsHtml += "<option value=\"8\"" + String(config.pushChannels[i].type == PUSH_TYPE_FEISHU ? " selected" : "") + ">飞书机器人</option>";
+    channelsHtml += "<option value=\"9\"" + String(config.pushChannels[i].type == PUSH_TYPE_GOTIFY ? " selected" : "") + ">Gotify</option>";
     channelsHtml += "</select>";
     channelsHtml += "<div class=\"push-type-hint\" id=\"hint" + idx + "\"></div>";
     channelsHtml += "</div>";
@@ -1817,6 +1826,25 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       http.begin(webhookUrl);
       http.addHeader("Content-Type", "application/json");
       Serial.println("飞书: " + jsonData);
+      httpCode = http.POST(jsonData);
+      break;
+    }
+    
+    case PUSH_TYPE_GOTIFY: {
+      // Gotify 推送
+      String gotifyUrl = channel.url;
+      // 确保URL以/结尾
+      if (!gotifyUrl.endsWith("/")) gotifyUrl += "/";
+      gotifyUrl += "message?token=" + channel.key1;
+      
+      http.begin(gotifyUrl);
+      http.addHeader("Content-Type", "application/json");
+      String jsonData = "{";
+      jsonData += "\"title\":\"短信来自: " + senderEscaped + "\",";
+      jsonData += "\"message\":\"" + messageEscaped + "\\n\\n时间: " + timestampEscaped + "\",";
+      jsonData += "\"priority\":5";
+      jsonData += "}";
+      Serial.println("Gotify: " + jsonData);
       httpCode = http.POST(jsonData);
       break;
     }

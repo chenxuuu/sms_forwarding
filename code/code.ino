@@ -485,6 +485,16 @@ const char* htmlToolsPage = R"rawliteral(
       <div class="hint">将向 8.8.8.8 进行 ping 操作，一次性消耗极少流量费用</div>
       <div class="result-box" id="pingResult"></div>
     </div>
+    
+    <div class="section">
+      <div class="section-title">✈️ 模组控制</div>
+      <div class="btn-group">
+        <button type="button" id="flightBtn" onclick="toggleFlightMode()" style="background:#E91E63;">✈️ 切换飞行模式</button>
+        <button type="button" onclick="queryFlightMode()" style="background:#9C27B0;">🔍 查询状态</button>
+      </div>
+      <div class="hint">飞行模式关闭时模组可正常收发短信，开启后将关闭射频无法使用移动网络</div>
+      <div class="result-box" id="flightResult"></div>
+    </div>
   </div>
   <script>
     function updateCount(el) {
@@ -546,6 +556,58 @@ const char* htmlToolsPage = R"rawliteral(
         .catch(error => {
           btn.disabled = false;
           btn.textContent = '📡 点我消耗一点流量';
+          result.className = 'result-box result-error';
+          result.textContent = '❌ 请求失败: ' + error;
+        });
+    }
+    
+    function queryFlightMode() {
+      var result = document.getElementById('flightResult');
+      result.className = 'result-box result-loading';
+      result.style.display = 'block';
+      result.textContent = '正在查询飞行模式状态...';
+      
+      fetch('/flight?action=query')
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            result.className = 'result-box result-info';
+            result.innerHTML = data.message;
+          } else {
+            result.className = 'result-box result-error';
+            result.innerHTML = '❌ 查询失败: ' + data.message;
+          }
+        })
+        .catch(error => {
+          result.className = 'result-box result-error';
+          result.textContent = '❌ 请求失败: ' + error;
+        });
+    }
+    
+    function toggleFlightMode() {
+      if (!confirm('确定要切换飞行模式吗？\n\n开启飞行模式后模组将无法收发短信。')) return;
+      
+      var btn = document.getElementById('flightBtn');
+      var result = document.getElementById('flightResult');
+      btn.disabled = true;
+      result.className = 'result-box result-loading';
+      result.style.display = 'block';
+      result.textContent = '正在切换飞行模式...';
+      
+      fetch('/flight?action=toggle')
+        .then(response => response.json())
+        .then(data => {
+          btn.disabled = false;
+          if (data.success) {
+            result.className = 'result-box result-success';
+            result.innerHTML = '✅ ' + data.message;
+          } else {
+            result.className = 'result-box result-error';
+            result.innerHTML = '❌ 切换失败: ' + data.message;
+          }
+        })
+        .catch(error => {
+          btn.disabled = false;
           result.className = 'result-box result-error';
           result.textContent = '❌ 请求失败: ' + error;
         });
@@ -677,6 +739,111 @@ String sendATCommand(const char* cmd, unsigned long timeout) {
     }
   }
   return resp;
+}
+
+// 处理飞行模式控制请求
+void handleFlightMode() {
+  if (!checkAuth()) return;
+  
+  String action = server.arg("action");
+  String json = "{";
+  bool success = false;
+  String message = "";
+  
+  if (action == "query") {
+    // 查询当前功能模式
+    String resp = sendATCommand("AT+CFUN?", 2000);
+    Serial.println("CFUN查询响应: " + resp);
+    
+    if (resp.indexOf("+CFUN:") >= 0) {
+      success = true;
+      int idx = resp.indexOf("+CFUN:");
+      int mode = resp.substring(idx + 6, idx + 7).toInt();
+      
+      String modeStr;
+      String statusIcon;
+      if (mode == 0) {
+        modeStr = "最小功能模式（关机）";
+        statusIcon = "🔴";
+      } else if (mode == 1) {
+        modeStr = "全功能模式（正常）";
+        statusIcon = "🟢";
+      } else if (mode == 4) {
+        modeStr = "飞行模式（射频关闭）";
+        statusIcon = "✈️";
+      } else {
+        modeStr = "未知模式 (" + String(mode) + ")";
+        statusIcon = "❓";
+      }
+      
+      message = "<table class='info-table'>";
+      message += "<tr><td>当前状态</td><td>" + statusIcon + " " + modeStr + "</td></tr>";
+      message += "<tr><td>CFUN值</td><td>" + String(mode) + "</td></tr>";
+      message += "</table>";
+    } else {
+      message = "查询失败";
+    }
+  }
+  else if (action == "toggle") {
+    // 先查询当前状态
+    String resp = sendATCommand("AT+CFUN?", 2000);
+    Serial.println("CFUN查询响应: " + resp);
+    
+    if (resp.indexOf("+CFUN:") >= 0) {
+      int idx = resp.indexOf("+CFUN:");
+      int currentMode = resp.substring(idx + 6, idx + 7).toInt();
+      
+      // 切换模式：1(正常) <-> 4(飞行模式)
+      int newMode = (currentMode == 1) ? 4 : 1;
+      String cmd = "AT+CFUN=" + String(newMode);
+      
+      Serial.println("切换飞行模式: " + cmd);
+      String setResp = sendATCommand(cmd.c_str(), 5000);
+      Serial.println("CFUN设置响应: " + setResp);
+      
+      if (setResp.indexOf("OK") >= 0) {
+        success = true;
+        if (newMode == 4) {
+          message = "已开启飞行模式 ✈️<br>模组射频已关闭，无法收发短信";
+        } else {
+          message = "已关闭飞行模式 🟢<br>模组恢复正常工作";
+        }
+      } else {
+        message = "切换失败: " + setResp;
+      }
+    } else {
+      message = "无法获取当前状态";
+    }
+  }
+  else if (action == "on") {
+    // 强制开启飞行模式
+    String resp = sendATCommand("AT+CFUN=4", 5000);
+    if (resp.indexOf("OK") >= 0) {
+      success = true;
+      message = "已开启飞行模式 ✈️";
+    } else {
+      message = "开启失败: " + resp;
+    }
+  }
+  else if (action == "off") {
+    // 强制关闭飞行模式
+    String resp = sendATCommand("AT+CFUN=1", 5000);
+    if (resp.indexOf("OK") >= 0) {
+      success = true;
+      message = "已关闭飞行模式 🟢";
+    } else {
+      message = "关闭失败: " + resp;
+    }
+  }
+  else {
+    message = "未知操作";
+  }
+  
+  json += "\"success\":" + String(success ? "true" : "false") + ",";
+  json += "\"message\":\"" + message + "\"";
+  json += "}";
+  
+  server.send(200, "application/json", json);
 }
 
 // 处理模组信息查询请求
@@ -2200,6 +2367,7 @@ void setup() {
   server.on("/sendsms", HTTP_POST, handleSendSms);
   server.on("/ping", HTTP_POST, handlePing);
   server.on("/query", handleQuery);
+  server.on("/flight", handleFlightMode);
   server.begin();
   Serial.println("HTTP服务器已启动");
   

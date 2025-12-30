@@ -18,6 +18,7 @@
 //串口映射
 #define TXD 3
 #define RXD 4
+#define MODEM_EN_PIN 5
 
 // 推送通道类型
 enum PushType {
@@ -1548,12 +1549,43 @@ bool sendSMS(const char* phoneNumber, const char* message) {
   return false;
 }
 
+// 新增“模组断电重启”函数
+void modemPowerCycle() {
+  pinMode(MODEM_EN_PIN, OUTPUT);
+
+  Serial.println("EN 拉低：关闭模组");
+  digitalWrite(MODEM_EN_PIN, LOW);
+  delay(1200);  // 关机时间给够
+
+  Serial.println("EN 拉高：开启模组");
+  digitalWrite(MODEM_EN_PIN, HIGH);
+  delay(6000);  // 等模组完全启动再发AT（关键）
+}
+
+
 // 重启模组
 void resetModule() {
-  Serial.println("正在重启模组...");
-  Serial1.println("AT+CFUN=1,1");
-  delay(3000);
+  Serial.println("正在硬重启模组（EN 断电重启）...");
+
+  modemPowerCycle();
+
+  // 清掉上电噪声/残留
+  while (Serial1.available()) Serial1.read();
+
+  // 硬重启后做 AT 握手确认（最多等 10 秒）
+  bool ok = false;
+  for (int i = 0; i < 10; i++) {
+    if (sendATandWaitOK("AT", 1000)) {
+      ok = true;
+      break;
+    }
+    Serial.println("AT未响应，继续等模组启动...");
+  }
+
+  if (ok) Serial.println("模组AT恢复正常");
+  else    Serial.println("模组AT仍未响应（检查EN接线/供电/波特率）");
 }
+
 
 // 检查发送者是否为管理员
 bool isAdmin(const char* sender) {
@@ -2282,11 +2314,22 @@ bool waitCEREG() {
 }
 
 void setup() {
+  //  指示灯
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
+
+  // USB 串口日志
   Serial.begin(115200);
+  delay(1500);  // 等 USB CDC 稳定
+
+  // 模组串口（UART）
   Serial1.begin(115200, SERIAL_8N1, RXD, TXD);
   Serial1.setRxBufferSize(SERIAL_BUFFER_SIZE);
+
+  // 模组从“干净状态”启动（EN 断电重启 + 清串口噪声）
+  while (Serial1.available()) Serial1.read();
+  modemPowerCycle();
+  while (Serial1.available()) Serial1.read();
   
   // 初始化长短信缓存
   initConcatBuffer();
@@ -2295,6 +2338,7 @@ void setup() {
   loadConfig();
   configValid = isConfigValid();
   
+
   // ========== 先初始化模组 ==========
   while (!sendATandWaitOK("AT", 1000)) {
     Serial.println("AT未响应，重试...");

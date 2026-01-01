@@ -759,7 +759,7 @@ void handleFlightMode() {
     if (resp.indexOf("+CFUN:") >= 0) {
       success = true;
       int idx = resp.indexOf("+CFUN:");
-      int mode = resp.substring(idx + 6, idx + 7).toInt();
+      int mode = resp.substring(idx + 6).toInt();
       
       String modeStr;
       String statusIcon;
@@ -792,7 +792,7 @@ void handleFlightMode() {
     
     if (resp.indexOf("+CFUN:") >= 0) {
       int idx = resp.indexOf("+CFUN:");
-      int currentMode = resp.substring(idx + 6, idx + 7).toInt();
+      int currentMode = resp.substring(idx + 6).toInt();
       
       // 切换模式：1(正常) <-> 4(飞行模式)
       int newMode = (currentMode == 1) ? 4 : 1;

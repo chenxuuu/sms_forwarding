@@ -1,7 +1,6 @@
 # 低成本短信转发器
 
 > 当前分支为新方案，老方案请前往[luatos分支](https://github.com/chenxuuu/sms_forwarding/tree/old-luatos)。  
-该项目可能不支持电信卡（CDMA），具体请自测。  
 本项目仅用于接收短信与进行保号相关功能。  
 多卡控制、通话、拨号、开放接口、自动化等功能永远不会支持，请勿提出相关需求。
 
@@ -56,11 +55,16 @@
 
 ## 硬件搭配
 
+如果希望自行焊接硬件，参考下面的硬件搭配，总成本约¥27.8，仅支持移动/联通卡。
+
 - ESP32C3开发板，当前选用[ESP32C3 Super Mini](https://item.taobao.com/item.htm?id=852057780489&skuId=5813710390565)，¥9.5包邮
 - ML307R-DC开发板，当前选用[小蓝鲸ML307R-DC核心板](https://item.taobao.com/item.htm?id=797466121802&skuId=5722077108045)，¥16.3包邮
 - [4G FPC天线](https://item.taobao.com/item.htm?id=797466121802&skuId=5722077108045)，¥2，与核心板同购
 
-当前成本约¥27.8
+若希望直接使用成品，可选直接购以下套件，支持移动/联通/电信卡：
+
+- [小蓝鲸WIFI短信宝](https://item.taobao.com/item.htm?id=1003711355912)
+- [4G FPC天线](https://item.taobao.com/item.htm?id=1003711355912&skuId=6162872574943)，与开发板同购
 
 ## 硬件连接
 

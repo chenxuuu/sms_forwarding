@@ -346,6 +346,8 @@ const char* htmlPage = R"rawliteral(
       document.getElementById('key2label' + idx).innerText = '参数2';
       document.getElementById('key1' + idx).placeholder = '';
       document.getElementById('key2' + idx).placeholder = '';
+      // key2 区域默认隐藏，只在需要用到 key2 的通知方式中显示
+      document.getElementById('key2' + idx).closest('.form-group').style.display = 'none';
       
       if (type == 1) {
         hint.innerHTML = '<b>POST JSON格式：</b><br>{"sender":"发送者号码","message":"短信内容","timestamp":"时间戳"}';
@@ -363,6 +365,10 @@ const char* htmlPage = R"rawliteral(
         extraFields.style.display = 'block';
         document.getElementById('key1label' + idx).innerText = 'Token';
         document.getElementById('key1' + idx).placeholder = 'pushplus的token';
+        // 显示 key2 区域
+        document.getElementById('key2' + idx).closest('.form-group').style.display = 'block';
+        document.getElementById('key2label' + idx).innerText = '发送渠道';
+        document.getElementById('key2' + idx).placeholder = 'wechat(default), extension, app';
       } else if (type == 6) {
         hint.innerHTML = '<b>Server酱：</b><br>填写SendKey，URL留空使用默认';
         extraFields.style.display = 'block';
@@ -1946,22 +1952,33 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       httpCode = http.POST(jsonData);
       break;
     }
-    
+
     case PUSH_TYPE_PUSHPLUS: {
       // PushPlus
       String pushUrl = channel.url.length() > 0 ? channel.url : "http://www.pushplus.plus/send";
       http.begin(pushUrl);
       http.addHeader("Content-Type", "application/json");
+      // 发送渠道
+      String channelValue = "wechat";
+      if (channel.key2.length() > 0) {
+          // 仅支持微信公众号（wechat）、浏览器插件（extension）和 PushPlus App（app）三种渠道
+          if (channel.key2 == "wechat" || channel.key2 == "extension" || channel.key2 == "app") {
+              channelValue = channel.key2;
+          } else {
+              Serial.println("Invalid PushPlus channel '" + channel.key2 + "'. Using default 'wechat'.");
+          }
+      }
       String jsonData = "{";
       jsonData += "\"token\":\"" + channel.key1 + "\",";
       jsonData += "\"title\":\"短信来自: " + senderEscaped + "\",";
-      jsonData += "\"content\":\"<b>发送者:</b> " + senderEscaped + "<br><b>时间:</b> " + timestampEscaped + "<br><b>内容:</b><br>" + messageEscaped + "\"";
+      jsonData += "\"content\":\"<b>发送者:</b> " + senderEscaped + "<br><b>时间:</b> " + timestampEscaped + "<br><b>内容:</b><br>" + messageEscaped + "\",";
+      jsonData += "\"channel\":\"" + channelValue + "\"";
       jsonData += "}";
       Serial.println("PushPlus: " + jsonData);
       httpCode = http.POST(jsonData);
       break;
     }
-    
+
     case PUSH_TYPE_SERVERCHAN: {
       // Server酱
       String scUrl = channel.url.length() > 0 ? channel.url : ("https://sctapi.ftqq.com/" + channel.key1 + ".send");

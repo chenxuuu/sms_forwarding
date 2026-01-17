@@ -16,8 +16,8 @@
 #include "wifi_config.h"
 
 //串口映射
-#define TXD 4
-#define RXD 3
+#define TXD 3
+#define RXD 4
 #define MODEM_EN_PIN 5
 
 // 推送通道类型

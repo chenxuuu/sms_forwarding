@@ -16,8 +16,8 @@
 #include "wifi_config.h"
 
 //串口映射
-#define TXD 3
-#define RXD 4
+#define TXD 4
+#define RXD 3
 #define MODEM_EN_PIN 5
 
 // 推送通道类型
@@ -443,6 +443,10 @@ const char* htmlToolsPage = R"rawliteral(
     .info-table td:first-child { font-weight: bold; width: 40%; color: #555; }
     .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
     .btn-group button { flex: 1; min-width: 120px; }
+    #atLog { background: #333; color: #00ff00; font-family: 'Courier New', Courier, monospace; min-height: 150px; max-height: 300px; overflow-y: auto; padding: 10px; border-radius: 5px; margin-bottom: 10px; font-size: 13px; white-space: pre-wrap; word-break: break-all; }
+    .at-input-group { display: flex; gap: 10px; }
+    .at-input-group input { flex: 1; font-family: monospace; }
+    .at-input-group button { width: auto; min-width: 80px; margin-top: 0; }
   </style>
 </head>
 <body>
@@ -501,6 +505,19 @@ const char* htmlToolsPage = R"rawliteral(
       </div>
       <div class="hint">飞行模式关闭时模组可正常收发短信，开启后将关闭射频无法使用移动网络</div>
       <div class="result-box" id="flightResult"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">💻 AT 指令调试</div>
+      <div id="atLog">等待输入指令...</div>
+      <div class="at-input-group">
+        <input type="text" id="atCmd" placeholder="输入 AT 指令，如: AT+CSQ" onkeydown="if(event.keyCode==13) sendAT()">
+        <button type="button" onclick="sendAT()" id="atBtn">发送</button>
+      </div>
+      <div class="btn-group" style="margin-top:10px;">
+        <button type="button" onclick="clearATLog()" style="background:#607D8B;">🧹 清空日志</button>
+      </div>
+      <div class="hint">直接向模组串口发送指令并接收响应，请谨慎操作</div>
     </div>
   </div>
   <script>
@@ -614,10 +631,50 @@ const char* htmlToolsPage = R"rawliteral(
           }
         })
         .catch(error => {
-          btn.disabled = false;
           result.className = 'result-box result-error';
           result.textContent = '❌ 请求失败: ' + error;
         });
+    }
+
+    function addLog(msg, isUser = false) {
+      var log = document.getElementById('atLog');
+      var prefix = isUser ? '<b style="color:#fff;">> </b>' : '<b style="color:#4CAF50;">[RESP] </b>';
+      log.innerHTML += '<div>' + prefix + msg + '</div>';
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function sendAT() {
+      var input = document.getElementById('atCmd');
+      var cmd = input.value.trim();
+      if (!cmd) return;
+      
+      var btn = document.getElementById('atBtn');
+      btn.disabled = true;
+      btn.textContent = '...';
+      
+      addLog(cmd, true);
+      input.value = '';
+      
+      fetch('/at?cmd=' + encodeURIComponent(cmd))
+        .then(response => response.json())
+        .then(data => {
+          btn.disabled = false;
+          btn.textContent = '发送';
+          if (data.success) {
+            addLog(data.message.replace(/\n/g, '<br>'));
+          } else {
+            addLog('<span style="color:#f44336;">❌ ' + data.message + '</span>');
+          }
+        })
+        .catch(error => {
+          btn.disabled = false;
+          btn.textContent = '发送';
+          addLog('<span style="color:#f44336;">❌ 网络错误: ' + error + '</span>');
+        });
+    }
+
+    function clearATLog() {
+      document.getElementById('atLog').innerHTML = '';
     }
   </script>
 </body>
@@ -844,6 +901,42 @@ void handleFlightMode() {
   }
   else {
     message = "未知操作";
+  }
+  
+  json += "\"success\":" + String(success ? "true" : "false") + ",";
+  json += "\"message\":\"" + message + "\"";
+  json += "}";
+  
+  server.send(200, "application/json", json);
+}
+
+// 处理AT指令测试请求
+void handleATCommand() {
+  if (!checkAuth()) return;
+  
+  String cmd = server.arg("cmd");
+  String json = "{";
+  bool success = false;
+  String message = "";
+  
+  if (cmd.length() == 0) {
+    message = "错误：指令不能为空";
+  } else {
+    Serial.println("网页端发送AT指令: " + cmd);
+    String resp = sendATCommand(cmd.c_str(), 5000);
+    Serial.println("模组响应: " + resp);
+    
+    if (resp.length() > 0) {
+      success = true;
+      // 替换转义字符以便JSON传输
+      String escapedResp = resp;
+      escapedResp.replace("\"", "\\\"");
+      escapedResp.replace("\r", "");
+      escapedResp.replace("\n", "\\n");
+      message = escapedResp;
+    } else {
+      message = "超时或无响应";
+    }
   }
   
   json += "\"success\":" + String(success ? "true" : "false") + ",";
@@ -2429,6 +2522,7 @@ void setup() {
   server.on("/ping", HTTP_POST, handlePing);
   server.on("/query", handleQuery);
   server.on("/flight", handleFlightMode);
+  server.on("/at", handleATCommand);
   server.begin();
   Serial.println("HTTP服务器已启动");
   

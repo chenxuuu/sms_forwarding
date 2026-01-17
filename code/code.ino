@@ -505,7 +505,7 @@ const char* htmlToolsPage = R"rawliteral(
       <div class="section-title">💻 AT 指令调试</div>
       <div id="atLog">等待输入指令...</div>
       <div class="at-input-group">
-        <input type="text" id="atCmd" placeholder="输入 AT 指令，如: AT+CSQ" onkeydown="if(event.key==='Enter') sendAT()">
+        <input type="text" id="atCmd" placeholder="输入 AT 指令，如: AT+CSQ">
         <button type="button" onclick="sendAT()" id="atBtn">发送</button>
       </div>
       <div class="btn-group" style="margin-top:10px;">
@@ -625,6 +625,7 @@ const char* htmlToolsPage = R"rawliteral(
           }
         })
         .catch(error => {
+          btn.disabled = false;
           result.className = 'result-box result-error';
           result.textContent = '❌ 请求失败: ' + error;
         });
@@ -687,6 +688,11 @@ const char* htmlToolsPage = R"rawliteral(
     function clearATLog() {
       document.getElementById('atLog').innerHTML = '';
     }
+    document.getElementById('atCmd').addEventListener('keydown', function(event) {
+      if (event.key === 'Enter') {
+        sendAT();
+      }
+    });
   </script>
 </body>
 </html>
@@ -926,7 +932,6 @@ void handleATCommand() {
   if (!checkAuth()) return;
   
   String cmd = server.arg("cmd");
-  String json = "{";
   bool success = false;
   String message = "";
   
@@ -939,15 +944,15 @@ void handleATCommand() {
     
     if (resp.length() > 0) {
       success = true;
-      // 使用自带的 jsonEscape 处理换行和其他特殊字符
-      message = jsonEscape(resp);
+      message = resp;
     } else {
       message = "超时或无响应";
     }
   }
   
+  String json = "{";
   json += "\"success\":" + String(success ? "true" : "false") + ",";
-  json += "\"message\":\"" + message + "\"";
+  json += "\"message\":\"" + jsonEscape(message) + "\"";
   json += "}";
   
   server.send(200, "application/json", json);

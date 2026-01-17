@@ -511,11 +511,11 @@ const char* htmlToolsPage = R"rawliteral(
       <div class="section-title">💻 AT 指令调试</div>
       <div id="atLog">等待输入指令...</div>
       <div class="at-input-group">
-        <input type="text" id="atCmd" placeholder="输入 AT 指令，如: AT+CSQ" onkeydown="if(event.keyCode==13) sendAT()">
+        <input type="text" id="atCmd" placeholder="输入 AT 指令，如: AT+CSQ" onkeydown="if(event.key==='Enter') sendAT()">
         <button type="button" onclick="sendAT()" id="atBtn">发送</button>
       </div>
       <div class="btn-group" style="margin-top:10px;">
-        <button type="button" onclick="clearATLog()" style="background:#607D8B;">🧹 清空日志</button>
+        <button type="button" class="btn-info" onclick="clearATLog()">🧹 清空日志</button>
       </div>
       <div class="hint">直接向模组串口发送指令并接收响应，请谨慎操作</div>
     </div>
@@ -636,10 +636,27 @@ const char* htmlToolsPage = R"rawliteral(
         });
     }
 
-    function addLog(msg, isUser = false) {
+    function addLog(msg, type = 'resp') {
       var log = document.getElementById('atLog');
-      var prefix = isUser ? '<b style="color:#fff;">> </b>' : '<b style="color:#4CAF50;">[RESP] </b>';
-      log.innerHTML += '<div>' + prefix + msg + '</div>';
+      var div = document.createElement('div');
+      var b = document.createElement('b');
+      
+      if (type === 'user') {
+        b.style.color = '#fff';
+        b.textContent = '> ';
+      } else if (type === 'error') {
+        b.style.color = '#f44336';
+        b.textContent = '❌ ';
+      } else {
+        b.style.color = '#4CAF50';
+        b.textContent = '[RESP] ';
+      }
+      
+      div.appendChild(b);
+      var textNode = document.createTextNode(msg);
+      div.appendChild(textNode);
+      
+      log.appendChild(div);
       log.scrollTop = log.scrollHeight;
     }
 
@@ -652,24 +669,24 @@ const char* htmlToolsPage = R"rawliteral(
       btn.disabled = true;
       btn.textContent = '...';
       
-      addLog(cmd, true);
+      addLog(cmd, 'user');
       input.value = '';
       
       fetch('/at?cmd=' + encodeURIComponent(cmd))
         .then(response => response.json())
         .then(data => {
-          btn.disabled = false;
-          btn.textContent = '发送';
           if (data.success) {
-            addLog(data.message.replace(/\n/g, '<br>'));
+            addLog(data.message);
           } else {
-            addLog('<span style="color:#f44336;">❌ ' + data.message + '</span>');
+            addLog(data.message, 'error');
           }
         })
         .catch(error => {
+          addLog('网络错误: ' + error, 'error');
+        })
+        .finally(() => {
           btn.disabled = false;
           btn.textContent = '发送';
-          addLog('<span style="color:#f44336;">❌ 网络错误: ' + error + '</span>');
         });
     }
 
@@ -928,12 +945,8 @@ void handleATCommand() {
     
     if (resp.length() > 0) {
       success = true;
-      // 替换转义字符以便JSON传输
-      String escapedResp = resp;
-      escapedResp.replace("\"", "\\\"");
-      escapedResp.replace("\r", "");
-      escapedResp.replace("\n", "\\n");
-      message = escapedResp;
+      // 使用自带的 jsonEscape 处理换行和其他特殊字符
+      message = jsonEscape(resp);
     } else {
       message = "超时或无响应";
     }

@@ -31,7 +31,8 @@ enum PushType {
   PUSH_TYPE_SERVERCHAN = 6,// Server酱
   PUSH_TYPE_CUSTOM = 7,    // 自定义模板
   PUSH_TYPE_FEISHU = 8,    // 飞书机器人
-  PUSH_TYPE_GOTIFY = 9     // Gotify
+  PUSH_TYPE_GOTIFY = 9,    // Gotify
+  PUSH_TYPE_TELEGRAM = 10  // Telegram Bot
 };
 
 // 最大推送通道数
@@ -190,6 +191,8 @@ bool isPushChannelValid(const PushChannel& ch) {
       return ch.key1.length() > 0;  // 这两个主要靠key1（token/sendkey）
     case PUSH_TYPE_GOTIFY:
       return ch.url.length() > 0 && ch.key1.length() > 0;  // 需要URL和Token
+    case PUSH_TYPE_TELEGRAM:
+      return ch.key1.length() > 0 && ch.key2.length() > 0; // 需要Chat ID和Token
     default:
       return false;
   }
@@ -381,6 +384,13 @@ const char* htmlPage = R"rawliteral(
         extraFields.style.display = 'block';
         document.getElementById('key1label' + idx).innerText = 'Token（应用Token）';
         document.getElementById('key1' + idx).placeholder = 'A...';
+      } else if (type == 10) {
+        hint.innerHTML = '<b>Telegram Bot：</b><br>填写Chat ID（参数1）和Bot Token（参数2），URL留空默认使用官方API';
+        extraFields.style.display = 'block';
+        document.getElementById('key1label' + idx).innerText = 'Chat ID';
+        document.getElementById('key1' + idx).placeholder = '123456789';
+        document.getElementById('key2label' + idx).innerText = 'Bot Token';
+        document.getElementById('key2' + idx).placeholder = '12345678:ABC...';
       }
     }
     document.addEventListener('DOMContentLoaded', function() {
@@ -755,6 +765,7 @@ void handleRoot() {
     channelsHtml += "<option value=\"7\"" + String(config.pushChannels[i].type == PUSH_TYPE_CUSTOM ? " selected" : "") + ">自定义模板</option>";
     channelsHtml += "<option value=\"8\"" + String(config.pushChannels[i].type == PUSH_TYPE_FEISHU ? " selected" : "") + ">飞书机器人</option>";
     channelsHtml += "<option value=\"9\"" + String(config.pushChannels[i].type == PUSH_TYPE_GOTIFY ? " selected" : "") + ">Gotify</option>";
+    channelsHtml += "<option value=\"10\"" + String(config.pushChannels[i].type == PUSH_TYPE_TELEGRAM ? " selected" : "") + ">Telegram Bot</option>";
     channelsHtml += "</select>";
     channelsHtml += "<div class=\"push-type-hint\" id=\"hint" + idx + "\"></div>";
     channelsHtml += "</div>";
@@ -771,7 +782,7 @@ void handleRoot() {
     channelsHtml += "<label id=\"key1label" + idx + "\">参数1</label>";
     channelsHtml += "<input type=\"text\" name=\"push" + idx + "key1\" id=\"key1" + idx + "\" value=\"" + config.pushChannels[i].key1 + "\">";
     channelsHtml += "</div>";
-    channelsHtml += "<div class=\"form-group\" style=\"display:none;\">";
+    channelsHtml += "<div class=\"form-group\" id=\"key2group" + idx + "\">";
     channelsHtml += "<label id=\"key2label" + idx + "\">参数2</label>";
     channelsHtml += "<input type=\"text\" name=\"push" + idx + "key2\" id=\"key2" + idx + "\" value=\"" + config.pushChannels[i].key2 + "\">";
     channelsHtml += "</div>";
@@ -2155,6 +2166,27 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       jsonData += "\"priority\":5";
       jsonData += "}";
       Serial.println("Gotify: " + jsonData);
+      httpCode = http.POST(jsonData);
+      break;
+    }
+    
+    case PUSH_TYPE_TELEGRAM: {
+      // Telegram Bot 推送
+      // channel.key1 是 Chat ID, channel.key2 是 Bot Token
+      String tgBaseUrl = channel.url.length() > 0 ? channel.url : "https://api.telegram.org";
+      if (tgBaseUrl.endsWith("/")) tgBaseUrl.remove(tgBaseUrl.length() - 1);
+      
+      String tgUrl = tgBaseUrl + "/bot" + channel.key2 + "/sendMessage";
+      http.begin(tgUrl);
+      http.addHeader("Content-Type", "application/json");
+      
+      String jsonData = "{";
+      jsonData += "\"chat_id\":\"" + channel.key1 + "\",";
+      String text = "📱短信通知\n发送者: " + senderEscaped + "\n内容: " + messageEscaped + "\n时间: " + timestampEscaped;
+      jsonData += "\"text\":\"" + text + "\"";
+      jsonData += "}";
+      
+      Serial.println("Telegram: " + jsonData);
       httpCode = http.POST(jsonData);
       break;
     }

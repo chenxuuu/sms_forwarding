@@ -20,9 +20,18 @@
       border-radius: 5px; cursor: pointer; font-size: 16px; margin-top: 10px; 
     }
     button:hover { background: #45a049; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
     .label-inline { display:inline; font-weight:normal; margin-left: 5px; }
     .btn-send { background: #2196F3; }
     .btn-send:hover { background: #1976D2; }
+    .btn-query { background: #9C27B0; }
+    .btn-query:hover { background: #7B1FA2; }
+    .btn-info { background: #607D8B; }
+    .btn-info:hover { background: #455A64; }
+    .btn-ping { background: #FF9800; }
+    .btn-ping:hover { background: #F57C00; }
+    .btn-flight { background: #E91E63; }
+    .btn-flight:hover { background: #C2185B; }
     .section { border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
     .section-title { font-size: 18px; color: #333; margin-bottom: 10px; }
     .status { padding: 10px; background: #e7f3fe; border-left: 4px solid #2196F3; margin-bottom: 20px; }
@@ -43,7 +52,7 @@
     .push-channel.enabled .push-channel-body { display: block; }
     .push-type-hint { font-size: 11px; color: #666; margin-top: 5px; padding: 8px; background: #f0f0f0; border-radius: 3px; }
     
-    /* 成功提示样式 */
+    /* Toast提示样式 */
     .toast {
       position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
       padding: 15px 30px; border-radius: 8px; color: white; font-weight: bold;
@@ -66,6 +75,33 @@
     .login-box h2 { margin-top: 0; text-align: center; color: #333; }
     .login-box .form-group { margin-bottom: 15px; }
     .login-error { color: #f44336; font-size: 12px; margin-top: 10px; text-align: center; display: none; }
+    
+    /* 结果框样式 */
+    .result-box { margin-top: 10px; padding: 10px; border-radius: 5px; display: none; }
+    .result-success { background: #e8f5e9; border-left: 4px solid #4CAF50; color: #2e7d32; }
+    .result-error { background: #ffebee; border-left: 4px solid #f44336; color: #c62828; }
+    .result-loading { background: #fff3e0; border-left: 4px solid #FF9800; color: #e65100; }
+    .result-info { background: #e3f2fd; border-left: 4px solid #2196F3; color: #1565c0; }
+    
+    /* 信息表格样式 */
+    .info-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    .info-table td { padding: 5px 8px; border-bottom: 1px solid #ddd; }
+    .info-table td:first-child { font-weight: bold; width: 40%; color: #555; }
+    
+    /* 按钮组样式 */
+    .btn-group { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .btn-group button { flex: 1; min-width: 120px; margin-top: 0; }
+    
+    /* AT指令调试样式 */
+    #atLog { 
+      background: #333; color: #00ff00; font-family: 'Courier New', Courier, monospace; 
+      min-height: 150px; max-height: 300px; overflow-y: auto; padding: 10px; 
+      border-radius: 5px; margin-bottom: 10px; font-size: 13px; 
+      white-space: pre-wrap; word-break: break-all; 
+    }
+    .at-input-group { display: flex; gap: 10px; }
+    .at-input-group input { flex: 1; font-family: monospace; }
+    .at-input-group button { width: auto; min-width: 80px; margin-top: 0; }
   </style>
 </head>
 <body>
@@ -92,8 +128,8 @@
 
   <div class="container">
     <h1>📱 短信转发器</h1>
-    <p>
-        本页面仅用于展示功能，具体请<a href="https://github.com/chenxuuu/sms_forwarding" target="_blank">访问GitHub仓库</a>。
+    <p style="text-align: center; color: #666; font-size: 14px;">
+      本页面仅用于展示功能，具体请<a href="https://github.com/chenxuuu/sms_forwarding" target="_blank">访问GitHub仓库</a>。
     </p>
     <div class="nav">
       <a class="active" id="navConfig" onclick="showPage('config')">⚙️ 系统配置</a>
@@ -143,7 +179,7 @@
         
         <div class="section">
           <div class="section-title">🔗 HTTP推送通道设置</div>
-          <div class="hint" style="margin-bottom:15px;">可同时启用多个推送通道，每个通道独立配置。支持POST JSON、Bark、GET、钉钉、PushPlus、Server酱等多种方式。</div>
+          <div class="hint" style="margin-bottom:15px;">可同时启用多个推送通道，每个通道独立配置。支持POST JSON、Bark、GET、钉钉、PushPlus、Server酱、飞书、Gotify、Telegram等多种方式。</div>
           
           <div id="pushChannelsContainer"></div>
         </div>
@@ -153,6 +189,10 @@
           <div class="form-group">
             <label>管理员手机号</label>
             <input type="text" name="adminPhone" id="adminPhone" placeholder="13800138000">
+          </div>
+          <div class="hint">管理员可通过短信发送命令控制设备，支持以下命令：<br>
+            • <code>SMS:号码:内容</code> - 远程发送短信<br>
+            • <code>RESET</code> - 重启设备
           </div>
         </div>
         
@@ -178,25 +218,48 @@
       
       <div class="section">
         <div class="section-title">📊 模组信息查询</div>
-        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-          <button style="flex: 1; min-width: 120px; background: #9C27B0;" onclick="queryInfo('ati')">📋 固件信息</button>
-          <button style="flex: 1; min-width: 120px; background: #9C27B0;" onclick="queryInfo('signal')">📶 信号质量</button>
+        <div class="btn-group">
+          <button class="btn-query" onclick="queryInfo('ati')">📋 固件信息</button>
+          <button class="btn-query" onclick="queryInfo('signal')">📶 信号质量</button>
         </div>
-        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-          <button style="flex: 1; min-width: 120px; background: #607D8B;" onclick="queryInfo('siminfo')">💳 SIM卡信息</button>
-          <button style="flex: 1; min-width: 120px; background: #607D8B;" onclick="queryInfo('network')">🌍 网络状态</button>
+        <div class="btn-group">
+          <button class="btn-info" onclick="queryInfo('siminfo')">💳 SIM卡信息</button>
+          <button class="btn-info" onclick="queryInfo('network')">🌍 网络状态</button>
         </div>
-        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-          <button style="flex: 1; min-width: 120px; background: #00BCD4;" onclick="queryInfo('wifi')">📡 WiFi状态</button>
+        <div class="btn-group">
+          <button style="background:#00BCD4;" onclick="queryInfo('wifi')">📡 WiFi状态</button>
         </div>
-        <div class="result-box" id="queryResult" style="display: none; margin-top: 10px; padding: 10px; border-radius: 5px;"></div>
+        <div class="result-box" id="queryResult"></div>
       </div>
       
       <div class="section">
         <div class="section-title">🌐 网络测试</div>
-        <button id="pingBtn" style="background: #FF9800;" onclick="doPing()">📡 点我消耗一点流量</button>
+        <button id="pingBtn" class="btn-ping" onclick="confirmPing()">📡 点我消耗一点流量</button>
         <div class="hint">将向 8.8.8.8 进行 ping 操作，一次性消耗极少流量费用</div>
-        <div class="result-box" id="pingResult" style="display: none; margin-top: 10px; padding: 10px; border-radius: 5px;"></div>
+        <div class="result-box" id="pingResult"></div>
+      </div>
+      
+      <div class="section">
+        <div class="section-title">✈️ 模组控制</div>
+        <div class="btn-group">
+          <button id="flightBtn" class="btn-flight" onclick="toggleFlightMode()">✈️ 切换飞行模式</button>
+          <button class="btn-query" onclick="queryFlightMode()">🔍 查询状态</button>
+        </div>
+        <div class="hint">飞行模式关闭时模组可正常收发短信，开启后将关闭射频无法使用移动网络</div>
+        <div class="result-box" id="flightResult"></div>
+      </div>
+      
+      <div class="section">
+        <div class="section-title">💻 AT 指令调试</div>
+        <div id="atLog">等待输入指令...</div>
+        <div class="at-input-group">
+          <input type="text" id="atCmd" placeholder="输入 AT 指令，如: AT+CSQ">
+          <button id="atBtn" onclick="sendAT()">发送</button>
+        </div>
+        <div class="btn-group" style="margin-top:10px;">
+          <button class="btn-info" onclick="clearATLog()">🧹 清空日志</button>
+        </div>
+        <div class="hint">直接向模组串口发送指令并接收响应，请谨慎操作</div>
       </div>
     </div>
   </div>
@@ -225,15 +288,66 @@
       ]
     };
     
-    // 推送类型
+    // 推送类型配置
     const PUSH_TYPES = {
-      1: { name: 'POST JSON（通用格式）', hint: '<b>POST JSON格式：</b><br>{"sender":"发送者号码","message":"短信内容","timestamp":"时间戳"}' },
-      2: { name: 'Bark（iOS推送）', hint: '<b>Bark格式：</b><br>POST {"title":"发送者号码","body":"短信内容"}' },
-      3: { name: 'GET请求（参数在URL中）', hint: '<b>GET请求格式：</b><br>URL?sender=xxx&message=xxx&timestamp=xxx' },
-      4: { name: '钉钉机器人', hint: '<b>钉钉机器人：</b><br>填写Webhook地址，如需加签请填Secret', showExtra: true, key1Label: 'Secret（加签密钥，可选）', key1Placeholder: 'SEC...' },
-      5: { name: 'PushPlus', hint: '<b>PushPlus：</b><br>填写Token，URL留空使用默认', showExtra: true, key1Label: 'Token', key1Placeholder: 'pushplus的token' },
-      6: { name: 'Server酱', hint: '<b>Server酱：</b><br>填写SendKey，URL留空使用默认', showExtra: true, key1Label: 'SendKey', key1Placeholder: 'SCT...' },
-      7: { name: '自定义模板', hint: '<b>自定义模板：</b><br>在请求体模板中使用 {sender} {message} {timestamp} 作为占位符', showCustom: true }
+      1: { 
+        name: 'POST JSON（通用格式）', 
+        hint: '<b>POST JSON格式：</b><br>{"sender":"发送者号码","message":"短信内容","timestamp":"时间戳"}',
+        showExtra: false, showCustom: false
+      },
+      2: { 
+        name: 'Bark（iOS推送）', 
+        hint: '<b>Bark格式：</b><br>POST {"title":"发送者号码","body":"短信内容"}',
+        showExtra: false, showCustom: false
+      },
+      3: { 
+        name: 'GET请求（参数在URL中）', 
+        hint: '<b>GET请求格式：</b><br>URL?sender=xxx&message=xxx&timestamp=xxx',
+        showExtra: false, showCustom: false
+      },
+      4: { 
+        name: '钉钉机器人', 
+        hint: '<b>钉钉机器人：</b><br>填写Webhook地址，如需加签请填Secret',
+        showExtra: true, key1Label: 'Secret（加签密钥，可选）', key1Placeholder: 'SEC...',
+        showKey2: false, showCustom: false
+      },
+      5: { 
+        name: 'PushPlus', 
+        hint: '<b>PushPlus：</b><br>填写Token，URL留空使用默认',
+        showExtra: true, key1Label: 'Token', key1Placeholder: 'pushplus的token',
+        showKey2: true, key2Label: '发送渠道', key2Placeholder: 'wechat(default), extension, app',
+        showCustom: false
+      },
+      6: { 
+        name: 'Server酱', 
+        hint: '<b>Server酱：</b><br>填写SendKey，URL留空使用默认',
+        showExtra: true, key1Label: 'SendKey', key1Placeholder: 'SCT...',
+        showKey2: false, showCustom: false
+      },
+      7: { 
+        name: '自定义模板', 
+        hint: '<b>自定义模板：</b><br>在请求体模板中使用 {sender} {message} {timestamp} 作为占位符',
+        showExtra: false, showCustom: true
+      },
+      8: { 
+        name: '飞书机器人', 
+        hint: '<b>飞书机器人：</b><br>填写Webhook地址，如需签名验证请填Secret',
+        showExtra: true, key1Label: 'Secret（签名密钥，可选）', key1Placeholder: '飞书机器人的签名密钥',
+        showKey2: false, showCustom: false
+      },
+      9: { 
+        name: 'Gotify', 
+        hint: '<b>Gotify：</b><br>填写服务器地址（如 http://gotify.example.com），Token填写应用Token',
+        showExtra: true, key1Label: 'Token（应用Token）', key1Placeholder: 'A...',
+        showKey2: false, showCustom: false
+      },
+      10: { 
+        name: 'Telegram Bot', 
+        hint: '<b>Telegram Bot：</b><br>填写Chat ID（参数1）和Bot Token（参数2），URL留空默认使用官方API',
+        showExtra: true, key1Label: 'Chat ID', key1Placeholder: '123456789',
+        showKey2: true, key2Label: 'Bot Token', key2Placeholder: '12345678:ABC...',
+        showCustom: false
+      }
     };
     
     // 模拟数据
@@ -270,6 +384,11 @@
         mac: 'AA:BB:CC:DD:EE:FF',
         bssid: '11:22:33:44:55:66',
         channel: 6
+      },
+      flight: {
+        mode: 1,  // 1=正常, 4=飞行模式
+        modeStr: '全功能模式（正常）',
+        icon: '🟢'
       }
     };
     
@@ -278,7 +397,12 @@
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         try {
-          return { ...defaultConfig, ...JSON.parse(saved) };
+          const parsed = JSON.parse(saved);
+          // 确保pushChannels数组完整
+          if (!parsed.pushChannels || parsed.pushChannels.length < 5) {
+            parsed.pushChannels = defaultConfig.pushChannels;
+          }
+          return { ...defaultConfig, ...parsed };
         } catch (e) {
           return { ...defaultConfig };
         }
@@ -297,9 +421,6 @@
       return auth === 'true';
     }
     
-    const config = loadConfig();
-    document.getElementById('loginUser').value = config.webUser;
-    document.getElementById('loginPass').value = config.webPass;
     // 登录
     function doLogin() {
       const user = document.getElementById('loginUser').value;
@@ -373,6 +494,10 @@
                   <label id="key1label${i}">参数1</label>
                   <input type="text" id="push${i}key1" value="${ch.key1 || ''}" placeholder="">
                 </div>
+                <div class="form-group" id="key2group${i}" style="display:none;">
+                  <label id="key2label${i}">参数2</label>
+                  <input type="text" id="push${i}key2" value="${ch.key2 || ''}" placeholder="">
+                </div>
               </div>
               <div id="custom${i}" style="display:none;">
                 <div class="form-group">
@@ -409,6 +534,7 @@
       const hint = document.getElementById('hint' + idx);
       const extraFields = document.getElementById('extra' + idx);
       const customFields = document.getElementById('custom' + idx);
+      const key2group = document.getElementById('key2group' + idx);
       const type = parseInt(sel.value);
       const typeInfo = PUSH_TYPES[type];
       
@@ -417,11 +543,18 @@
       // 隐藏所有额外字段
       extraFields.style.display = 'none';
       customFields.style.display = 'none';
+      key2group.style.display = 'none';
       
       if (typeInfo.showExtra) {
         extraFields.style.display = 'block';
         document.getElementById('key1label' + idx).innerText = typeInfo.key1Label || '参数1';
         document.getElementById('push' + idx + 'key1').placeholder = typeInfo.key1Placeholder || '';
+        
+        if (typeInfo.showKey2) {
+          key2group.style.display = 'block';
+          document.getElementById('key2label' + idx).innerText = typeInfo.key2Label || '参数2';
+          document.getElementById('push' + idx + 'key2').placeholder = typeInfo.key2Placeholder || '';
+        }
       }
       
       if (typeInfo.showCustom) {
@@ -465,7 +598,7 @@
           name: document.getElementById('push' + i + 'name').value || '通道' + (i + 1),
           url: document.getElementById('push' + i + 'url').value,
           key1: document.getElementById('push' + i + 'key1').value,
-          key2: '',
+          key2: document.getElementById('push' + i + 'key2').value,
           customBody: document.getElementById('push' + i + 'body').value
         });
       }
@@ -504,24 +637,33 @@
       }, 1500);
     }
     
+    // 生成信息表格HTML
+    function generateInfoTable(data) {
+      let html = '<table class="info-table">';
+      for (const [key, value] of Object.entries(data)) {
+        html += `<tr><td>${key}</td><td>${value}</td></tr>`;
+      }
+      html += '</table>';
+      return html;
+    }
+    
     // 查询模组信息（模拟）
     function queryInfo(type) {
       const result = document.getElementById('queryResult');
+      result.className = 'result-box result-loading';
       result.style.display = 'block';
-      result.style.background = '#fff3e0';
-      result.style.borderLeft = '4px solid #FF9800';
       result.innerHTML = '正在查询，请稍候...';
       
       setTimeout(() => {
-        result.style.background = '#e3f2fd';
-        result.style.borderLeft = '4px solid #2196F3';
-        
-        let html = '<table style="width:100%;border-collapse:collapse;">';
+        result.className = 'result-box result-info';
+        let tableData = {};
         
         if (type === 'ati') {
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">制造商</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.ati.manufacturer}</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">模组型号</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.ati.model}</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">固件版本</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.ati.version}</td></tr>`;
+          tableData = {
+            '制造商': mockData.ati.manufacturer,
+            '模组型号': mockData.ati.model,
+            '固件版本': mockData.ati.version
+          };
         } else if (type === 'signal') {
           const rsrp = mockData.signal.rsrp;
           let rsrpDesc = '';
@@ -531,18 +673,24 @@
           else if (rsrp >= -110) rsrpDesc = '(信号较弱)';
           else rsrpDesc = '(信号很差)';
           
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">信号强度 (RSRP)</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${rsrp} dBm ${rsrpDesc}</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">信号质量 (RSRQ)</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.signal.rsrq} dB</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">原始数据</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.signal.raw}</td></tr>`;
+          tableData = {
+            '信号强度 (RSRP)': `${rsrp} dBm ${rsrpDesc}`,
+            '信号质量 (RSRQ)': `${mockData.signal.rsrq} dB`,
+            '原始数据': mockData.signal.raw
+          };
         } else if (type === 'siminfo') {
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">IMSI</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.siminfo.imsi}</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">ICCID</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.siminfo.iccid}</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">本机号码</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.siminfo.phoneNum}</td></tr>`;
+          tableData = {
+            'IMSI': mockData.siminfo.imsi,
+            'ICCID': mockData.siminfo.iccid,
+            '本机号码': mockData.siminfo.phoneNum
+          };
         } else if (type === 'network') {
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">网络注册</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.network.regStatus}</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">运营商</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.network.operator}</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">数据连接</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.network.pdpStatus}</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">APN</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${mockData.network.apn}</td></tr>`;
+          tableData = {
+            '网络注册': mockData.network.regStatus,
+            '运营商': mockData.network.operator,
+            '数据连接': mockData.network.pdpStatus,
+            'APN': mockData.network.apn
+          };
         } else if (type === 'wifi') {
           const w = mockData.wifi;
           let rssiDesc = '';
@@ -552,21 +700,29 @@
           else if (w.rssi >= -80) rssiDesc = '(信号一般)';
           else rssiDesc = '(信号较弱)';
           
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">连接状态</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.connected ? '已连接' : '未连接'}</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">当前SSID</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.ssid}</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">信号强度 (RSSI)</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.rssi} dBm ${rssiDesc}</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">IP地址</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.ip}</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">网关</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.gateway}</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">子网掩码</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.subnet}</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">DNS服务器</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.dns}</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">MAC地址</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.mac}</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">路由器BSSID</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.bssid}</td></tr>`;
-          html += `<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd;font-weight:bold;width:40%;color:#555;">WiFi信道</td><td style="padding:5px 8px;border-bottom:1px solid #ddd;">${w.channel}</td></tr>`;
+          tableData = {
+            '连接状态': w.connected ? '已连接' : '未连接',
+            '当前SSID': w.ssid,
+            '信号强度 (RSSI)': `${w.rssi} dBm ${rssiDesc}`,
+            'IP地址': w.ip,
+            '网关': w.gateway,
+            '子网掩码': w.subnet,
+            'DNS服务器': w.dns,
+            'MAC地址': w.mac,
+            '路由器BSSID': w.bssid,
+            'WiFi信道': w.channel
+          };
         }
         
-        html += '</table>';
-        result.innerHTML = html;
+        result.innerHTML = generateInfoTable(tableData);
       }, 800);
+    }
+    
+    // 确认Ping操作
+    function confirmPing() {
+      if (confirm("确定要执行 Ping 操作吗？\n\n这将消耗少量流量。")) {
+        doPing();
+      }
     }
     
     // Ping测试（模拟）
@@ -576,9 +732,8 @@
       
       btn.disabled = true;
       btn.textContent = '⏳ 正在 Ping...';
+      result.className = 'result-box result-loading';
       result.style.display = 'block';
-      result.style.background = '#fff3e0';
-      result.style.borderLeft = '4px solid #FF9800';
       result.innerHTML = '正在执行 Ping 操作，请稍候（最长等待30秒）...';
       
       // 模拟Ping延迟
@@ -586,14 +741,135 @@
       setTimeout(() => {
         btn.disabled = false;
         btn.textContent = '📡 点我消耗一点流量';
-        result.style.background = '#e8f5e9';
-        result.style.borderLeft = '4px solid #4CAF50';
+        result.className = 'result-box result-success';
         result.innerHTML = `✅ Ping 成功！<br>目标: 8.8.8.8, 延迟: ${delay}ms, TTL: 115`;
       }, 2000);
     }
     
+    // 查询飞行模式状态（模拟）
+    function queryFlightMode() {
+      const result = document.getElementById('flightResult');
+      result.className = 'result-box result-loading';
+      result.style.display = 'block';
+      result.innerHTML = '正在查询飞行模式状态...';
+      
+      setTimeout(() => {
+        result.className = 'result-box result-info';
+        const f = mockData.flight;
+        result.innerHTML = generateInfoTable({
+          '当前状态': `${f.icon} ${f.modeStr}`,
+          'CFUN值': f.mode
+        });
+      }, 800);
+    }
+    
+    // 切换飞行模式（模拟）
+    function toggleFlightMode() {
+      if (!confirm('确定要切换飞行模式吗？\n\n开启飞行模式后模组将无法收发短信。')) return;
+      
+      const btn = document.getElementById('flightBtn');
+      const result = document.getElementById('flightResult');
+      btn.disabled = true;
+      result.className = 'result-box result-loading';
+      result.style.display = 'block';
+      result.innerHTML = '正在切换飞行模式...';
+      
+      setTimeout(() => {
+        btn.disabled = false;
+        // 切换模拟数据
+        if (mockData.flight.mode === 1) {
+          mockData.flight.mode = 4;
+          mockData.flight.modeStr = '飞行模式（射频关闭）';
+          mockData.flight.icon = '✈️';
+          result.className = 'result-box result-success';
+          result.innerHTML = '✅ 已开启飞行模式 ✈️<br>模组射频已关闭，无法收发短信';
+        } else {
+          mockData.flight.mode = 1;
+          mockData.flight.modeStr = '全功能模式（正常）';
+          mockData.flight.icon = '🟢';
+          result.className = 'result-box result-success';
+          result.innerHTML = '✅ 已关闭飞行模式 🟢<br>模组恢复正常工作';
+        }
+      }, 1500);
+    }
+    
+    // AT指令日志
+    function addATLog(msg, type = 'resp') {
+      const log = document.getElementById('atLog');
+      const div = document.createElement('div');
+      
+      if (type === 'user') {
+        div.innerHTML = '<b style="color:#fff;">&gt; </b>' + escapeHtml(msg);
+      } else if (type === 'error') {
+        div.innerHTML = '<b style="color:#f44336;">❌ </b>' + escapeHtml(msg);
+      } else {
+        div.innerHTML = '<b style="color:#4CAF50;">[RESP] </b>' + escapeHtml(msg);
+      }
+      
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+    }
+    
+    // HTML转义
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+    
+    // 发送AT指令（模拟）
+    function sendAT() {
+      const input = document.getElementById('atCmd');
+      const cmd = input.value.trim();
+      if (!cmd) return;
+      
+      const btn = document.getElementById('atBtn');
+      btn.disabled = true;
+      btn.textContent = '...';
+      
+      addATLog(cmd, 'user');
+      input.value = '';
+      
+      // 模拟AT响应
+      setTimeout(() => {
+        let response = '';
+        const cmdUpper = cmd.toUpperCase();
+        
+        if (cmdUpper === 'AT' || cmdUpper === 'AT+CGMI') {
+          response = 'OK';
+        } else if (cmdUpper === 'ATI') {
+          response = mockData.ati.manufacturer + '\n' + mockData.ati.model + '\n' + mockData.ati.version + '\nOK';
+        } else if (cmdUpper === 'AT+CSQ') {
+          response = '+CSQ: 20,99\nOK';
+        } else if (cmdUpper === 'AT+CFUN?') {
+          response = '+CFUN: ' + mockData.flight.mode + '\nOK';
+        } else if (cmdUpper === 'AT+CIMI') {
+          response = mockData.siminfo.imsi + '\nOK';
+        } else if (cmdUpper === 'AT+ICCID') {
+          response = '+ICCID: ' + mockData.siminfo.iccid + '\nOK';
+        } else if (cmdUpper.startsWith('AT+')) {
+          response = 'OK';
+        } else {
+          response = 'ERROR';
+        }
+        
+        addATLog(response);
+        btn.disabled = false;
+        btn.textContent = '发送';
+      }, 500);
+    }
+    
+    // 清空AT日志
+    function clearATLog() {
+      document.getElementById('atLog').innerHTML = '日志已清空，等待输入指令...';
+    }
+    
     // 初始化
     document.addEventListener('DOMContentLoaded', function() {
+      const config = loadConfig();
+      document.getElementById('loginUser').value = config.webUser;
+      document.getElementById('loginPass').value = config.webPass;
+      
       // 检查登录状态
       if (checkAuth()) {
         document.getElementById('loginOverlay').style.display = 'none';
@@ -605,6 +881,11 @@
       });
       document.getElementById('loginUser').addEventListener('keypress', function(e) {
         if (e.key === 'Enter') document.getElementById('loginPass').focus();
+      });
+      
+      // AT指令回车发送
+      document.getElementById('atCmd').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') sendAT();
       });
       
       // 生成推送通道HTML

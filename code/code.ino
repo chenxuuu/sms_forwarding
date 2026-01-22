@@ -11,28 +11,29 @@
 #include <HTTPClient.h>
 #include <mbedtls/md.h>  // 用于钉钉签名的HMAC-SHA256
 #include <base64.h>      // Base64编码
+#include <time.h>        // 时间库
+#include <esp_task_wdt.h> // 引入看门狗库
 
 //wifi信息，需要你打开这个去改
 #include "wifi_config.h"
 
+// 全局变量，用于存储自动获取的本机号码
+String myPhoneNumber = "未知号码";
+
 //串口映射
 #define TXD 3
 #define RXD 4
-#define MODEM_EN_PIN 5
 
 // 推送通道类型
 enum PushType {
-  PUSH_TYPE_NONE = 0,      // 未启用
+  PUSH_TYPE_NONE = 0,       // 未启用
   PUSH_TYPE_POST_JSON = 1, // POST JSON格式 {"sender":"xxx","message":"xxx","timestamp":"xxx"}
   PUSH_TYPE_BARK = 2,      // Bark格式 POST {"title":"xxx","body":"xxx"}
   PUSH_TYPE_GET = 3,       // GET请求，参数放URL中
   PUSH_TYPE_DINGTALK = 4,  // 钉钉机器人
   PUSH_TYPE_PUSHPLUS = 5,  // PushPlus
   PUSH_TYPE_SERVERCHAN = 6,// Server酱
-  PUSH_TYPE_CUSTOM = 7,    // 自定义模板
-  PUSH_TYPE_FEISHU = 8,    // 飞书机器人
-  PUSH_TYPE_GOTIFY = 9,    // Gotify
-  PUSH_TYPE_TELEGRAM = 10  // Telegram Bot
+  PUSH_TYPE_CUSTOM = 7     // 自定义模板
 };
 
 // 最大推送通道数
@@ -58,13 +59,17 @@ struct Config {
   String smtpSendTo;
   String adminPhone;
   PushChannel pushChannels[MAX_PUSH_CHANNELS];  // 多推送通道
-  String webUser;      // Web管理账号
-  String webPass;      // Web管理密码
+  String webUser;       // Web管理账号
+  String webPass;       // Web管理密码
+  
+  // --- 新增定时重启配置 ---
+  bool autoRebootEnabled; // 是否开启定时重启
+  String autoRebootTime;  // 重启时间，格式 "HH:MM"
 };
 
 // 默认Web管理账号密码
 #define DEFAULT_WEB_USER "admin"
-#define DEFAULT_WEB_PASS "admin123"
+#define DEFAULT_WEB_PASS "admin"
 
 Config config;
 Preferences preferences;
@@ -75,7 +80,6 @@ SMTPClient smtp(ssl_client);
 WebServer server(80);
 
 bool configValid = false;  // 配置是否有效
-bool timeSynced = false;   // NTP时间是否已同步
 unsigned long lastPrintTime = 0;  // 上次打印IP的时间
 
 #define SERIAL_BUFFER_SIZE 500
@@ -90,20 +94,20 @@ int serialBufLen = 0;
 
 // 长短信分段结构
 struct SmsPart {
-  bool valid;           // 该分段是否有效
-  String text;          // 分段内容
+  bool valid;            // 该分段是否有效
+  String text;           // 分段内容
 };
 
 // 长短信缓存结构
 struct ConcatSms {
-  bool inUse;                           // 是否正在使用
-  int refNumber;                        // 参考号
-  String sender;                        // 发送者
-  String timestamp;                     // 时间戳（使用第一个收到的分段的时间戳）
-  int totalParts;                       // 总分段数
-  int receivedParts;                    // 已收到的分段数
-  unsigned long firstPartTime;          // 收到第一个分段的时间
-  SmsPart parts[MAX_CONCAT_PARTS];      // 各分段内容
+  bool inUse;                             // 是否正在使用
+  int refNumber;                          // 参考号
+  String sender;                          // 发送者
+  String timestamp;                       // 时间戳（使用第一个收到的分段的时间戳）
+  int totalParts;                         // 总分段数
+  int receivedParts;                      // 已收到的分段数
+  unsigned long firstPartTime;            // 收到第一个分段的时间
+  SmsPart parts[MAX_CONCAT_PARTS];        // 各分段内容
 };
 
 ConcatSms concatBuffer[MAX_CONCAT_MESSAGES];  // 长短信缓存
@@ -119,6 +123,10 @@ void saveConfig() {
   preferences.putString("adminPhone", config.adminPhone);
   preferences.putString("webUser", config.webUser);
   preferences.putString("webPass", config.webPass);
+  
+  // 保存定时重启配置
+  preferences.putBool("rebootEn", config.autoRebootEnabled);
+  preferences.putString("rebootTime", config.autoRebootTime);
   
   // 保存推送通道配置
   for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
@@ -147,6 +155,10 @@ void loadConfig() {
   config.adminPhone = preferences.getString("adminPhone", "");
   config.webUser = preferences.getString("webUser", DEFAULT_WEB_USER);
   config.webPass = preferences.getString("webPass", DEFAULT_WEB_PASS);
+  
+  // 加载定时重启配置 (默认关闭，默认时间03:00)
+  config.autoRebootEnabled = preferences.getBool("rebootEn", false);
+  config.autoRebootTime = preferences.getString("rebootTime", "03:00");
   
   // 加载推送通道配置
   for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
@@ -183,16 +195,11 @@ bool isPushChannelValid(const PushChannel& ch) {
     case PUSH_TYPE_BARK:
     case PUSH_TYPE_GET:
     case PUSH_TYPE_DINGTALK:
-    case PUSH_TYPE_FEISHU:
     case PUSH_TYPE_CUSTOM:
       return ch.url.length() > 0;
     case PUSH_TYPE_PUSHPLUS:
     case PUSH_TYPE_SERVERCHAN:
       return ch.key1.length() > 0;  // 这两个主要靠key1（token/sendkey）
-    case PUSH_TYPE_GOTIFY:
-      return ch.url.length() > 0 && ch.key1.length() > 0;  // 需要URL和Token
-    case PUSH_TYPE_TELEGRAM:
-      return ch.key1.length() > 0 && ch.key2.length() > 0; // 需要Chat ID和Token
     default:
       return false;
   }
@@ -221,6 +228,9 @@ String getDeviceUrl() {
   return "http://" + WiFi.localIP().toString() + "/";
 }
 
+// 前置声明
+void resetModule();
+
 // HTML配置页面
 const char* htmlPage = R"rawliteral(
 <!DOCTYPE html>
@@ -235,7 +245,7 @@ const char* htmlPage = R"rawliteral(
     h1 { color: #333; text-align: center; }
     .form-group { margin-bottom: 15px; }
     label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
-    input[type="text"], input[type="password"], input[type="number"], textarea, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+    input[type="text"], input[type="password"], input[type="number"], input[type="time"], textarea, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
     textarea { resize: vertical; min-height: 80px; }
     button { width: 100%; padding: 12px; background: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-top: 10px; }
     button:hover { background: #45a049; }
@@ -257,6 +267,8 @@ const char* htmlPage = R"rawliteral(
     .push-channel-body { display: none; }
     .push-channel.enabled .push-channel-body { display: block; }
     .push-type-hint { font-size: 11px; color: #666; margin-top: 5px; padding: 8px; background: #f0f0f0; border-radius: 3px; }
+    .row-check { display: flex; align-items: center; }
+    .row-check input { width: auto; margin-right: 10px; }
   </style>
 </head>
 <body>
@@ -280,6 +292,19 @@ const char* htmlPage = R"rawliteral(
         <div class="form-group">
           <label>管理密码</label>
           <input type="password" name="webPass" value="%WEB_PASS%" placeholder="请设置复杂密码">
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">⏰ 计划任务</div>
+        <div class="form-group row-check">
+          <input type="checkbox" name="autoRebootEnabled" id="autoRebootEnabled" %REBOOT_CHECKED%>
+          <label for="autoRebootEnabled" style="margin:0; font-weight:normal;">启用每日定时重启</label>
+        </div>
+        <div class="form-group">
+          <label>重启时间 (24小时制)</label>
+          <input type="time" name="autoRebootTime" value="%REBOOT_TIME%">
+          <div class="hint">建议设置在深夜（如 03:00），重启时将同时复位ESP32和4G模组。</div>
         </div>
       </div>
       
@@ -349,8 +374,6 @@ const char* htmlPage = R"rawliteral(
       document.getElementById('key2label' + idx).innerText = '参数2';
       document.getElementById('key1' + idx).placeholder = '';
       document.getElementById('key2' + idx).placeholder = '';
-      // key2 区域默认隐藏，只在需要用到 key2 的通知方式中显示
-      document.getElementById('key2' + idx).closest('.form-group').style.display = 'none';
       
       if (type == 1) {
         hint.innerHTML = '<b>POST JSON格式：</b><br>{"sender":"发送者号码","message":"短信内容","timestamp":"时间戳"}';
@@ -368,10 +391,6 @@ const char* htmlPage = R"rawliteral(
         extraFields.style.display = 'block';
         document.getElementById('key1label' + idx).innerText = 'Token';
         document.getElementById('key1' + idx).placeholder = 'pushplus的token';
-        // 显示 key2 区域
-        document.getElementById('key2' + idx).closest('.form-group').style.display = 'block';
-        document.getElementById('key2label' + idx).innerText = '发送渠道';
-        document.getElementById('key2' + idx).placeholder = 'wechat(default), extension, app';
       } else if (type == 6) {
         hint.innerHTML = '<b>Server酱：</b><br>填写SendKey，URL留空使用默认';
         extraFields.style.display = 'block';
@@ -380,23 +399,6 @@ const char* htmlPage = R"rawliteral(
       } else if (type == 7) {
         hint.innerHTML = '<b>自定义模板：</b><br>在请求体模板中使用 {sender} {message} {timestamp} 作为占位符';
         customFields.style.display = 'block';
-      } else if (type == 8) {
-        hint.innerHTML = '<b>飞书机器人：</b><br>填写Webhook地址，如需签名验证请填Secret';
-        extraFields.style.display = 'block';
-        document.getElementById('key1label' + idx).innerText = 'Secret（签名密钥，可选）';
-        document.getElementById('key1' + idx).placeholder = '飞书机器人的签名密钥';
-      } else if (type == 9) {
-        hint.innerHTML = '<b>Gotify：</b><br>填写服务器地址（如 http://gotify.example.com），Token填写应用Token';
-        extraFields.style.display = 'block';
-        document.getElementById('key1label' + idx).innerText = 'Token（应用Token）';
-        document.getElementById('key1' + idx).placeholder = 'A...';
-      } else if (type == 10) {
-        hint.innerHTML = '<b>Telegram Bot：</b><br>填写Chat ID（参数1）和Bot Token（参数2），URL留空默认使用官方API';
-        extraFields.style.display = 'block';
-        document.getElementById('key1label' + idx).innerText = 'Chat ID';
-        document.getElementById('key1' + idx).placeholder = '123456789';
-        document.getElementById('key2label' + idx).innerText = 'Bot Token';
-        document.getElementById('key2' + idx).placeholder = '12345678:ABC...';
       }
     }
     document.addEventListener('DOMContentLoaded', function() {
@@ -453,10 +455,6 @@ const char* htmlToolsPage = R"rawliteral(
     .info-table td:first-child { font-weight: bold; width: 40%; color: #555; }
     .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
     .btn-group button { flex: 1; min-width: 120px; }
-    #atLog { background: #333; color: #00ff00; font-family: 'Courier New', Courier, monospace; min-height: 150px; max-height: 300px; overflow-y: auto; padding: 10px; border-radius: 5px; margin-bottom: 10px; font-size: 13px; white-space: pre-wrap; word-break: break-all; }
-    .at-input-group { display: flex; gap: 10px; }
-    .at-input-group input { flex: 1; font-family: monospace; }
-    .at-input-group button { width: auto; min-width: 80px; margin-top: 0; }
   </style>
 </head>
 <body>
@@ -502,32 +500,9 @@ const char* htmlToolsPage = R"rawliteral(
     
     <div class="section">
       <div class="section-title">🌐 网络测试</div>
-      <button type="button" class="btn-ping" id="pingBtn" onclick="confirmPing()">📡 点我消耗一点流量</button>
+      <button type="button" class="btn-ping" id="pingBtn" onclick="doPing()">📡 点我消耗一点流量</button>
       <div class="hint">将向 8.8.8.8 进行 ping 操作，一次性消耗极少流量费用</div>
       <div class="result-box" id="pingResult"></div>
-    </div>
-    
-    <div class="section">
-      <div class="section-title">✈️ 模组控制</div>
-      <div class="btn-group">
-        <button type="button" id="flightBtn" onclick="toggleFlightMode()" style="background:#E91E63;">✈️ 切换飞行模式</button>
-        <button type="button" onclick="queryFlightMode()" style="background:#9C27B0;">🔍 查询状态</button>
-      </div>
-      <div class="hint">飞行模式关闭时模组可正常收发短信，开启后将关闭射频无法使用移动网络</div>
-      <div class="result-box" id="flightResult"></div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">💻 AT 指令调试</div>
-      <div id="atLog">等待输入指令...</div>
-      <div class="at-input-group">
-        <input type="text" id="atCmd" placeholder="输入 AT 指令，如: AT+CSQ">
-        <button type="button" onclick="sendAT()" id="atBtn">发送</button>
-      </div>
-      <div class="btn-group" style="margin-top:10px;">
-        <button type="button" class="btn-info" onclick="clearATLog()">🧹 清空日志</button>
-      </div>
-      <div class="hint">直接向模组串口发送指令并接收响应，请谨慎操作</div>
     </div>
   </div>
   <script>
@@ -557,13 +532,7 @@ const char* htmlToolsPage = R"rawliteral(
           result.textContent = '❌ 请求失败: ' + error;
         });
     }
-
-    function confirmPing() {
-      if (confirm("确定要执行 Ping 操作吗？\n\n这将消耗少量流量。")) {
-        doPing();
-      }
-    }
-
+    
     function doPing() {
       var btn = document.getElementById('pingBtn');
       var result = document.getElementById('pingResult');
@@ -594,121 +563,6 @@ const char* htmlToolsPage = R"rawliteral(
           result.textContent = '❌ 请求失败: ' + error;
         });
     }
-    
-    function queryFlightMode() {
-      var result = document.getElementById('flightResult');
-      result.className = 'result-box result-loading';
-      result.style.display = 'block';
-      result.textContent = '正在查询飞行模式状态...';
-      
-      fetch('/flight?action=query')
-        .then(response => response.json())
-        .then(data => {
-          if (data.success) {
-            result.className = 'result-box result-info';
-            result.innerHTML = data.message;
-          } else {
-            result.className = 'result-box result-error';
-            result.innerHTML = '❌ 查询失败: ' + data.message;
-          }
-        })
-        .catch(error => {
-          result.className = 'result-box result-error';
-          result.textContent = '❌ 请求失败: ' + error;
-        });
-    }
-    
-    function toggleFlightMode() {
-      if (!confirm('确定要切换飞行模式吗？\n\n开启飞行模式后模组将无法收发短信。')) return;
-      
-      var btn = document.getElementById('flightBtn');
-      var result = document.getElementById('flightResult');
-      btn.disabled = true;
-      result.className = 'result-box result-loading';
-      result.style.display = 'block';
-      result.textContent = '正在切换飞行模式...';
-      
-      fetch('/flight?action=toggle')
-        .then(response => response.json())
-        .then(data => {
-          btn.disabled = false;
-          if (data.success) {
-            result.className = 'result-box result-success';
-            result.innerHTML = '✅ ' + data.message;
-          } else {
-            result.className = 'result-box result-error';
-            result.innerHTML = '❌ 切换失败: ' + data.message;
-          }
-        })
-        .catch(error => {
-          btn.disabled = false;
-          result.className = 'result-box result-error';
-          result.textContent = '❌ 请求失败: ' + error;
-        });
-    }
-
-    function addLog(msg, type = 'resp') {
-      var log = document.getElementById('atLog');
-      var div = document.createElement('div');
-      var b = document.createElement('b');
-      
-      if (type === 'user') {
-        b.style.color = '#fff';
-        b.textContent = '> ';
-      } else if (type === 'error') {
-        b.style.color = '#f44336';
-        b.textContent = '❌ ';
-      } else {
-        b.style.color = '#4CAF50';
-        b.textContent = '[RESP] ';
-      }
-      
-      div.appendChild(b);
-      var textNode = document.createTextNode(msg);
-      div.appendChild(textNode);
-      
-      log.appendChild(div);
-      log.scrollTop = log.scrollHeight;
-    }
-
-    function sendAT() {
-      var input = document.getElementById('atCmd');
-      var cmd = input.value.trim();
-      if (!cmd) return;
-      
-      var btn = document.getElementById('atBtn');
-      btn.disabled = true;
-      btn.textContent = '...';
-      
-      addLog(cmd, 'user');
-      input.value = '';
-      
-      fetch('/at?cmd=' + encodeURIComponent(cmd))
-        .then(response => response.json())
-        .then(data => {
-          if (data.success) {
-            addLog(data.message);
-          } else {
-            addLog(data.message, 'error');
-          }
-        })
-        .catch(error => {
-          addLog('网络错误: ' + error, 'error');
-        })
-        .finally(() => {
-          btn.disabled = false;
-          btn.textContent = '发送';
-        });
-    }
-
-    function clearATLog() {
-      document.getElementById('atLog').innerHTML = '';
-    }
-    document.getElementById('atCmd').addEventListener('keydown', function(event) {
-      if (event.key === 'Enter') {
-        sendAT();
-      }
-    });
   </script>
 </body>
 </html>
@@ -737,6 +591,10 @@ void handleRoot() {
   html.replace("%SMTP_PASS%", config.smtpPass);
   html.replace("%SMTP_SEND_TO%", config.smtpSendTo);
   html.replace("%ADMIN_PHONE%", config.adminPhone);
+  
+  // 填充定时重启配置
+  html.replace("%REBOOT_CHECKED%", config.autoRebootEnabled ? "checked" : "");
+  html.replace("%REBOOT_TIME%", config.autoRebootTime);
   
   // 生成推送通道HTML
   String channelsHtml = "";
@@ -769,9 +627,6 @@ void handleRoot() {
     channelsHtml += "<option value=\"5\"" + String(config.pushChannels[i].type == PUSH_TYPE_PUSHPLUS ? " selected" : "") + ">PushPlus</option>";
     channelsHtml += "<option value=\"6\"" + String(config.pushChannels[i].type == PUSH_TYPE_SERVERCHAN ? " selected" : "") + ">Server酱</option>";
     channelsHtml += "<option value=\"7\"" + String(config.pushChannels[i].type == PUSH_TYPE_CUSTOM ? " selected" : "") + ">自定义模板</option>";
-    channelsHtml += "<option value=\"8\"" + String(config.pushChannels[i].type == PUSH_TYPE_FEISHU ? " selected" : "") + ">飞书机器人</option>";
-    channelsHtml += "<option value=\"9\"" + String(config.pushChannels[i].type == PUSH_TYPE_GOTIFY ? " selected" : "") + ">Gotify</option>";
-    channelsHtml += "<option value=\"10\"" + String(config.pushChannels[i].type == PUSH_TYPE_TELEGRAM ? " selected" : "") + ">Telegram Bot</option>";
     channelsHtml += "</select>";
     channelsHtml += "<div class=\"push-type-hint\" id=\"hint" + idx + "\"></div>";
     channelsHtml += "</div>";
@@ -788,7 +643,7 @@ void handleRoot() {
     channelsHtml += "<label id=\"key1label" + idx + "\">参数1</label>";
     channelsHtml += "<input type=\"text\" name=\"push" + idx + "key1\" id=\"key1" + idx + "\" value=\"" + config.pushChannels[i].key1 + "\">";
     channelsHtml += "</div>";
-    channelsHtml += "<div class=\"form-group\" id=\"key2group" + idx + "\">";
+    channelsHtml += "<div class=\"form-group\" style=\"display:none;\">";
     channelsHtml += "<label id=\"key2label" + idx + "\">参数2</label>";
     channelsHtml += "<input type=\"text\" name=\"push" + idx + "key2\" id=\"key2" + idx + "\" value=\"" + config.pushChannels[i].key2 + "\">";
     channelsHtml += "</div>";
@@ -837,142 +692,6 @@ String sendATCommand(const char* cmd, unsigned long timeout) {
     }
   }
   return resp;
-}
-
-// 处理飞行模式控制请求
-void handleFlightMode() {
-  if (!checkAuth()) return;
-  
-  String action = server.arg("action");
-  String json = "{";
-  bool success = false;
-  String message = "";
-  
-  if (action == "query") {
-    // 查询当前功能模式
-    String resp = sendATCommand("AT+CFUN?", 2000);
-    Serial.println("CFUN查询响应: " + resp);
-    
-    if (resp.indexOf("+CFUN:") >= 0) {
-      success = true;
-      int idx = resp.indexOf("+CFUN:");
-      int mode = resp.substring(idx + 6).toInt();
-      
-      String modeStr;
-      String statusIcon;
-      if (mode == 0) {
-        modeStr = "最小功能模式（关机）";
-        statusIcon = "🔴";
-      } else if (mode == 1) {
-        modeStr = "全功能模式（正常）";
-        statusIcon = "🟢";
-      } else if (mode == 4) {
-        modeStr = "飞行模式（射频关闭）";
-        statusIcon = "✈️";
-      } else {
-        modeStr = "未知模式 (" + String(mode) + ")";
-        statusIcon = "❓";
-      }
-      
-      message = "<table class='info-table'>";
-      message += "<tr><td>当前状态</td><td>" + statusIcon + " " + modeStr + "</td></tr>";
-      message += "<tr><td>CFUN值</td><td>" + String(mode) + "</td></tr>";
-      message += "</table>";
-    } else {
-      message = "查询失败";
-    }
-  }
-  else if (action == "toggle") {
-    // 先查询当前状态
-    String resp = sendATCommand("AT+CFUN?", 2000);
-    Serial.println("CFUN查询响应: " + resp);
-    
-    if (resp.indexOf("+CFUN:") >= 0) {
-      int idx = resp.indexOf("+CFUN:");
-      int currentMode = resp.substring(idx + 6).toInt();
-      
-      // 切换模式：1(正常) <-> 4(飞行模式)
-      int newMode = (currentMode == 1) ? 4 : 1;
-      String cmd = "AT+CFUN=" + String(newMode);
-      
-      Serial.println("切换飞行模式: " + cmd);
-      String setResp = sendATCommand(cmd.c_str(), 5000);
-      Serial.println("CFUN设置响应: " + setResp);
-      
-      if (setResp.indexOf("OK") >= 0) {
-        success = true;
-        if (newMode == 4) {
-          message = "已开启飞行模式 ✈️<br>模组射频已关闭，无法收发短信";
-        } else {
-          message = "已关闭飞行模式 🟢<br>模组恢复正常工作";
-        }
-      } else {
-        message = "切换失败: " + setResp;
-      }
-    } else {
-      message = "无法获取当前状态";
-    }
-  }
-  else if (action == "on") {
-    // 强制开启飞行模式
-    String resp = sendATCommand("AT+CFUN=4", 5000);
-    if (resp.indexOf("OK") >= 0) {
-      success = true;
-      message = "已开启飞行模式 ✈️";
-    } else {
-      message = "开启失败: " + resp;
-    }
-  }
-  else if (action == "off") {
-    // 强制关闭飞行模式
-    String resp = sendATCommand("AT+CFUN=1", 5000);
-    if (resp.indexOf("OK") >= 0) {
-      success = true;
-      message = "已关闭飞行模式 🟢";
-    } else {
-      message = "关闭失败: " + resp;
-    }
-  }
-  else {
-    message = "未知操作";
-  }
-  
-  json += "\"success\":" + String(success ? "true" : "false") + ",";
-  json += "\"message\":\"" + message + "\"";
-  json += "}";
-  
-  server.send(200, "application/json", json);
-}
-
-// 处理AT指令测试请求
-void handleATCommand() {
-  if (!checkAuth()) return;
-  
-  String cmd = server.arg("cmd");
-  bool success = false;
-  String message = "";
-  
-  if (cmd.length() == 0) {
-    message = "错误：指令不能为空";
-  } else {
-    Serial.println("网页端发送AT指令: " + cmd);
-    String resp = sendATCommand(cmd.c_str(), 5000);
-    Serial.println("模组响应: " + resp);
-    
-    if (resp.length() > 0) {
-      success = true;
-      message = resp;
-    } else {
-      message = "超时或无响应";
-    }
-  }
-  
-  String json = "{";
-  json += "\"success\":" + String(success ? "true" : "false") + ",";
-  json += "\"message\":\"" + jsonEscape(message) + "\"";
-  json += "}";
-  
-  server.send(200, "application/json", json);
 }
 
 // 处理模组信息查询请求
@@ -1335,8 +1054,8 @@ void handlePing() {
   // 清空串口缓冲区
   while (Serial1.available()) Serial1.read();
   
-  // 激活PDP上下文（数据连接）
-  Serial.println("激活数据连接(CGACT)...");
+  // 先激活PDP上下文（数据连接）
+  Serial.println("激活数据连接...");
   String activateResp = sendATCommand("AT+CGACT=1,1", 10000);
   Serial.println("CGACT响应: " + activateResp);
   
@@ -1480,7 +1199,7 @@ void handlePing() {
   Serial.println("\nPing操作完成");
   
   // 关闭数据连接以节省流量
-  Serial.println("关闭PDP上下文(CGACT=0)...");
+  Serial.println("关闭数据连接...");
   String deactivateResp = sendATCommand("AT+CGACT=0,1", 5000);
   Serial.println("CGACT关闭响应: " + deactivateResp);
   
@@ -1525,6 +1244,11 @@ void handleSave() {
   config.smtpPass = server.arg("smtpPass");
   config.smtpSendTo = server.arg("smtpSendTo");
   config.adminPhone = server.arg("adminPhone");
+  
+  // 保存定时重启配置
+  config.autoRebootEnabled = (server.arg("autoRebootEnabled") == "on");
+  config.autoRebootTime = server.arg("autoRebootTime");
+  if (config.autoRebootTime.length() == 0) config.autoRebootTime = "03:00"; // 默认值
   
   // 保存推送通道配置
   for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
@@ -1574,6 +1298,18 @@ void handleSave() {
     String body = "设备配置已更新\n设备地址: " + getDeviceUrl();
     sendEmailNotification(subject.c_str(), body.c_str());
   }
+  // --- 新增：初始化看门狗 ---
+  // 设置超时时间为60秒（因为发送邮件或短信可能需要几十秒，设置太短容易误重启）
+  // true 表示超时后 panic 并重启
+  // --- 适配 ESP32 3.0+ 版本的新写法 ---
+  esp_task_wdt_config_t twdt_config = {
+    .timeout_ms = 60 * 1000,
+    .idle_core_mask = (1 << 0),
+    .trigger_panic = true,
+    };
+    esp_task_wdt_init(&twdt_config);
+  esp_task_wdt_add(NULL);      // 将当前线程(loop)加入看门狗监控
+  Serial.println("看门狗已启动 (60s)");
 }
 
 // 发送邮件通知函数
@@ -1598,6 +1334,7 @@ void sendEmailNotification(const char* subject, const char* body) {
     msg.headers.add(rfc822_to, to.c_str());
     msg.headers.add(rfc822_subject, subject);
     msg.text.body(body);
+    // 注意：时间同步已移至setup()，此处直接使用系统时间
     msg.timestamp = time(nullptr);
     smtp.send(msg);
     Serial.println("邮件发送完成");
@@ -1677,43 +1414,12 @@ bool sendSMS(const char* phoneNumber, const char* message) {
   return false;
 }
 
-// 新增“模组断电重启”函数
-void modemPowerCycle() {
-  pinMode(MODEM_EN_PIN, OUTPUT);
-
-  Serial.println("EN 拉低：关闭模组");
-  digitalWrite(MODEM_EN_PIN, LOW);
-  delay(1200);  // 关机时间给够
-
-  Serial.println("EN 拉高：开启模组");
-  digitalWrite(MODEM_EN_PIN, HIGH);
-  delay(6000);  // 等模组完全启动再发AT（关键）
-}
-
-
 // 重启模组
 void resetModule() {
-  Serial.println("正在硬重启模组（EN 断电重启）...");
-
-  modemPowerCycle();
-
-  // 清掉上电噪声/残留
-  while (Serial1.available()) Serial1.read();
-
-  // 硬重启后做 AT 握手确认（最多等 10 秒）
-  bool ok = false;
-  for (int i = 0; i < 10; i++) {
-    if (sendATandWaitOK("AT", 1000)) {
-      ok = true;
-      break;
-    }
-    Serial.println("AT未响应，继续等模组启动...");
-  }
-
-  if (ok) Serial.println("模组AT恢复正常");
-  else    Serial.println("模组AT仍未响应（检查EN接线/供电/波特率）");
+  Serial.println("正在重启模组...");
+  Serial1.println("AT+CFUN=1,1");
+  delay(3000);
 }
-
 
 // 检查发送者是否为管理员
 bool isAdmin(const char* sender) {
@@ -1939,10 +1645,12 @@ String urlEncode(const String& str) {
   return encoded;
 }
 
-// 钉钉签名函数（时间戳为UTC毫秒级）
+// 钉钉签名函数（修正版）
 String dingtalkSign(const String& secret, int64_t timestamp) {
+  // 钉钉签名公式: HmacSHA256(timestamp + "\n" + secret, secret)
+  // 这里的 String(timestamp) 会调用 ESP32 Arduino Core 对 int64_t 的重载，支持长整型
   String stringToSign = String(timestamp) + "\n" + secret;
-  
+
   uint8_t hmacResult[32];
   mbedtls_md_context_t ctx;
   mbedtls_md_init(&ctx);
@@ -1951,19 +1659,11 @@ String dingtalkSign(const String& secret, int64_t timestamp) {
   mbedtls_md_hmac_update(&ctx, (const unsigned char*)stringToSign.c_str(), stringToSign.length());
   mbedtls_md_hmac_finish(&ctx, hmacResult);
   mbedtls_md_free(&ctx);
-  
-  String base64Encoded = base64::encode(hmacResult, 32);
-  return urlEncode(base64Encoded);
-}
 
-// 获取当前UTC毫秒级时间戳（用于钉钉签名）
-int64_t getUtcMillis() {
-  struct timeval tv;
-  if (gettimeofday(&tv, NULL) == 0) {
-    return (int64_t)tv.tv_sec * 1000LL + tv.tv_usec / 1000;
-  }
-  // 如果获取失败，使用time()函数
-  return (int64_t)time(nullptr) * 1000LL;
+  // Base64 编码
+  String base64Encoded = base64::encode(hmacResult, 32);
+  // URL 编码
+  return urlEncode(base64Encoded);
 }
 
 // JSON转义函数
@@ -2006,6 +1706,7 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       http.begin(channel.url);
       http.addHeader("Content-Type", "application/json");
       String jsonData = "{";
+      jsonData += "\"receiver\":\"" + jsonEscape(myPhoneNumber) + "\",";
       jsonData += "\"sender\":\"" + senderEscaped + "\",";
       jsonData += "\"message\":\"" + messageEscaped + "\",";
       jsonData += "\"timestamp\":\"" + timestampEscaped + "\"";
@@ -2044,63 +1745,72 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       httpCode = http.GET();
       break;
     }
-    
+
+
+
     case PUSH_TYPE_DINGTALK: {
       // 钉钉机器人
       String webhookUrl = channel.url;
       
       // 如果配置了secret，需要添加签名
       if (channel.key1.length() > 0) {
-        // 获取UTC毫秒级时间戳（钉钉要求）
-        int64_t ts = getUtcMillis();
+        // === 修正开始：使用 int64_t 处理毫秒时间戳 ===
+        int64_t ts = 0;
+        struct timeval tv;
+        // gettimeofday 获取的时间更准确，已经包含了 NTP 同步后的结果
+        if (gettimeofday(&tv, NULL) == 0) {
+          // 秒转毫秒 + 微秒转毫秒，注意强制类型转换防止溢出
+          ts = (int64_t)tv.tv_sec * 1000 + (int64_t)tv.tv_usec / 1000;
+        } else {
+          // 降级方案：使用 time()，注意要乘以 1000 变毫秒
+          ts = (int64_t)time(nullptr) * 1000;
+        }
+
+        // 只有当时间戳合理（大于 2020年）才进行签名，否则 NTP 可能未同步
+        // 1577836800000 = 2020-01-01 00:00:00
+        if (ts < 1577836800000LL) {
+           Serial.println("错误：系统时间未同步，钉钉签名将失效");
+           // 可以在这里强制同步一次 NTP 或者跳过
+        }
+
         String sign = dingtalkSign(channel.key1, ts);
+        
         if (webhookUrl.indexOf('?') == -1) {
           webhookUrl += "?";
         } else {
           webhookUrl += "&";
         }
-        // 使用字符串拼接避免int64_t转换问题
-        char tsBuf[21];
-        snprintf(tsBuf, sizeof(tsBuf), "%lld", ts);
-        webhookUrl += "timestamp=" + String(tsBuf) + "&sign=" + sign;
+        // 注意：这里 URL 拼接时也要把 int64_t 转为 String
+        webhookUrl += "timestamp=" + String(ts) + "&sign=" + sign;
+        // === 修正结束 ===
       }
       
       http.begin(webhookUrl);
       http.addHeader("Content-Type", "application/json");
       String jsonData = "{\"msgtype\":\"text\",\"text\":{\"content\":\"";
+      jsonData += "SIM: " + myPhoneNumber + "\\n";
       jsonData += "📱短信通知\\n发送者: " + senderEscaped + "\\n内容: " + messageEscaped + "\\n时间: " + timestampEscaped;
       jsonData += "\"}}";
       Serial.println("钉钉: " + jsonData);
       httpCode = http.POST(jsonData);
       break;
     }
-
+    
     case PUSH_TYPE_PUSHPLUS: {
       // PushPlus
       String pushUrl = channel.url.length() > 0 ? channel.url : "http://www.pushplus.plus/send";
       http.begin(pushUrl);
       http.addHeader("Content-Type", "application/json");
-      // 发送渠道
-      String channelValue = "wechat";
-      if (channel.key2.length() > 0) {
-          // 仅支持微信公众号（wechat）、浏览器插件（extension）和 PushPlus App（app）三种渠道
-          if (channel.key2 == "wechat" || channel.key2 == "extension" || channel.key2 == "app") {
-              channelValue = channel.key2;
-          } else {
-              Serial.println("Invalid PushPlus channel '" + channel.key2 + "'. Using default 'wechat'.");
-          }
-      }
       String jsonData = "{";
       jsonData += "\"token\":\"" + channel.key1 + "\",";
       jsonData += "\"title\":\"短信来自: " + senderEscaped + "\",";
-      jsonData += "\"content\":\"<b>发送者:</b> " + senderEscaped + "<br><b>时间:</b> " + timestampEscaped + "<br><b>内容:</b><br>" + messageEscaped + "\",";
-      jsonData += "\"channel\":\"" + channelValue + "\"";
+      jsonData += "\"content\":\"<b>发送者:</b> " + senderEscaped + "<br><b>时间:</b> " + timestampEscaped + "<br><b>内容:</b><br>" + messageEscaped + "\"";
       jsonData += "}";
       Serial.println("PushPlus: " + jsonData);
       httpCode = http.POST(jsonData);
       break;
     }
-
+    
     case PUSH_TYPE_SERVERCHAN: {
       // Server酱
       String scUrl = channel.url.length() > 0 ? channel.url : ("https://sctapi.ftqq.com/" + channel.key1 + ".send");
@@ -2127,84 +1837,6 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       body.replace("{timestamp}", timestampEscaped);
       Serial.println("自定义: " + body);
       httpCode = http.POST(body);
-      break;
-    }
-    
-    case PUSH_TYPE_FEISHU: {
-      // 飞书机器人
-      String webhookUrl = channel.url;
-      String jsonData = "{";
-      
-      // 如果配置了secret，需要添加签名
-      if (channel.key1.length() > 0) {
-        // 飞书使用秒级时间戳
-        int64_t ts = time(nullptr);
-        // 飞书签名: base64(hmac-sha256(timestamp + "\n" + secret, secret))
-        String stringToSign = String(ts) + "\n" + channel.key1;
-        uint8_t hmacResult[32];
-        mbedtls_md_context_t ctx;
-        mbedtls_md_init(&ctx);
-        mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1);
-        mbedtls_md_hmac_starts(&ctx, (const unsigned char*)channel.key1.c_str(), channel.key1.length());
-        mbedtls_md_hmac_update(&ctx, (const unsigned char*)stringToSign.c_str(), stringToSign.length());
-        mbedtls_md_hmac_finish(&ctx, hmacResult);
-        mbedtls_md_free(&ctx);
-        String sign = base64::encode(hmacResult, 32);
-        
-        jsonData += "\"timestamp\":\"" + String(ts) + "\",";
-        jsonData += "\"sign\":\"" + sign + "\",";
-      }
-      
-      // 飞书消息体
-      jsonData += "\"msg_type\":\"text\",";
-      jsonData += "\"content\":{\"text\":\"";
-      jsonData += "📱短信通知\\n发送者: " + senderEscaped + "\\n内容: " + messageEscaped + "\\n时间: " + timestampEscaped;
-      jsonData += "\"}}";
-      
-      http.begin(webhookUrl);
-      http.addHeader("Content-Type", "application/json");
-      Serial.println("飞书: " + jsonData);
-      httpCode = http.POST(jsonData);
-      break;
-    }
-    
-    case PUSH_TYPE_GOTIFY: {
-      // Gotify 推送
-      String gotifyUrl = channel.url;
-      // 确保URL以/结尾
-      if (!gotifyUrl.endsWith("/")) gotifyUrl += "/";
-      gotifyUrl += "message?token=" + channel.key1;
-      
-      http.begin(gotifyUrl);
-      http.addHeader("Content-Type", "application/json");
-      String jsonData = "{";
-      jsonData += "\"title\":\"短信来自: " + senderEscaped + "\",";
-      jsonData += "\"message\":\"" + messageEscaped + "\\n\\n时间: " + timestampEscaped + "\",";
-      jsonData += "\"priority\":5";
-      jsonData += "}";
-      Serial.println("Gotify: " + jsonData);
-      httpCode = http.POST(jsonData);
-      break;
-    }
-    
-    case PUSH_TYPE_TELEGRAM: {
-      // Telegram Bot 推送
-      // channel.key1 是 Chat ID, channel.key2 是 Bot Token
-      String tgBaseUrl = channel.url.length() > 0 ? channel.url : "https://api.telegram.org";
-      if (tgBaseUrl.endsWith("/")) tgBaseUrl.remove(tgBaseUrl.length() - 1);
-      
-      String tgUrl = tgBaseUrl + "/bot" + channel.key2 + "/sendMessage";
-      http.begin(tgUrl);
-      http.addHeader("Content-Type", "application/json");
-      
-      String jsonData = "{";
-      jsonData += "\"chat_id\":\"" + channel.key1 + "\",";
-      String text = "📱短信通知\n发送者: " + senderEscaped + "\n内容: " + messageEscaped + "\n时间: " + timestampEscaped;
-      jsonData += "\"text\":\"" + text + "\"";
-      jsonData += "}";
-      
-      Serial.println("Telegram: " + jsonData);
-      httpCode = http.POST(jsonData);
       break;
     }
     
@@ -2253,6 +1885,21 @@ void sendSMSToServer(const char* sender, const char* message, const char* timest
     }
   }
   Serial.println("=== 多通道推送完成 ===\n");
+}
+
+// 美化PDU时间戳格式
+// 输入: 26012220481832 -> 输出: 2026-01-22 20:48:18
+String formatPduTime(String raw) {
+  if (raw.length() < 12) return raw; // 如果数据太短，原样返回
+  
+  String year = "20" + raw.substring(0, 2);
+  String month = raw.substring(2, 4);
+  String day = raw.substring(4, 6);
+  String hour = raw.substring(6, 8);
+  String minute = raw.substring(8, 10);
+  String second = raw.substring(10, 12);
+  
+  return year + "-" + month + "-" + day + " " + hour + ":" + minute + ":" + second;
 }
 
 // 读取串口一行（含回车换行），返回行字符串，无新行时返回空
@@ -2384,7 +2031,7 @@ void checkSerial1URC() {
               
               // 如果是第一个收到的分段，保存时间戳
               if (concatBuffer[slot].receivedParts == 1) {
-                concatBuffer[slot].timestamp = String(pdu.getTimeStamp());
+                concatBuffer[slot].timestamp = formatPduTime(String(pdu.getTimeStamp()));
               }
               
               Serial.printf("  已缓存分段 %d，当前已收到 %d/%d\n", 
@@ -2413,7 +2060,7 @@ void checkSerial1URC() {
           }
         } else {
           // 普通短信，直接处理
-          processSmsContent(pdu.getSender(), pdu.getText(), pdu.getTimeStamp());
+          processSmsContent(pdu.getSender(), pdu.getText(), formatPduTime(String(pdu.getTimeStamp())).c_str());
         }
       }
       
@@ -2451,45 +2098,89 @@ bool sendATandWaitOK(const char* cmd, unsigned long timeout) {
   return false;
 }
 
-// 检测网络注册状态（LTE/4G）
-// CEREG状态: 1=已注册本地, 5=已注册漫游
-bool waitCEREG() {
-  Serial1.println("AT+CEREG?");
+bool waitCGATT1() {
+  Serial1.println("AT+CGATT?");
   unsigned long start = millis();
   String resp = "";
   while (millis() - start < 2000) {
     while (Serial1.available()) {
       char c = Serial1.read();
       resp += c;
-      // +CEREG: <n>,<stat> 其中stat=1或5表示已注册
-      if (resp.indexOf("+CEREG:") >= 0) {
-        // 检查是否已注册（状态1或5）
-        if (resp.indexOf(",1") >= 0 || resp.indexOf(",5") >= 0) return true;
-        if (resp.indexOf(",0") >= 0 || resp.indexOf(",2") >= 0 || 
-            resp.indexOf(",3") >= 0 || resp.indexOf(",4") >= 0) return false;
-      }
+      if (resp.indexOf("+CGATT: 1") >= 0) return true;
+      if (resp.indexOf("+CGATT: 0") >= 0) return false;
     }
   }
   return false;
 }
 
+// 检查是否到了自动重启时间
+void checkScheduledReboot() {
+  if (!config.autoRebootEnabled) return;
+  
+  struct tm timeinfo;
+  // 如果获取时间失败，或者年份小于2020（说明时间未同步），尝试重新同步
+  if(!getLocalTime(&timeinfo) || timeinfo.tm_year < (2020 - 1900)){
+    static unsigned long lastSyncTry = 0;
+    // 每5分钟尝试重新同步一次 NTP
+    if (millis() - lastSyncTry > 300000) {
+      Serial.println("检测到时间未同步，尝试重连NTP...");
+      configTime(8 * 3600, 0, "ntp.aliyun.com", "ntp.ntsc.ac.cn", "pool.ntp.org");
+      lastSyncTry = millis();
+    }
+    return;
+  }
+  
+  // 解析设置的时间字符串 "HH:MM"
+  int colonIdx = config.autoRebootTime.indexOf(':');
+  if (colonIdx == -1) return;
+  
+  int targetHour = config.autoRebootTime.substring(0, colonIdx).toInt();
+  int targetMin = config.autoRebootTime.substring(colonIdx + 1).toInt();
+  
+  // 检查匹配
+  if (timeinfo.tm_hour == targetHour && 
+      timeinfo.tm_min == targetMin && 
+      timeinfo.tm_sec < 5) {
+        
+    Serial.println("⏰ 触发定时重启...");
+    
+    // 重启前先喂一次狗，防止重启过程中看门狗超时
+    esp_task_wdt_reset();
+    
+    resetModule();
+    Serial.println("重启ESP32...");
+    delay(1000);
+    ESP.restart();
+  }
+}
+
+// 开机初始化获取本机号码
+void initPhoneNumber() {
+  Serial.println("正在自动获取本机号码...");
+  // 发送查询命令
+  String resp = sendATCommand("AT+CNUM", 3000);
+  
+  // 解析结果，格式通常为: +CNUM: "","+86131xxxx",145
+  if (resp.indexOf("+CNUM:") >= 0) {
+    int idx = resp.indexOf(",\"");
+    if (idx >= 0) {
+      int endIdx = resp.indexOf("\"", idx + 2);
+      if (endIdx > idx) {
+        myPhoneNumber = resp.substring(idx + 2, endIdx);
+        Serial.println("✅ 获取成功，本机号码: " + myPhoneNumber);
+        return;
+      }
+    }
+  }
+  Serial.println("⚠️ 获取失败，使用默认值");
+}
+
 void setup() {
-  //  指示灯
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
-
-  // USB 串口日志
   Serial.begin(115200);
-  delay(1500);  // 等 USB CDC 稳定
-
-  // 模组串口（UART）
   Serial1.begin(115200, SERIAL_8N1, RXD, TXD);
   Serial1.setRxBufferSize(SERIAL_BUFFER_SIZE);
-
-  // 模组从“干净状态”启动（EN 断电重启 + 清串口噪声）
-  while (Serial1.available()) Serial1.read();
-  modemPowerCycle();
-  while (Serial1.available()) Serial1.read();
   
   // 初始化长短信缓存
   initConcatBuffer();
@@ -2498,69 +2189,26 @@ void setup() {
   loadConfig();
   configValid = isConfigValid();
   
-
-  // ========== 先初始化模组 ==========
-  while (!sendATandWaitOK("AT", 1000)) {
-    Serial.println("AT未响应，重试...");
-    blink_short();
-  }
-  Serial.println("模组AT响应正常");
-  
-  //先设置CGACT，禁用数据连接
-  while (!sendATandWaitOK("AT+CGACT=0,1", 5000)) {
-    Serial.println("设置CGACT失败，重试...");
-    blink_short();
-  }
-  Serial.println("已禁用数据连接(AT+CGACT=0,1)，防止流量消耗");
-  
-  //设置短信自动上报
-  while (!sendATandWaitOK("AT+CNMI=2,2,0,0,0", 1000)) {
-    Serial.println("设置CNMI失败，重试...");
-    blink_short();
-  }
-  Serial.println("CNMI参数设置完成");
-  
-  //配置PDU模式
-  while (!sendATandWaitOK("AT+CMGF=0", 1000)) {
-    Serial.println("设置PDU模式失败，重试...");
-    blink_short();
-  }
-  Serial.println("PDU模式设置完成");
-  
-  //等待网络注册（LTE/4G）
-  while (!waitCEREG()) {
-    Serial.println("等待网络注册...");
-    blink_short();
-  }
-  Serial.println("网络已注册");
-  // ========== 模组初始化完成 ==========
-  
-  // 连接WiFi（支持隐藏SSID）
-  // 参数: ssid, password, channel(0=自动), bssid(nullptr=自动), connect(true=连接隐藏网络)
-  WiFi.begin(WIFI_SSID, WIFI_PASS, 0, nullptr, true);
+  WiFiMulti.addAP(WIFI_SSID, WIFI_PASS);
   Serial.println("连接wifi");
   Serial.println(WIFI_SSID);
-  while (WiFi.status() != WL_CONNECTED) blink_short();
+  while (WiFiMulti.run() != WL_CONNECTED) blink_short();
   Serial.println("wifi已连接");
   Serial.print("IP地址: ");
   Serial.println(WiFi.localIP());
-  
-  // NTP时间同步（获取UTC时间）
-  Serial.println("正在同步NTP时间...");
-  configTime(0, 0, "ntp.ntsc.ac.cn", "ntp.aliyun.com", "pool.ntp.org");
-  int ntpRetry = 0;
-  while (time(nullptr) < 100000 && ntpRetry < 100) {
-    delay(100);
-    ntpRetry++;
-  }
-  if (time(nullptr) >= 100000) {
-    timeSynced = true;
-    Serial.println("NTP时间同步成功");
-    time_t now = time(nullptr);
-    Serial.print("当前UTC时间戳: ");
-    Serial.println(now);
-  } else {
-    Serial.println("NTP时间同步失败，将使用设备时间");
+
+  // 配置NTP时间同步（北京时间 UTC+8）
+  // 必须在setup中配置，以便系统维护时钟
+  configTime(8 * 3600, 0, "ntp.aliyun.com", "ntp.ntsc.ac.cn", "pool.ntp.org");
+  Serial.println("正在同步网络时间...");
+  struct tm timeinfo;
+  // 等待几秒尝试同步时间，但不阻塞主流程太久
+  for(int i=0; i<10; i++) {
+    if(getLocalTime(&timeinfo)) {
+      Serial.println("时间同步成功");
+      break;
+    }
+    delay(500);
   }
   
   // 启动HTTP服务器
@@ -2571,12 +2219,33 @@ void setup() {
   server.on("/sendsms", HTTP_POST, handleSendSms);
   server.on("/ping", HTTP_POST, handlePing);
   server.on("/query", handleQuery);
-  server.on("/flight", handleFlightMode);
-  server.on("/at", handleATCommand);
   server.begin();
   Serial.println("HTTP服务器已启动");
   
   ssl_client.setInsecure();
+  while (!sendATandWaitOK("AT", 1000)) {
+    Serial.println("AT未响应，重试...");
+    blink_short();
+  }
+  Serial.println("模组AT响应正常");
+  //设置短信自动上报
+  while (!sendATandWaitOK("AT+CNMI=2,2,0,0,0", 1000)) {
+    Serial.println("设置CNMI失败，重试...");
+    blink_short();
+  }
+  Serial.println("CNMI参数设置完成");
+  //配置PDU模式
+  while (!sendATandWaitOK("AT+CMGF=0", 1000)) {
+    Serial.println("设置PDU模式失败，重试...");
+    blink_short();
+  }
+  Serial.println("PDU模式设置完成");
+  //等待CGATT附着
+  while (!waitCGATT1()) {
+    Serial.println("等待CGATT附着...");
+    blink_short();
+  }
+  Serial.println("CGATT已附着");
   digitalWrite(LED_BUILTIN, LOW);
   
   // 如果配置有效，发送启动通知
@@ -2586,9 +2255,32 @@ void setup() {
     String body = "设备已启动\n设备地址: " + getDeviceUrl();
     sendEmailNotification(subject.c_str(), body.c_str());
   }
+  // --- 适配 ESP32 3.0+ 版本的新写法 ---
+  esp_task_wdt_config_t twdt_config = {
+    .timeout_ms = 60 * 1000,  // 将秒转换为毫秒
+    .idle_core_mask = (1 << 0), // 监控核心0 (对于ESP32-C3这种单核芯片)
+    .trigger_panic = true,
+    };
+  esp_task_wdt_init(&twdt_config);
+  esp_task_wdt_add(NULL);
+  // 初始化本机号码
+  initPhoneNumber();
+  Serial.println("系统启动完毕，看门狗已启用 (60s)");
+  
 }
 
 void loop() {
+  // --- 新增：喂狗 ---
+  // 告诉看门狗程序还活着。如果 loop 卡死超过60秒没执行这句，ESP32会自动重启
+  esp_task_wdt_reset();
+
+  // --- 新增：WiFi 保活 ---
+  // 检查 WiFi 是否连接，如果断开会自动尝试重连（前提是使用了 WiFiMulti）
+  if (WiFiMulti.run() != WL_CONNECTED) {
+     // 如果断网了，稍微等一下，不要疯狂循环
+     delay(500); 
+  }
+
   // 处理HTTP请求
   server.handleClient();
   
@@ -2602,6 +2294,9 @@ void loop() {
   
   // 检查长短信超时
   checkConcatTimeout();
+  
+  // 检查是否需要定时重启
+  checkScheduledReboot();
   
   // 本地透传
   if (Serial.available()) Serial1.write(Serial.read());

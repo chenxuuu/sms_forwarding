@@ -1,0 +1,35 @@
+name: Build Arduino Firmware
+
+on:
+  push:
+    paths:
+      - 'code/**'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+    
+    - name: Setup Arduino CLI
+      uses: arduino/setup-arduino-cli@v2
+    
+    - name: Install ESP32 platform
+      run: |
+        arduino-cli config init
+        arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+        arduino-cli core update-index
+        arduino-cli core install esp32:esp32
+    
+    - name: Install dependencies
+      run: |
+        arduino-cli lib install "pdulib"
+        arduino-cli lib install "ReadyMail"
+    
+    - name: Compile firmware
+      run: |
+        arduino-cli compile --fqbn esp32:esp32:esp32 ./code/code.ino

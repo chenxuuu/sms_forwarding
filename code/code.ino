@@ -20,6 +20,11 @@
 #define RXD 4
 #define MODEM_EN_PIN 5
 
+// LED引脚定义（用于通过CI验证，给个假的）
+#ifndef LED_BUILTIN
+#define LED_BUILTIN 8
+#endif
+
 // 推送通道类型
 enum PushType {
   PUSH_TYPE_NONE = 0,      // 未启用

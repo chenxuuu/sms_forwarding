@@ -32,4 +32,4 @@ jobs:
     
     - name: Compile firmware
       run: |
-        arduino-cli compile --fqbn esp32:esp32:esp32 ./code/code.ino
+        arduino-cli compile --fqbn esp32:esp32:esp32c3 ./code/code.ino

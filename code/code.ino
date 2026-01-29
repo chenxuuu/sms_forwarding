@@ -65,6 +65,8 @@ struct Config {
   PushChannel pushChannels[MAX_PUSH_CHANNELS];  // 多推送通道
   String webUser;      // Web管理账号
   String webPass;      // Web管理密码
+  String wifiSSID;     // WiFi名称
+  String wifiPass;     // WiFi密码
 };
 
 // 默认Web管理账号密码
@@ -124,6 +126,8 @@ void saveConfig() {
   preferences.putString("adminPhone", config.adminPhone);
   preferences.putString("webUser", config.webUser);
   preferences.putString("webPass", config.webPass);
+  preferences.putString("wifiSSID", config.wifiSSID);
+  preferences.putString("wifiPass", config.wifiPass);
   
   // 保存推送通道配置
   for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
@@ -152,6 +156,8 @@ void loadConfig() {
   config.adminPhone = preferences.getString("adminPhone", "");
   config.webUser = preferences.getString("webUser", DEFAULT_WEB_USER);
   config.webPass = preferences.getString("webPass", DEFAULT_WEB_PASS);
+  config.wifiSSID = preferences.getString("wifiSSID", WIFI_SSID);
+  config.wifiPass = preferences.getString("wifiPass", WIFI_PASS);
   
   // 加载推送通道配置
   for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
@@ -274,6 +280,18 @@ const char* htmlPage = R"rawliteral(
     <div class="status" id="status">设备IP: <strong>%IP%</strong></div>
     
     <form action="/save" method="POST">
+      <div class="section">
+        <div class="section-title">📡 WiFi 设置</div>
+        <div class="form-group">
+          <label>WiFi 名称 (SSID)</label>
+          <input type="text" name="wifiSSID" value="%WIFI_SSID%" placeholder="请输入WiFi名称">
+        </div>
+        <div class="form-group">
+          <label>WiFi 密码</label>
+          <input type="password" name="wifiPass" value="%WIFI_PASS%" placeholder="请输入WiFi密码">
+        </div>
+      </div>
+
       <div class="section">
         <div class="section-title">🔐 Web管理账号设置</div>
         <div class="warning">⚠️ 首次使用请修改默认密码！默认账号: )rawliteral" DEFAULT_WEB_USER "，默认密码: " DEFAULT_WEB_PASS R"rawliteral(
@@ -734,6 +752,8 @@ void handleRoot() {
   
   String html = String(htmlPage);
   html.replace("%IP%", WiFi.localIP().toString());
+  html.replace("%WIFI_SSID%", config.wifiSSID);
+  html.replace("%WIFI_PASS%", config.wifiPass);
   html.replace("%WEB_USER%", config.webUser);
   html.replace("%WEB_PASS%", config.webPass);
   html.replace("%SMTP_SERVER%", config.smtpServer);
@@ -1523,6 +1543,13 @@ void handleSave() {
   
   config.webUser = newWebUser;
   config.webPass = newWebPass;
+  
+  String newSSID = server.arg("wifiSSID");
+  String newPass = server.arg("wifiPass");
+  bool wifiChanged = (newSSID != config.wifiSSID || newPass != config.wifiPass);
+  config.wifiSSID = newSSID;
+  config.wifiPass = newPass;
+
   config.smtpServer = server.arg("smtpServer");
   config.smtpPort = server.arg("smtpPort").toInt();
   if (config.smtpPort == 0) config.smtpPort = 465;
@@ -1578,6 +1605,12 @@ void handleSave() {
     String subject = "短信转发器配置已更新";
     String body = "设备配置已更新\n设备地址: " + getDeviceUrl();
     sendEmailNotification(subject.c_str(), body.c_str());
+  }
+  
+  if (wifiChanged || WiFi.getMode() == WIFI_AP) {
+    Serial.println("WiFi配置已更改或处于AP模式，即将重启...");
+    delay(2000);
+    ESP.restart();
   }
 }
 
@@ -2540,15 +2573,40 @@ void setup() {
   Serial.println("网络已注册");
   // ========== 模组初始化完成 ==========
   
-  // 连接WiFi（支持隐藏SSID）
-  // 参数: ssid, password, channel(0=自动), bssid(nullptr=自动), connect(true=连接隐藏网络)
-  WiFi.begin(WIFI_SSID, WIFI_PASS, 0, nullptr, true);
-  Serial.println("连接wifi");
-  Serial.println(WIFI_SSID);
-  while (WiFi.status() != WL_CONNECTED) blink_short();
-  Serial.println("wifi已连接");
-  Serial.print("IP地址: ");
-  Serial.println(WiFi.localIP());
+  // 连接WiFi
+  WiFi.mode(WIFI_STA);
+  String ssid = config.wifiSSID.length() > 0 ? config.wifiSSID : WIFI_SSID;
+  String pass = config.wifiPass.length() > 0 ? config.wifiPass : WIFI_PASS;
+  
+  WiFi.begin(ssid.c_str(), pass.c_str(), 0, nullptr, true);
+  Serial.print("正在连接WiFi: ");
+  Serial.println(ssid);
+  
+  unsigned long startWifi = millis();
+  bool connected = false;
+  while (millis() - startWifi < 30000) {
+    if (WiFi.status() == WL_CONNECTED) {
+      connected = true;
+      break;
+    }
+    blink_short();
+    Serial.print(".");
+  }
+  Serial.println();
+  
+  if (connected) {
+    Serial.println("WiFi连接成功");
+    Serial.print("IP地址: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("WiFi连接超时，启动AP模式...");
+    WiFi.disconnect();
+    WiFi.mode(WIFI_AP);
+    String apName = "SMS-Forwarder-AP";
+    WiFi.softAP(apName.c_str()); // 开放热点
+    Serial.print("AP已启动: "); Serial.println(apName);
+    Serial.print("AP IP地址: "); Serial.println(WiFi.softAPIP());
+  }
   
   // NTP时间同步（获取UTC时间）
   Serial.println("正在同步NTP时间...");

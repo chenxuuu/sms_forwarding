@@ -2463,9 +2463,12 @@ bool waitCEREG() {
   unsigned long start = millis();
   String resp = "";
   while (millis() - start < 2000) {
+    // USB串口透传：允许用户在等待注册期间发送AT调试命令
+    if (Serial.available()) Serial1.write(Serial.read());
     while (Serial1.available()) {
       char c = Serial1.read();
       resp += c;
+      Serial.write(c);  // 回显模组响应到USB串口，方便调试
       // +CEREG: <n>,<stat> 其中stat=1或5表示已注册
       if (resp.indexOf("+CEREG:") >= 0) {
         // 检查是否已注册（状态1或5）
@@ -2535,7 +2538,15 @@ void setup() {
   //等待网络注册（LTE/4G）
   while (!waitCEREG()) {
     Serial.println("等待网络注册...");
-    blink_short();
+    // 使用透传感知的等待代替 blink_short()，保持串口响应
+    digitalWrite(LED_BUILTIN, LOW);
+    delay(50);
+    digitalWrite(LED_BUILTIN, HIGH);
+    unsigned long blinkStart = millis();
+    while (millis() - blinkStart < 500) {
+      if (Serial.available()) Serial1.write(Serial.read());
+      if (Serial1.available()) Serial.write(Serial1.read());
+    }
   }
   Serial.println("网络已注册");
   // ========== 模组初始化完成 ==========

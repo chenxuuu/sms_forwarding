@@ -2588,6 +2588,8 @@ void setup() {
   Serial.println("网络已注册");
   // ========== 模组初始化完成 ==========
   
+  // 扫描所有信道以连接信号最强的 AP，防止在 mesh 组网这类场景中连接到弱 AP
+  WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
   // 连接WiFi（支持隐藏SSID）
   // 参数: ssid, password, channel(0=自动), bssid(nullptr=自动), connect(true=连接隐藏网络)
   WiFi.begin(WIFI_SSID, WIFI_PASS, 0, nullptr, true);

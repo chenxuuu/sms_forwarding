@@ -82,7 +82,10 @@ WebServer server(80);
 
 bool configValid = false;  // 配置是否有效
 bool timeSynced = false;   // NTP时间是否已同步
+bool networkRegistered = false;  // 网络是否已注册
 unsigned long lastPrintTime = 0;  // 上次打印IP的时间
+unsigned long lastCeregCheck = 0; // 上次检查网络注册的时间
+#define CEREG_CHECK_INTERVAL 5000 // 网络注册检查间隔(毫秒)
 
 #define SERIAL_BUFFER_SIZE 500
 #define MAX_PDU_LENGTH 300
@@ -2580,16 +2583,11 @@ void setup() {
   }
   Serial.println("PDU模式设置完成");
   
-  //等待网络注册（LTE/4G）
-  while (!waitCEREG()) {
-    Serial.println("等待网络注册...");
-    blink_short();
-  }
-  Serial.println("网络已注册");
-  // ========== 模组初始化完成 ==========
+  // ========== 模组AT初始化完成 ==========
   
   // 扫描所有信道以连接信号最强的 AP，防止在 mesh 组网这类场景中连接到弱 AP
   WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+  
   // 连接WiFi（支持隐藏SSID）
   // 参数: ssid, password, channel(0=自动), bssid(nullptr=自动), connect(true=连接隐藏网络)
   WiFi.begin(WIFI_SSID, WIFI_PASS, 0, nullptr, true);
@@ -2634,8 +2632,17 @@ void setup() {
   ssl_client.setInsecure();
   digitalWrite(LED_BUILTIN, LOW);
   
+  // 非阻塞检查网络注册状态（不再阻塞等待，改为loop中周期性检查）
+  networkRegistered = waitCEREG();
+  if (networkRegistered) {
+    Serial.println("网络已注册");
+  } else {
+    Serial.println("网络尚未注册，将在后台继续检查...");
+  }
+  lastCeregCheck = millis();
+  
   // 如果配置有效，发送启动通知
-  if (configValid) {
+  if (configValid && networkRegistered) {
     Serial.println("配置有效，发送启动通知...");
     String subject = "短信转发器已启动";
     String body = "设备已启动\n设备地址: " + getDeviceUrl();
@@ -2646,6 +2653,24 @@ void setup() {
 void loop() {
   // 处理HTTP请求
   server.handleClient();
+  
+  // 周期性检查网络注册状态
+  if (!networkRegistered && millis() - lastCeregCheck >= CEREG_CHECK_INTERVAL) {
+    lastCeregCheck = millis();
+    networkRegistered = waitCEREG();
+    if (networkRegistered) {
+      Serial.println("网络已注册");
+      // 网络刚注册成功，发送启动通知
+      if (configValid) {
+        Serial.println("配置有效，发送启动通知...");
+        String subject = "短信转发器已启动";
+        String body = "设备已启动\n设备地址: " + getDeviceUrl();
+        sendEmailNotification(subject.c_str(), body.c_str());
+      }
+    } else {
+      Serial.println("等待网络注册...");
+    }
+  }
   
   // 如果配置无效，每秒打印一次IP地址
   if (!configValid) {

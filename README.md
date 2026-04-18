@@ -107,3 +107,11 @@ ESP32C3 与 ML307R-DC 通过串口（UART）连接，接线如下：
 - **pdulib** by David Henry
 
 需要在`Arduino IDE`中安装ESP32开发板支持，参考[官方文档](https://docs.espressif.com/projects/arduino-esp32/en/latest/installing.html)，版型选`MakerGO ESP32 C3 SuperMini`。
+
+## 软件编译
+
+克隆仓库后，复制 WiFi 信息配置文件模板，并填入 WiFi SSID 和 WiFi 密码：
+
+```bash
+cp code/wifi_config.h.example code/wifi_config.h
+```

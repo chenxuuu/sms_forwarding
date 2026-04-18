@@ -30,6 +30,10 @@ jobs:
         arduino-cli lib install "pdulib"
         arduino-cli lib install "ReadyMail"
     
+    - name: Generate wifi_config.h
+      run: |
+        cp code/wifi_config.h.example code/wifi_config.h
+
     - name: Compile firmware
       run: |
         arduino-cli compile --fqbn esp32:esp32:esp32c3 ./code/code.ino

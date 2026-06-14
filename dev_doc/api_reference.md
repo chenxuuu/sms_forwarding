@@ -284,18 +284,70 @@ WAIT_PDU 状态读取 PDU hex 数据 → `pdu.decodePDU()` 解析 → 根据 `co
 
 ## 模块: web_handlers.cpp — HTTP 处理
 
+### 日志系统 API
+
+### `void logCapture(const String& msg)`
+### `void logCapture(const char* msg)`
+**用途**: 输出日志，但不换行。内容追加到行缓冲区 `_logLine`，不会立即写入环形缓冲区。同时输出到 `Serial`。
+
+**使用场景**: 与 `logCaptureLn()` 配合，构建一行完整日志：
+```cpp
+logCapture("目标号码: ");
+logCaptureLn(String(phoneNumber));
+// 环形缓冲区中只有一行: "目标号码: 13800138000"
+```
+
+---
+
+### `void logCaptureLn(const String& msg)`
+### `void logCaptureLn(const char* msg)`
+**用途**: 输出日志并换行。将 `_logLine` + msg 提交到环形缓冲区，然后清空行缓冲区。同时输出到 `Serial.println`。
+
+**注意**: 环形缓冲区每调用一次 `logCaptureLn` 即可产生一行日志，因此 `logCapture()` 和 `logCaptureLn()` 的日志会在环形缓冲区中合并为同一行。
+
+---
+
+### `void logCaptureF(const char* fmt, ...)`
+**用途**: 格式化日志输出（类似 `printf`）。支持 `%d`/`%s`/`%f` 等格式。如果格式化字符串以 `\n` 结尾，自动提交整行到缓冲区。
+
+---
+
+### `void handleLog()`
+**用途**: HTTP 端点 `GET /log`，返回环形缓冲区中所有日志行。
+
+**返回格式**: `application/json`
+```json
+["行1", "行2", "行3", ...]
+```
+**鉴权**: 需要 HTTP Basic Auth。最多返回 120 行（环形缓冲区容量）。
+
+---
+
 ### `bool checkAuth()`
 HTTP Basic Authentication，账号密码来自 `config.webUser` / `config.webPass`。
 
 ---
 
 ### `void handleRoot()`
-返回配置页面 HTML。通过 `html.replace("%KEY%", value)` 替换模板占位符，动态生成 5 个推送通道的表单。
+返回 SPA 主页 HTML。通过 `html.replace("%KEY%", value)` 替换模板占位符，动态生成 5 个推送通道的表单。页面包含 10 个可切换面板（系统概览/账号管理/邮件通知/推送通道/管理员黑名单/发送短信/模组诊断/网络测试/模组控制/AT终端/系统日志），通过侧边栏 JS 切换显示。
+
+**模板占位符**:
+
+| 占位符 | 数据来源 |
+|---|---|
+| `%IP%` | `WiFi.localIP().toString()` |
+| `%WEB_USER%` / `%WEB_PASS%` | `config.webUser` / `config.webPass` |
+| `%SMTP_SERVER%` ~ `%SMTP_SEND_TO%` | `config.smtp*` |
+| `%ADMIN_PHONE%` | `config.adminPhone` |
+| `%NUMBER_BLACK_LIST%` | `config.numberBlackList` |
+| `%SMTP_CHECK%` | 邮件配置是否完整 |
+| `%PUSH_COUNT%` | 已启用的有效推送通道数 |
+| `%PUSH_CHANNELS%` | 循环生成 5 个通道的 HTML 表单 |
 
 ---
 
 ### `void handleToolsPage()`
-返回工具箱页面 HTML。
+兼容旧链接，直接委托给 `handleRoot()` 返回同一 SPA 页面。
 
 ---
 

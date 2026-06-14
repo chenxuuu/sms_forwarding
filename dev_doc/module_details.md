@@ -4,7 +4,7 @@
 
 ## code.ino — 主入口
 
-**文件**: `code/code.ino` (约 75 行)  
+**文件**: `code/code.ino` (约 105 行)  
 **角色**: Arduino 工程入口点，仅包含 `setup()` 和 `loop()`。
 
 ### setup() 初始化顺序
@@ -46,13 +46,14 @@
 8. HTTP 服务器
    ├── server.on("/", handleRoot)
    ├── server.on("/save", HTTP_POST, handleSave)
-   ├── server.on("/tools", handleToolsPage)
-   ├── server.on("/sms", handleToolsPage)                   // 旧链接兼容
+   ├── server.on("/tools", handleRoot)                       # 兼容旧链接
+   ├── server.on("/sms", handleRoot)                         # 兼容旧链接
    ├── server.on("/sendsms", HTTP_POST, handleSendSms)
    ├── server.on("/ping", HTTP_POST, handlePing)
    ├── server.on("/query", handleQuery)
    ├── server.on("/flight", handleFlightMode)
    ├── server.on("/at", handleATCommand)
+   ├── server.on("/log", handleLog)                          # 系统日志 JSON
    └── server.begin()
 
 9. 启动通知
@@ -386,25 +387,41 @@ checkSerial1URC() 循环:
 
 ---
 
-## web_handlers.h / web_handlers.cpp — HTTP 处理
+## web_handlers.h / web_handlers.cpp — HTTP 处理 + 日志系统
 
 ### 路由表
 
 | 方法 | 路径 | 处理函数 | Auth | 说明 |
 |---|---|---|---|---|
-| GET | `/` | `handleRoot()` | ✓ | 系统配置页面 |
-| GET | `/tools` | `handleToolsPage()` | ✓ | 工具箱页面 |
-| GET | `/sms` | `handleToolsPage()` | ✓ | 旧链接兼容 |
+| GET | `/` | `handleRoot()` | ✓ | SPA 主页（含 10 个面板） |
+| GET | `/tools` | `handleRoot()` | ✓ | 旧链接兼容，返回同一 SPA 页面 |
+| GET | `/sms` | `handleRoot()` | ✓ | 旧链接兼容，返回同一 SPA 页面 |
 | POST | `/save` | `handleSave()` | ✓ | 保存配置 |
 | POST | `/sendsms` | `handleSendSms()` | ✓ | 网页发送短信 |
 | POST | `/ping` | `handlePing()` | ✓ | Ping 测试 |
 | GET | `/query` | `handleQuery()` | ✓ | 模组/WiFi 信息查询 |
 | GET | `/flight` | `handleFlightMode()` | ✓ | 飞行模式控制 |
 | GET | `/at` | `handleATCommand()` | ✓ | AT 指令调试 |
+| GET | `/log` | `handleLog()` | ✓ | 系统日志（JSON 数组） |
+
+### 日志环形缓冲区
+
+```
+容量: LOG_BUF_SIZE = 120 行
+结构: String logBuffer[120] + 行缓冲 _logLine
+写入:
+  logCapture(msg)      → Serial.print() + 追加到 _logLine
+  logCaptureLn(msg)    → Serial.println() + 提交 _logLine 到环形缓冲区
+  logCaptureF(fmt,...) → Serial.print() + 追加到 _logLine (fmt 以 \n 结尾时自动提交)
+读取:
+  handlerLog()         → JSON ["行1","行2",...] (按插入顺序)
+```
+
+**行缓冲设计目的**: 避免 `logCapture("A:"); logCaptureLn(B);` 在环形缓冲区中产生两个独立条目。实际只产生一行 `"A: B"`。
 
 ### 模板变量替换
 
-HTML 页面中的 `%PLACEHOLDER%` 在 `handleRoot()` 中通过 `html.replace()` 替换:
+SPA 页面中的 `%PLACEHOLDER%` 在 `handleRoot()` 中通过 `html.replace()` 替换:
 
 | 占位符 | 数据来源 |
 |---|---|
@@ -419,8 +436,9 @@ HTML 页面中的 `%PLACEHOLDER%` 在 `handleRoot()` 中通过 `html.replace()` 
 
 | 端点 | Content-Type | 返回格式 |
 |---|---|---|
-| `/` `/tools` `/sendsms` `/save` | `text/html` | HTML 页面 |
+| `/` `/tools` `/sms` `/save` | `text/html` | HTML 页面 |
 | `/query` `/flight` `/at` `/ping` | `application/json` | `{"success":bool, "message":"..."}` |
+| `/log` | `application/json` | `["行1", "行2", ...]` |
 
 ### 修改指南
 
@@ -434,10 +452,23 @@ HTML 页面中的 `%PLACEHOLDER%` 在 `handleRoot()` 中通过 `html.replace()` 
 
 ### 内容说明
 
-| 常量 | 用途 | 特殊点 |
+**单页应用 (SPA)**：整个项目仅一个 HTML 常量 `htmlPage`（约 500 行），包含 10 个面板：
+
+| 面板 ID | 名称 | 功能 |
 |---|---|---|
-| `htmlPage` | 系统配置页 | 使用 C++ 字符串字面量拼接 `DEFAULT_WEB_USER` / `DEFAULT_WEB_PASS` |
-| `htmlToolsPage` | 工具箱页 | 纯字符串常量 |
+| `panel-overview` | 系统概览 | 显示 IP/信号/配置状态 |
+| `panel-account` | 账号管理 | 修改 Web 登录密码 |
+| `panel-email` | 邮件通知 | SMTP 邮件配置 |
+| `panel-push` | 推送通道 | 5 个推送通道配置 |
+| `panel-admin` | 管理员 & 黑名单 | 管理员号码 + 号码黑名单 |
+| `panel-sendsms` | 发送短信 | Web 端发送短信 |
+| `panel-diagnose` | 模组诊断 | ATI/信号/SIM/网络查询 |
+| `panel-network` | 网络测试 | Ping 测试 |
+| `panel-modem` | 模组控制 | 飞行模式开关/模组重启 |
+| `panel-atterm` | AT 终端 | AT 指令交互调试 |
+| `panel-log` | 系统日志 | 实时日志查看（终端风格） |
+
+**侧边栏**分为"配置"和"工具"两个分组，底部有"修改密码"快捷按钮。JS 通过 `switchPanel(name)` 控制面板显示/隐藏，日志面板激活时自动开始轮询，切换离开后停止。
 
 ### 修改指南
 

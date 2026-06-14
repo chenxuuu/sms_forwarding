@@ -206,6 +206,7 @@ const char* htmlPage = R"rawliteral(
       <a data-panel="network"><span class="ico">🌐</span> <span>网络测试</span></a>
       <a data-panel="modem"><span class="ico">✈</span> <span>模组控制</span></a>
       <a data-panel="atterm"><span class="ico">💻</span> <span>AT 终端</span></a>
+      <a data-panel="log"><span class="ico">📋</span> <span>系统日志</span></a>
     </nav>
     <div class="sidebar-footer">
       <button class="btn btn-white btn-sm btn-block" onclick="switchPanel('account')"><span>修改密码</span> 🔑</button>
@@ -398,6 +399,24 @@ const char* htmlPage = R"rawliteral(
       </div>
     </div>
 
+    <!-- ===== System Log ===== -->
+    <div class="panel" id="panel-log">
+      <h1 class="page-title">系统日志</h1>
+      <p class="page-subtitle">实时查看设备串口日志输出 <span id="logStatus" style="color:#4CAF50;">● 自动刷新中</span></p>
+      <div class="card">
+        <div class="card-header">📋 日志输出</div>
+        <div class="card-body">
+          <div id="logView" style="background:#1e1e1e;color:#d4d4d4;padding:12px;border-radius:8px;font-family:'Cascadia Code','Fira Code',Consolas,monospace;font-size:12px;line-height:1.6;max-height:60vh;overflow-y:auto;white-space:pre-wrap;word-break:break-all;min-height:300px;">加载中...</div>
+          <div class="btn-row" style="margin-top:8px;">
+            <button class="btn btn-secondary btn-sm" onclick="clearLogUI()">清空显示</button>
+            <button class="btn btn-secondary btn-sm" onclick="refreshLog()">手动刷新</button>
+            <label style="margin-left:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="logAuto" checked onchange="toggleLogAuto()"> 自动刷新</label>
+          </div>
+          <p class="form-hint">显示设备运行时输出的日志信息，每2秒自动刷新。日志最多保留最近120条。</p>
+        </div>
+      </div>
+    </div>
+
   </main>
 
   <script>
@@ -511,6 +530,36 @@ const char* htmlPage = R"rawliteral(
     }
     function clearATLog(){var l=document.getElementById('atLog');l.innerHTML='';addLog('日志已清空','resp');}
     document.getElementById('atCmd').addEventListener('keydown',function(e){if(e.key==='Enter')sendAT();});
+
+    // ---- Log Viewer ----
+    var logTimer = null;
+    function startLogPoll() {
+      if (logTimer) return;
+      logTimer = setInterval(refreshLog, 2000);
+    }
+    function stopLogPoll() {
+      if (logTimer) { clearInterval(logTimer); logTimer = null; }
+    }
+    function toggleLogAuto() {
+      if (document.getElementById('logAuto').checked) startLogPoll();
+      else stopLogPoll();
+    }
+    function clearLogUI() { document.getElementById('logView').textContent = ''; }
+    function refreshLog() {
+      var el = document.getElementById('logView');
+      fetch('/log').then(function(r) { return r.json(); }).then(function(lines) {
+        if (!Array.isArray(lines)) return;
+        el.textContent = lines.join('\n');
+        el.scrollTop = el.scrollHeight;
+      }).catch(function() { if (el.textContent === '加载中...') el.textContent = '无法获取日志'; });
+    }
+    var _origSwitchPanel = switchPanel;
+    switchPanel = function(name) {
+      _origSwitchPanel(name);
+      if (name === 'log') { refreshLog(); startLogPoll(); }
+      else stopLogPoll();
+    };
+    document.addEventListener('DOMContentLoaded', function() { refreshLog(); startLogPoll(); });
   </script>
 </body>
 </html>

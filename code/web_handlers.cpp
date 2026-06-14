@@ -4,6 +4,63 @@
 #include "modem.h"
 #include "push.h"
 
+// ---- 日志环形缓冲区 ----
+String logBuffer[LOG_BUF_SIZE];
+int logBufIdx = 0;
+int logBufCount = 0;
+static String _logLine;  // 行缓冲：logCapture 写入这里，logCaptureLn 提交整行
+
+static void _logAppend(const String& line) {
+  logBuffer[logBufIdx] = line;
+  logBufIdx = (logBufIdx + 1) % LOG_BUF_SIZE;
+  if (logBufCount < LOG_BUF_SIZE) logBufCount++;
+}
+
+static void _logCommit() {
+  if (_logLine.length() > 0) {
+    _logAppend(_logLine);
+    _logLine = "";
+  }
+}
+
+void logCapture(const String& msg) {
+  Serial.print(msg);
+  _logLine += msg;
+}
+
+void logCapture(const char* msg) {
+  Serial.print(msg);
+  _logLine += msg;
+}
+
+void logCaptureF(const char* fmt, ...) {
+  char buf[256];
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(buf, sizeof(buf), fmt, args);
+  va_end(args);
+  Serial.print(buf);
+  _logLine += buf;
+  // 如果格式化字符串以 \n 结尾，则提交此行
+  size_t len = strlen(buf);
+  if (len > 0 && buf[len - 1] == '\n') {
+    _logLine.trim();  // 去掉尾部空格和可能多余的 \n
+    _logCommit();
+  }
+}
+
+void logCaptureLn(const String& msg) {
+  Serial.println(msg);
+  _logLine += msg;
+  _logCommit();
+}
+
+void logCaptureLn(const char* msg) {
+  Serial.println(msg);
+  _logLine += msg;
+  _logCommit();
+}
+
 // 检查HTTP Basic认证
 bool checkAuth() {
   if (!server.authenticate(config.webUser.c_str(), config.webPass.c_str())) {
@@ -127,7 +184,7 @@ void handleFlightMode() {
   if (action == "query") {
     // 查询当前功能模式
     String resp = sendATCommand("AT+CFUN?", 2000);
-    Serial.println("CFUN查询响应: " + resp);
+    logCaptureLn(String("CFUN查询响应: " + resp));
     
     if (resp.indexOf("+CFUN:") >= 0) {
       success = true;
@@ -161,7 +218,7 @@ void handleFlightMode() {
   else if (action == "toggle") {
     // 先查询当前状态
     String resp = sendATCommand("AT+CFUN?", 2000);
-    Serial.println("CFUN查询响应: " + resp);
+    logCaptureLn(String("CFUN查询响应: " + resp));
     
     if (resp.indexOf("+CFUN:") >= 0) {
       int idx = resp.indexOf("+CFUN:");
@@ -171,9 +228,9 @@ void handleFlightMode() {
       int newMode = (currentMode == 1) ? 4 : 1;
       String cmd = "AT+CFUN=" + String(newMode);
       
-      Serial.println("切换飞行模式: " + cmd);
+      logCaptureLn(String("切换飞行模式: " + cmd));
       String setResp = sendATCommand(cmd.c_str(), 5000);
-      Serial.println("CFUN设置响应: " + setResp);
+      logCaptureLn(String("CFUN设置响应: " + setResp));
       
       if (setResp.indexOf("OK") >= 0) {
         success = true;
@@ -231,9 +288,9 @@ void handleATCommand() {
   if (cmd.length() == 0) {
     message = "错误：指令不能为空";
   } else {
-    Serial.println("网页端发送AT指令: " + cmd);
+    logCaptureLn(String("网页端发送AT指令: " + cmd));
     String resp = sendATCommand(cmd.c_str(), 5000);
-    Serial.println("模组响应: " + resp);
+    logCaptureLn(String("模组响应: " + resp));
     
     if (resp.length() > 0) {
       success = true;
@@ -263,7 +320,7 @@ void handleQuery() {
   if (type == "ati") {
     // 固件信息查询
     String resp = sendATCommand("ATI", 2000);
-    Serial.println("ATI响应: " + resp);
+    logCaptureLn(String("ATI响应: " + resp));
     
     if (resp.indexOf("OK") >= 0) {
       success = true;
@@ -301,7 +358,7 @@ void handleQuery() {
   else if (type == "signal") {
     // 信号质量查询
     String resp = sendATCommand("AT+CESQ", 2000);
-    Serial.println("CESQ响应: " + resp);
+    logCaptureLn(String("CESQ响应: " + resp));
     
     if (resp.indexOf("+CESQ:") >= 0) {
       success = true;
@@ -560,9 +617,9 @@ void handleSendSms() {
   } else if (content.length() == 0) {
     resultMsg = "错误：请输入短信内容";
   } else {
-    Serial.println("网页端发送短信请求");
-    Serial.println("目标号码: " + phone);
-    Serial.println("短信内容: " + content);
+    logCaptureLn(String("网页端发送短信请求"));
+    logCaptureLn(String("目标号码: " + phone));
+    logCaptureLn(String("短信内容: " + content));
     
     success = sendSMS(phone.c_str(), content.c_str());
     resultMsg = success ? "短信发送成功！" : "短信发送失败，请检查模组状态";
@@ -602,20 +659,20 @@ void handleSendSms() {
 void handlePing() {
   if (!checkAuth()) return;
   
-  Serial.println("网页端发起Ping请求");
+  logCaptureLn(String("网页端发起Ping请求"));
   
   // 清空串口缓冲区
   while (Serial1.available()) Serial1.read();
   
   // 激活PDP上下文（数据连接）
-  Serial.println("激活数据连接(CGACT)...");
+  logCaptureLn(String("激活数据连接(CGACT)..."));
   String activateResp = sendATCommand("AT+CGACT=1,1", 10000);
-  Serial.println("CGACT响应: " + activateResp);
+  logCaptureLn(String("CGACT响应: " + activateResp));
   
   // 检查激活是否成功（OK或已激活的情况）
   bool networkActivated = (activateResp.indexOf("OK") >= 0);
   if (!networkActivated) {
-    Serial.println("数据连接激活失败，尝试继续执行...");
+    logCaptureLn(String("数据连接激活失败，尝试继续执行..."));
   }
   
   // 清空串口缓冲区
@@ -638,7 +695,7 @@ void handlePing() {
     while (Serial1.available()) {
       char c = Serial1.read();
       resp += c;
-      Serial.print(c);  // 调试输出
+      logCapture(String(c));  // 调试输出
       
       // 检查是否收到OK
       if (resp.indexOf("OK") >= 0 && !gotOK) {
@@ -662,7 +719,7 @@ void handlePing() {
         if (lineEnd >= 0) {
           String mpingLine = resp.substring(mpingIdx, lineEnd);
           mpingLine.trim();
-          Serial.println("收到MPING结果: " + mpingLine);
+          logCaptureLn(String("收到MPING结果: " + mpingLine));
           
           // 解析结果
           // +MPING: <result>[,<ip>,<packet_len>,<time>,<ttl>]
@@ -749,12 +806,12 @@ void handlePing() {
     delay(10);
   }
   
-  Serial.println("\nPing操作完成");
+  logCaptureLn(String("\nPing操作完成"));
   
   // 关闭数据连接以节省流量
-  Serial.println("关闭PDP上下文(CGACT=0)...");
+  logCaptureLn(String("关闭PDP上下文(CGACT=0)..."));
   String deactivateResp = sendATCommand("AT+CGACT=0,1", 5000);
-  Serial.println("CGACT关闭响应: " + deactivateResp);
+  logCaptureLn(String("CGACT关闭响应: " + deactivateResp));
   
   // 构建JSON响应
   String json = "{";
@@ -842,9 +899,25 @@ void handleSave() {
   
   // 如果配置有效，发送启动通知
   if (configValid) {
-    Serial.println("配置有效，发送启动通知...");
+    logCaptureLn(String("配置有效，发送启动通知..."));
     String subject = "短信转发器配置已更新";
     String body = "设备配置已更新\n设备地址: " + getDeviceUrl();
     sendEmailNotification(subject.c_str(), body.c_str());
   }
+}
+
+// 处理日志查询请求 — 返回环形缓冲区中的日志行
+void handleLog() {
+  if (!checkAuth()) return;
+
+  String json = "[";
+  int total = logBufCount;
+  int start = total < LOG_BUF_SIZE ? 0 : logBufIdx;
+  for (int i = 0; i < total; i++) {
+    int pos = (start + i) % LOG_BUF_SIZE;
+    if (i > 0) json += ",";
+    json += "\"" + jsonEscape(logBuffer[pos]) + "\"";
+  }
+  json += "]";
+  server.send(200, "application/json", json);
 }

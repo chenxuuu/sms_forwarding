@@ -1,5 +1,7 @@
 #include "push.h"
+#include "web_handlers.h"
 #include "config.h"
+#include "web_handlers.h"
 #include <HTTPClient.h>
 #include <mbedtls/md.h>
 #include <base64.h>
@@ -9,12 +11,12 @@
 void sendEmailNotification(const char* subject, const char* body) {
   if (config.smtpServer.length() == 0 || config.smtpUser.length() == 0 || 
       config.smtpPass.length() == 0 || config.smtpSendTo.length() == 0) {
-    Serial.println("邮件配置不完整，跳过发送");
+    logCaptureLn(String("邮件配置不完整，跳过发送"));
     return;
   }
   
   auto statusCallback = [](SMTPStatus status) {
-    Serial.println(status.text);
+    logCaptureLn(String(status.text));
   };
   smtp.connect(config.smtpServer.c_str(), config.smtpPort, statusCallback);
   if (smtp.isConnected()) {
@@ -29,9 +31,9 @@ void sendEmailNotification(const char* subject, const char* body) {
     msg.text.body(body);
     msg.timestamp = time(nullptr);
     smtp.send(msg);
-    Serial.println("邮件发送完成");
+    logCaptureLn(String("邮件发送完成"));
   } else {
-    Serial.println("邮件服务器连接失败");
+    logCaptureLn(String("邮件服务器连接失败"));
   }
 }
 
@@ -115,7 +117,7 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
   
   HTTPClient http;
   String channelName = channel.name.length() > 0 ? channel.name : ("通道" + String(channel.type));
-  Serial.println("发送到推送通道: " + channelName);
+  logCaptureLn(String("发送到推送通道: " + channelName));
   
   int httpCode = 0;
   String senderEscaped = jsonEscape(String(sender));
@@ -132,7 +134,7 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       jsonData += "\"message\":\"" + messageEscaped + "\",";
       jsonData += "\"timestamp\":\"" + timestampEscaped + "\"";
       jsonData += "}";
-      Serial.println("POST JSON: " + jsonData);
+      logCaptureLn(String("POST JSON: " + jsonData));
       httpCode = http.POST(jsonData);
       break;
     }
@@ -145,7 +147,7 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       jsonData += "\"title\":\"" + senderEscaped + "\",";
       jsonData += "\"body\":\"" + messageEscaped + "\"";
       jsonData += "}";
-      Serial.println("BARK JSON: " + jsonData);
+      logCaptureLn(String("BARK JSON: " + jsonData));
       httpCode = http.POST(jsonData);
       break;
     }
@@ -161,7 +163,7 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       getUrl += "sender=" + urlEncode(String(sender));
       getUrl += "&message=" + urlEncode(String(message));
       getUrl += "&timestamp=" + urlEncode(String(timestamp));
-      Serial.println("GET URL: " + getUrl);
+      logCaptureLn(String("GET URL: " + getUrl));
       http.begin(getUrl);
       httpCode = http.GET();
       break;
@@ -192,7 +194,7 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       String jsonData = "{\"msgtype\":\"text\",\"text\":{\"content\":\"";
       jsonData += "📱短信通知\\n发送者: " + senderEscaped + "\\n内容: " + messageEscaped + "\\n时间: " + timestampEscaped;
       jsonData += "\"}}";
-      Serial.println("钉钉: " + jsonData);
+      logCaptureLn(String("钉钉: " + jsonData));
       httpCode = http.POST(jsonData);
       break;
     }
@@ -209,7 +211,7 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
           if (channel.key2 == "wechat" || channel.key2 == "extension" || channel.key2 == "app") {
               channelValue = channel.key2;
           } else {
-              Serial.println("Invalid PushPlus channel '" + channel.key2 + "'. Using default 'wechat'.");
+              logCaptureLn(String("Invalid PushPlus channel '" + channel.key2 + "'. Using default 'wechat'."));
           }
       }
       String jsonData = "{";
@@ -218,7 +220,7 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       jsonData += "\"content\":\"<b>发送者:</b> " + senderEscaped + "<br><b>时间:</b> " + timestampEscaped + "<br><b>内容:</b><br>" + messageEscaped + "\",";
       jsonData += "\"channel\":\"" + channelValue + "\"";
       jsonData += "}";
-      Serial.println("PushPlus: " + jsonData);
+      logCaptureLn(String("PushPlus: " + jsonData));
       httpCode = http.POST(jsonData);
       break;
     }
@@ -230,7 +232,7 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       http.addHeader("Content-Type", "application/x-www-form-urlencoded");
       String postData = "title=" + urlEncode("短信来自: " + String(sender));
       postData += "&desp=" + urlEncode("**发送者:** " + String(sender) + "\n\n**时间:** " + String(timestamp) + "\n\n**内容:**\n\n" + String(message));
-      Serial.println("Server酱: " + postData);
+      logCaptureLn(String("Server酱: " + postData));
       httpCode = http.POST(postData);
       break;
     }
@@ -238,7 +240,7 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
     case PUSH_TYPE_CUSTOM: {
       // 自定义模板
       if (channel.customBody.length() == 0) {
-        Serial.println("自定义模板为空，跳过");
+        logCaptureLn(String("自定义模板为空，跳过"));
         return;
       }
       http.begin(channel.url);
@@ -247,7 +249,7 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       body.replace("{sender}", senderEscaped);
       body.replace("{message}", messageEscaped);
       body.replace("{timestamp}", timestampEscaped);
-      Serial.println("自定义: " + body);
+      logCaptureLn(String("自定义: " + body));
       httpCode = http.POST(body);
       break;
     }
@@ -285,7 +287,7 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       
       http.begin(webhookUrl);
       http.addHeader("Content-Type", "application/json");
-      Serial.println("飞书: " + jsonData);
+      logCaptureLn(String("飞书: " + jsonData));
       httpCode = http.POST(jsonData);
       break;
     }
@@ -304,7 +306,7 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       jsonData += "\"message\":\"" + messageEscaped + "\\n\\n时间: " + timestampEscaped + "\",";
       jsonData += "\"priority\":5";
       jsonData += "}";
-      Serial.println("Gotify: " + jsonData);
+      logCaptureLn(String("Gotify: " + jsonData));
       httpCode = http.POST(jsonData);
       break;
     }
@@ -325,24 +327,24 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       jsonData += "\"text\":\"" + text + "\"";
       jsonData += "}";
       
-      Serial.println("Telegram: " + jsonData);
+      logCaptureLn(String("Telegram: " + jsonData));
       httpCode = http.POST(jsonData);
       break;
     }
     
     default:
-      Serial.println("未知推送类型");
+      logCaptureLn(String("未知推送类型"));
       return;
   }
   
   if (httpCode > 0) {
-    Serial.printf("[%s] 响应码: %d\n", channelName.c_str(), httpCode);
+    logCaptureF("[%s] 响应码: %d\n", channelName.c_str(), httpCode);
     if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
       String response = http.getString();
-      Serial.println("响应: " + response);
+      logCaptureLn(String("响应: " + response));
     }
   } else {
-    Serial.printf("[%s] HTTP请求失败: %s\n", channelName.c_str(), http.errorToString(httpCode).c_str());
+    logCaptureF("[%s] HTTP请求失败: %s\n", channelName.c_str(), http.errorToString(httpCode).c_str());
   }
   http.end();
 }
@@ -350,7 +352,7 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
 // 发送短信到所有启用的推送通道
 void sendSMSToServer(const char* sender, const char* message, const char* timestamp) {
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi未连接，跳过推送");
+    logCaptureLn(String("WiFi未连接，跳过推送"));
     return;
   }
   
@@ -363,16 +365,16 @@ void sendSMSToServer(const char* sender, const char* message, const char* timest
   }
   
   if (!hasEnabledChannel) {
-    Serial.println("没有启用的推送通道");
+    logCaptureLn(String("没有启用的推送通道"));
     return;
   }
   
-  Serial.println("\n=== 开始多通道推送 ===");
+  logCaptureLn(String("\n=== 开始多通道推送 ==="));
   for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
     if (isPushChannelValid(config.pushChannels[i])) {
       sendToChannel(config.pushChannels[i], sender, message, timestamp);
       delay(100); // 短暂延迟避免请求过快
     }
   }
-  Serial.println("=== 多通道推送完成 ===\n");
+  logCaptureLn(String("=== 多通道推送完成 ===\n"));
 }

@@ -1,6 +1,9 @@
 #include "sms_process.h"
+#include "web_handlers.h"
 #include "modem.h"
+#include "web_handlers.h"
 #include "push.h"
+#include "web_handlers.h"
 
 // 初始化长短信缓存
 void initConcatBuffer() {
@@ -53,7 +56,7 @@ int findOrCreateConcatSlot(int refNumber, const char* sender, int totalParts) {
   }
   
   // 覆盖最老的槽位
-  Serial.println("⚠️ 长短信缓存已满，覆盖最老的槽位");
+  logCaptureLn(String("⚠️ 长短信缓存已满，覆盖最老的槽位"));
   concatBuffer[oldestSlot].inUse = true;
   concatBuffer[oldestSlot].refNumber = refNumber;
   concatBuffer[oldestSlot].sender = String(sender);
@@ -98,8 +101,8 @@ void checkConcatTimeout() {
   for (int i = 0; i < MAX_CONCAT_MESSAGES; i++) {
     if (concatBuffer[i].inUse) {
       if (now - concatBuffer[i].firstPartTime >= CONCAT_TIMEOUT_MS) {
-        Serial.println("⏰ 长短信超时，强制转发不完整消息");
-        Serial.printf("  参考号: %d, 已收到: %d/%d\n", 
+        logCaptureLn(String("⏰ 长短信超时，强制转发不完整消息"));
+        logCaptureF("  参考号: %d, 已收到: %d/%d\n", 
                       concatBuffer[i].refNumber,
                       concatBuffer[i].receivedParts,
                       concatBuffer[i].totalParts);
@@ -205,7 +208,7 @@ void processAdminCommand(const char* sender, const char* text) {
   String cmd = String(text);
   cmd.trim();
   
-  Serial.println("处理管理员命令: " + cmd);
+  logCaptureLn(String("处理管理员命令: " + cmd));
   
   // 处理 SMS:号码:内容 命令
   if (cmd.startsWith("SMS:")) {
@@ -219,8 +222,8 @@ void processAdminCommand(const char* sender, const char* text) {
       targetPhone.trim();
       smsContent.trim();
       
-      Serial.println("目标号码: " + targetPhone);
-      Serial.println("短信内容: " + smsContent);
+      logCaptureLn(String("目标号码: " + targetPhone));
+      logCaptureLn(String("短信内容: " + smsContent));
       
       bool success = sendSMS(targetPhone.c_str(), smsContent.c_str());
       
@@ -234,13 +237,13 @@ void processAdminCommand(const char* sender, const char* text) {
       
       sendEmailNotification(subject.c_str(), body.c_str());
     } else {
-      Serial.println("SMS命令格式错误");
+      logCaptureLn(String("SMS命令格式错误"));
       sendEmailNotification("命令执行失败", "SMS命令格式错误，正确格式: SMS:号码:内容");
     }
   }
   // 处理 RESET 命令
   else if (cmd.equals("RESET")) {
-    Serial.println("执行RESET命令");
+    logCaptureLn(String("执行RESET命令"));
     
     // 先发送邮件通知（因为重启后就发不了了）
     sendEmailNotification("重启命令已执行", "收到RESET命令，即将重启模组和ESP32...");
@@ -249,32 +252,32 @@ void processAdminCommand(const char* sender, const char* text) {
     resetModule();
     
     // 重启ESP32
-    Serial.println("正在重启ESP32...");
+    logCaptureLn(String("正在重启ESP32..."));
     delay(1000);
     ESP.restart();
   }
   else {
-    Serial.println("未知命令: " + cmd);
+    logCaptureLn(String("未知命令: " + cmd));
   }
 }
 
 // 处理最终的短信内容（管理员命令检查和转发）
 void processSmsContent(const char* sender, const char* text, const char* timestamp) {
-  Serial.println("=== 处理短信内容 ===");
-  Serial.println("发送者: " + String(sender));
-  Serial.println("时间戳: " + String(timestamp));
-  Serial.println("内容: " + String(text));
-  Serial.println("====================");
+  logCaptureLn(String("=== 处理短信内容 ==="));
+  logCaptureLn(String("发送者: " + String(sender)));
+  logCaptureLn(String("时间戳: " + String(timestamp)));
+  logCaptureLn(String("内容: " + String(text)));
+  logCaptureLn(String("===================="));
 
   // 检查是否在号码黑名单中
   if (isInNumberBlackList(sender)) {
-    Serial.println("发送者在号码黑名单中，忽略该短信");
+    logCaptureLn(String("发送者在号码黑名单中，忽略该短信"));
     return;
   }
 
   // 检查是否为管理员命令
   if (isAdmin(sender)) {
-    Serial.println("收到管理员短信，检查命令...");
+    logCaptureLn(String("收到管理员短信，检查命令..."));
     String smsText = String(text);
     smsText.trim();
     
@@ -303,12 +306,12 @@ void checkSerial1URC() {
   if (line.length() == 0) return;
 
   // 打印到调试串口
-  Serial.println("Debug> " + line);
+  logCaptureLn(String("Debug> " + line));
 
   if (state == IDLE) {
     // 检测到短信上报URC头
     if (line.startsWith("+CMT:")) {
-      Serial.println("检测到+CMT，等待PDU数据...");
+      logCaptureLn(String("检测到+CMT，等待PDU数据..."));
       state = WAIT_PDU;
     }
   } else if (state == WAIT_PDU) {
@@ -319,18 +322,18 @@ void checkSerial1URC() {
     
     // 如果是十六进制字符串，认为是PDU数据
     if (isHexString(line)) {
-      Serial.println("收到PDU数据: " + line);
-      Serial.println("PDU长度: " + String(line.length()) + " 字符");
+      logCaptureLn(String("收到PDU数据: " + line));
+      logCaptureLn(String("PDU长度: " + String(line.length()) + " 字符"));
       
       // 解析PDU
       if (!pdu.decodePDU(line.c_str())) {
-        Serial.println("❌ PDU解析失败！");
+        logCaptureLn(String("❌ PDU解析失败！"));
       } else {
-        Serial.println("✓ PDU解析成功");
-        Serial.println("=== 短信内容 ===");
-        Serial.println("发送者: " + String(pdu.getSender()));
-        Serial.println("时间戳: " + String(pdu.getTimeStamp()));
-        Serial.println("内容: " + String(pdu.getText()));
+        logCaptureLn(String("✓ PDU解析成功"));
+        logCaptureLn(String("=== 短信内容 ==="));
+        logCaptureLn(String("发送者: " + String(pdu.getSender())));
+        logCaptureLn(String("时间戳: " + String(pdu.getTimeStamp())));
+        logCaptureLn(String("内容: " + String(pdu.getText())));
         
         // 获取长短信信息
         int* concatInfo = pdu.getConcatInfo();
@@ -338,13 +341,13 @@ void checkSerial1URC() {
         int partNumber = concatInfo[1];
         int totalParts = concatInfo[2];
         
-        Serial.printf("长短信信息: 参考号=%d, 当前=%d, 总计=%d\n", refNumber, partNumber, totalParts);
-        Serial.println("===============");
+        logCaptureF("长短信信息: 参考号=%d, 当前=%d, 总计=%d\n", refNumber, partNumber, totalParts);
+        logCaptureLn(String("==============="));
 
         // 判断是否为长短信
         if (totalParts > 1 && partNumber > 0) {
           // 这是长短信的一部分
-          Serial.printf("📧 收到长短信分段 %d/%d\n", partNumber, totalParts);
+          logCaptureF("📧 收到长短信分段 %d/%d\n", partNumber, totalParts);
           
           // 查找或创建缓存槽位
           int slot = findOrCreateConcatSlot(refNumber, pdu.getSender(), totalParts);
@@ -362,18 +365,18 @@ void checkSerial1URC() {
                 concatBuffer[slot].timestamp = String(pdu.getTimeStamp());
               }
               
-              Serial.printf("  已缓存分段 %d，当前已收到 %d/%d\n", 
+              logCaptureF("  已缓存分段 %d，当前已收到 %d/%d\n", 
                            partNumber, 
                            concatBuffer[slot].receivedParts, 
                            totalParts);
             } else {
-              Serial.printf("  ⚠️ 分段 %d 已存在，跳过\n", partNumber);
+              logCaptureF("  ⚠️ 分段 %d 已存在，跳过\n", partNumber);
             }
           }
           
           // 检查是否已收齐所有分段
           if (concatBuffer[slot].receivedParts >= totalParts) {
-            Serial.println("✅ 长短信已收齐，开始合并转发");
+            logCaptureLn(String("✅ 长短信已收齐，开始合并转发"));
             
             // 合并所有分段
             String fullText = assembleConcatSms(slot);
@@ -397,7 +400,7 @@ void checkSerial1URC() {
     } 
     // 如果是其他内容（OK、ERROR等），也返回IDLE
     else {
-      Serial.println("收到非PDU数据，返回IDLE状态");
+      logCaptureLn(String("收到非PDU数据，返回IDLE状态"));
       state = IDLE;
     }
   }

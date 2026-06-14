@@ -1,4 +1,5 @@
 #include "modem.h"
+#include "web_handlers.h"
 
 // 发送AT命令并获取响应
 String sendATCommand(const char* cmd, unsigned long timeout) {
@@ -25,18 +26,18 @@ String sendATCommand(const char* cmd, unsigned long timeout) {
 void modemPowerCycle() {
   pinMode(MODEM_EN_PIN, OUTPUT);
 
-  Serial.println("EN 拉低：关闭模组");
+  logCaptureLn(String("EN 拉低：关闭模组"));
   digitalWrite(MODEM_EN_PIN, LOW);
   delay(1200);  // 关机时间给够
 
-  Serial.println("EN 拉高：开启模组");
+  logCaptureLn(String("EN 拉高：开启模组"));
   digitalWrite(MODEM_EN_PIN, HIGH);
   delay(6000);  // 等模组完全启动再发AT（关键）
 }
 
 // 重启模组
 void resetModule() {
-  Serial.println("正在硬重启模组（EN 断电重启）...");
+  logCaptureLn(String("正在硬重启模组（EN 断电重启）..."));
 
   modemPowerCycle();
 
@@ -50,11 +51,11 @@ void resetModule() {
       ok = true;
       break;
     }
-    Serial.println("AT未响应，继续等模组启动...");
+    logCaptureLn(String("AT未响应，继续等模组启动..."));
   }
 
-  if (ok) Serial.println("模组AT恢复正常");
-  else    Serial.println("模组AT仍未响应（检查EN接线/供电/波特率）");
+  if (ok) logCaptureLn(String("模组AT恢复正常"));
+  else    logCaptureLn(String("模组AT仍未响应（检查EN接线/供电/波特率）"));
 }
 
 void blink_short(unsigned long gap_time) {
@@ -104,22 +105,22 @@ bool waitCEREG() {
 
 // 发送短信（PDU模式）
 bool sendSMS(const char* phoneNumber, const char* message) {
-  Serial.println("准备发送短信...");
-  Serial.print("目标号码: "); Serial.println(phoneNumber);
-  Serial.print("短信内容: "); Serial.println(message);
+  logCaptureLn(String("准备发送短信..."));
+  logCapture(String("目标号码: ")); logCaptureLn(String(phoneNumber));
+  logCapture(String("短信内容: ")); logCaptureLn(String(message));
 
   // 使用pdulib编码PDU
   pdu.setSCAnumber();  // 使用默认短信中心
   int pduLen = pdu.encodePDU(phoneNumber, message);
   
   if (pduLen < 0) {
-    Serial.print("PDU编码失败，错误码: ");
-    Serial.println(pduLen);
+    logCapture(String("PDU编码失败，错误码: "));
+    logCaptureLn(String(pduLen));
     return false;
   }
   
-  Serial.print("PDU数据: "); Serial.println(pdu.getSMS());
-  Serial.print("PDU长度: "); Serial.println(pduLen);
+  logCapture(String("PDU数据: ")); logCaptureLn(String(pdu.getSMS()));
+  logCapture(String("PDU长度: ")); logCaptureLn(String(pduLen));
   
   // 发送AT+CMGS命令
   String cmgsCmd = "AT+CMGS=";
@@ -134,7 +135,7 @@ bool sendSMS(const char* phoneNumber, const char* message) {
   while (millis() - start < 5000) {
     if (Serial1.available()) {
       char c = Serial1.read();
-      Serial.print(c);
+      logCapture(String(c));
       if (c == '>') {
         gotPrompt = true;
         break;
@@ -143,7 +144,7 @@ bool sendSMS(const char* phoneNumber, const char* message) {
   }
   
   if (!gotPrompt) {
-    Serial.println("未收到>提示符");
+    logCaptureLn(String("未收到>提示符"));
     return false;
   }
   
@@ -158,17 +159,17 @@ bool sendSMS(const char* phoneNumber, const char* message) {
     while (Serial1.available()) {
       char c = Serial1.read();
       resp += c;
-      Serial.print(c);
+      logCapture(String(c));
       if (resp.indexOf("OK") >= 0) {
-        Serial.println("\n短信发送成功");
+        logCaptureLn(String("\n短信发送成功"));
         return true;
       }
       if (resp.indexOf("ERROR") >= 0) {
-        Serial.println("\n短信发送失败");
+        logCaptureLn(String("\n短信发送失败"));
         return false;
       }
     }
   }
-  Serial.println("短信发送超时");
+  logCaptureLn(String("短信发送超时"));
   return false;
 }

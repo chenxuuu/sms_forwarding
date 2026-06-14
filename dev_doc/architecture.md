@@ -73,8 +73,9 @@ findOrCreateConcatSlot()    │
 ### HTTP 请求流程
 
 ```
-浏览器
-    │
+浏览器 (SPA 单页应用)
+    │  侧边栏切换面板，所有功能在一个 HTML 页面
+    │  JS 控制 panel 可见性，无需页面跳转
     ▼
 server.handleClient()     [code.ino loop]
     │
@@ -85,14 +86,40 @@ checkAuth()               [web_handlers.cpp]
     │  密码: config.webPass
     ▼
 路由分发:
-    GET  /         → handleRoot()        配置页面 (HTML 模板变量替换)
-    GET  /tools    → handleToolsPage()   工具箱页面
+    GET  /         → handleRoot()        SPA 主页 (HTML 模板变量替换，含 10 个面板)
+    GET  /tools    → handleRoot()        兼容旧链接，返回同一 SPA 页面
+    GET  /sms      → handleRoot()        兼容旧链接，返回同一 SPA 页面
     POST /save     → handleSave()        保存配置 → saveConfig() → 发邮件
     POST /sendsms  → handleSendSms()     网页发送短信 → sendSMS()
     POST /ping     → handlePing()        AT+CGACT=1 → MPING → AT+CGACT=0
     GET  /query    → handleQuery()       查询 ATI/CESQ/ICCID/CEREG 等
     GET  /flight   → handleFlightMode()  AT+CFUN 查询/切换飞行模式
     GET  /at       → handleATCommand()   透传 AT 指令到模组
+    GET  /log      → handleLog()         返回环形缓冲区日志 (JSON 数组)
+```
+
+### 日志系统架构
+
+```
+业务代码调用:
+    logCapture("目标号码: ");       → Serial.print() + 追加到 _logLine
+    logCaptureLn(String(phone));    → Serial.println() + 提交 _logLine 到环形缓冲区
+    logCaptureF("ref=%d\n", ref);    → Serial.print() + 以 \n 结尾时自动提交整行
+         │
+         ▼
+    _logLine (行缓冲区)              // 累积 logCapture 调用直到 logCaptureLn 或 \n
+         │
+         ▼  logCaptureLn / logCaptureF(\n)
+    _logAppend()                    // 写入环形缓冲区
+         │
+         ▼
+    logBuffer[120]                  // 环形缓冲区，循环覆盖
+         │
+         ▼
+    handleLog()                     // GET /log → JSON ["line1","line2",...]
+         │
+         ▼
+    Web 日志面板                   // 每 2 秒自动轮询，终端风格深色主题
 ```
 
 ### 配置持久化流程
@@ -130,9 +157,11 @@ sendEmailNotification()   发送 "配置已更新" 邮件
 ## 内存管理
 
 - ESP32-C3 可用内存：~327KB
-- 全局变量占用：~41KB
+- 全局变量占用：~43KB
 - PDU 缓冲区：4096 字节（`pdu = PDU(4096)`）
 - 长短信缓存：5 组 × 10 段，每段内容动态分配（`String`）
+- 日志环形缓冲区：120 行 × String，约 12KB
+- 日志行缓冲区：1 个 String（`_logLine`），用于合并 logCapture 输出
 - 串口行缓冲：500 字节（`SERIAL_BUFFER_SIZE`）
 - HTTP 响应在函数内栈分配，调用结束自动释放
 

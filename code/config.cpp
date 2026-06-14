@@ -1,4 +1,5 @@
 #include "config.h"
+#include "web_handlers.h"
 
 // 保存配置到NVS
 void saveConfig() {
@@ -26,7 +27,7 @@ void saveConfig() {
   }
   
   preferences.end();
-  Serial.println("配置已保存");
+  logCaptureLn(String("配置已保存"));
 }
 
 // 从NVS加载配置
@@ -61,11 +62,11 @@ void loadConfig() {
     config.pushChannels[0].url = oldHttpUrl;
     config.pushChannels[0].type = preferences.getUChar("barkMode", 0) != 0 ? PUSH_TYPE_BARK : PUSH_TYPE_POST_JSON;
     config.pushChannels[0].name = "迁移通道";
-    Serial.println("已迁移旧HTTP配置到推送通道1");
+    logCaptureLn(String("已迁移旧HTTP配置到推送通道1"));
   }
   
   preferences.end();
-  Serial.println("配置已加载");
+  logCaptureLn(String("配置已加载"));
 }
 
 // 检查推送通道是否有效配置

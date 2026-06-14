@@ -47,40 +47,6 @@ void setup() {
   server.begin();
   logCaptureLn(String("HTTP服务器已启动"));
 
-  // ---- 模组初始化（较慢，但网页已可访问） ----
-  while (!sendATandWaitOK("AT", 1000)) {
-    logCaptureLn(String("AT未响应，重试..."));
-    blink_short();
-  }
-  logCaptureLn(String("模组AT响应正常"));
-  while (!sendATandWaitOK("AT+CGACT=0,1", 5000)) {
-    logCaptureLn(String("设置CGACT失败，重试..."));
-    blink_short();
-  }
-  logCaptureLn(String("已禁用数据连接(AT+CGACT=0,1)，防止流量消耗"));
-  while (!sendATandWaitOK("AT+CNMI=2,2,0,0,0", 1000)) {
-    logCaptureLn(String("设置CNMI失败，重试..."));
-    blink_short();
-  }
-  logCaptureLn(String("CNMI参数设置完成"));
-  while (!sendATandWaitOK("AT+CMGF=0", 1000)) {
-    logCaptureLn(String("设置PDU模式失败，重试..."));
-    blink_short();
-  }
-  logCaptureLn(String("PDU模式设置完成"));
-  int ceregRetry = 0;
-  while (!waitCEREG() && ceregRetry < 30) {
-    logCaptureLn(String("等待网络注册..."));
-    ceregRetry++;
-    blink_short();
-  }
-  if (ceregRetry < 30) {
-    logCaptureLn(String("网络已注册"));
-    modemReady = true;
-  } else {
-    logCaptureLn(String("⚠️ 网络注册超时（无SIM卡或信号差），模组功能不可用"));
-  }
-
   // ---- NTP 时间同步 ----
   logCaptureLn(String("正在同步NTP时间..."));
   configTime(0, 0, "ntp.ntsc.ac.cn", "ntp.aliyun.com", "pool.ntp.org");
@@ -109,6 +75,40 @@ void setup() {
     String subject = "短信转发器已启动";
     String body = "设备已启动\n设备地址: " + getDeviceUrl();
     sendEmailNotification(subject.c_str(), body.c_str());
+  }
+
+  // ---- 模组初始化（较慢，但网页已可访问） ----
+  while (!sendATandWaitOK("AT", 1000)) {
+    logCaptureLn(String("AT未响应，重试..."));
+    blink_short();
+  }
+  logCaptureLn(String("模组AT响应正常"));
+  while (!sendATandWaitOK("AT+CGACT=0,1", 5000)) {
+    logCaptureLn(String("设置CGACT失败，重试..."));
+    blink_short();
+  }
+  logCaptureLn(String("已禁用数据连接(AT+CGACT=0,1)，防止流量消耗"));
+  while (!sendATandWaitOK("AT+CNMI=2,2,0,0,0", 1000)) {
+    logCaptureLn(String("设置CNMI失败，重试..."));
+    blink_short();
+  }
+  logCaptureLn(String("CNMI参数设置完成"));
+  while (!sendATandWaitOK("AT+CMGF=0", 1000)) {
+    logCaptureLn(String("设置PDU模式失败，重试..."));
+    blink_short();
+  }
+  logCaptureLn(String("PDU模式设置完成"));
+  int ceregRetry = 0;
+  while (!waitCEREG() && ceregRetry < 30) {
+    logCaptureLn(String("等待网络注册..."));
+    ceregRetry++;
+    blink_short();
+  }
+  if (ceregRetry < 60) {
+    logCaptureLn(String("网络已注册"));
+    modemReady = true;
+  } else {
+    logCaptureLn(String("⚠️ 网络注册超时（无SIM卡或信号差），模组功能不可用"));
   }
 }
 

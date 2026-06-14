@@ -234,6 +234,7 @@ const char* htmlPage = R"rawliteral(
         <div class="card-header">⚙ 配置状态</div>
         <div class="card-body">
           <table class="info-table">
+            <tr><td>模组状态</td><td id="cfgModem">%MODEM_CHECK%</td></tr>
             <tr><td>邮件通知</td><td id="cfgEmail">%SMTP_CHECK%</td></tr>
             <tr><td>推送通道</td><td id="cfgPush">%PUSH_COUNT% 个已启用</td></tr>
             <tr><td>管理员号码</td><td>%ADMIN_PHONE%</td></tr>

@@ -90,6 +90,7 @@ void handleRoot() {
   bool emailOk = config.smtpServer.length() > 0 && config.smtpUser.length() > 0 &&
                  config.smtpPass.length() > 0 && config.smtpSendTo.length() > 0;
   html.replace("%SMTP_CHECK%", emailOk ? "已配置" : "未配置");
+  html.replace("%MODEM_CHECK%", modemReady ? "已就绪" : "未就绪");
   int pushCount = 0;
   for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
     if (config.pushChannels[i].enabled) pushCount++;
@@ -803,7 +804,7 @@ void handlePing() {
     }
     
     if (gotError || gotPingResult) break;
-    delay(10);
+    server.handleClient();
   }
   
   logCaptureLn(String("\nPing操作完成"));

@@ -9,15 +9,20 @@ String sendATCommand(const char* cmd, unsigned long timeout) {
   unsigned long start = millis();
   String resp = "";
   while (millis() - start < timeout) {
-    while (Serial1.available()) {
+    if (Serial1.available()) {
       char c = Serial1.read();
       resp += c;
       if (resp.indexOf("OK") >= 0 || resp.indexOf("ERROR") >= 0) {
-        delay(50);  // 等待剩余数据
-        while (Serial1.available()) resp += (char)Serial1.read();
+        // 读取剩余数据（最多 50ms）
+        unsigned long t = millis();
+        while (millis() - t < 50) {
+          if (Serial1.available()) resp += (char)Serial1.read();
+          server.handleClient();
+        }
         return resp;
       }
     }
+    server.handleClient();
   }
   return resp;
 }
@@ -71,12 +76,13 @@ bool sendATandWaitOK(const char* cmd, unsigned long timeout) {
   unsigned long start = millis();
   String resp = "";
   while (millis() - start < timeout) {
-    while (Serial1.available()) {
+    if (Serial1.available()) {
       char c = Serial1.read();
       resp += c;
       if (resp.indexOf("OK") >= 0) return true;
       if (resp.indexOf("ERROR") >= 0) return false;
     }
+    server.handleClient();
   }
   return false;
 }
@@ -88,17 +94,16 @@ bool waitCEREG() {
   unsigned long start = millis();
   String resp = "";
   while (millis() - start < 2000) {
-    while (Serial1.available()) {
+    if (Serial1.available()) {
       char c = Serial1.read();
       resp += c;
-      // +CEREG: <n>,<stat> 其中stat=1或5表示已注册
       if (resp.indexOf("+CEREG:") >= 0) {
-        // 检查是否已注册（状态1或5）
         if (resp.indexOf(",1") >= 0 || resp.indexOf(",5") >= 0) return true;
         if (resp.indexOf(",0") >= 0 || resp.indexOf(",2") >= 0 || 
             resp.indexOf(",3") >= 0 || resp.indexOf(",4") >= 0) return false;
       }
     }
+    server.handleClient();
   }
   return false;
 }
@@ -141,6 +146,7 @@ bool sendSMS(const char* phoneNumber, const char* message) {
         break;
       }
     }
+    server.handleClient();
   }
   
   if (!gotPrompt) {
@@ -169,6 +175,7 @@ bool sendSMS(const char* phoneNumber, const char* message) {
         return false;
       }
     }
+    server.handleClient();
   }
   logCaptureLn(String("短信发送超时"));
   return false;

@@ -1,4 +1,4 @@
-﻿#include "config_types.h"
+#include "config_types.h"
 
 const char* htmlPage = R"rawliteral(
 <!DOCTYPE html>

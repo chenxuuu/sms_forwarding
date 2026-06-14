@@ -1059,18 +1059,20 @@ void handleWifi() {
     server.send(200, "application/json", "{\"success\":true,\"message\":\"WiFi 正在重启，请等待约 5 秒后刷新页面\"}");
     WiFi.disconnect(true);
     delay(500);
-    WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
-    WiFi.begin(WIFI_SSID, WIFI_PASS, 0, nullptr, true);
+    WiFi.setSleep(false);
+    WiFi.setAutoReconnect(true);
+    WiFi.setScanMethod(WIFI_FAST_SCAN);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
     logCaptureLn(String("正在重新连接WiFi: " + String(WIFI_SSID)));
     unsigned long start = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
-      delay(100);
+      delay(50);
       server.handleClient();
     }
     if (WiFi.status() == WL_CONNECTED) {
       logCaptureLn(String("WiFi 重连成功, IP: " + WiFi.localIP().toString()));
     } else {
-      logCaptureLn(String("WiFi 重连失败"));
+      logCaptureLn(String("WiFi 重连失败，将在后台持续尝试"));
     }
   } else {
     server.send(200, "application/json", "{\"success\":false,\"message\":\"未知操作\"}");

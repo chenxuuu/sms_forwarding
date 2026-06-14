@@ -3,6 +3,7 @@
 #include "config.h"
 #include "modem.h"
 #include "push.h"
+#include "wifi_config.h"
 
 // ---- 日志环形缓冲区 ----
 String logBuffer[LOG_BUF_SIZE];
@@ -76,6 +77,12 @@ void handleRoot() {
   
   String html = String(htmlPage);
   html.replace("%IP%", WiFi.localIP().toString());
+  html.replace("%WIFI_SSID%", String(WiFi.SSID()));
+  html.replace("%FREE_HEAP%", String(ESP.getFreeHeap() / 1024) + " KB");
+  long uptimeSec = millis() / 1000;
+  char uptimeBuf[16];
+  snprintf(uptimeBuf, sizeof(uptimeBuf), "%ld:%02ld:%02ld", uptimeSec / 3600, (uptimeSec % 3600) / 60, uptimeSec % 60);
+  html.replace("%UPTIME%", String(uptimeBuf));
   html.replace("%WEB_USER%", config.webUser);
   html.replace("%WEB_PASS%", config.webPass);
   html.replace("%SMTP_SERVER%", config.smtpServer);
@@ -184,6 +191,7 @@ void handleFlightMode() {
   
   if (action == "query") {
     // 查询当前功能模式
+    logCaptureLn(String("网页端查询飞行模式: AT+CFUN?"));
     String resp = sendATCommand("AT+CFUN?", 2000);
     logCaptureLn(String("CFUN查询响应: " + resp));
     
@@ -249,6 +257,7 @@ void handleFlightMode() {
   }
   else if (action == "on") {
     // 强制开启飞行模式
+    logCaptureLn(String("网页端强制开启飞行模式: AT+CFUN=4"));
     String resp = sendATCommand("AT+CFUN=4", 5000);
     if (resp.indexOf("OK") >= 0) {
       success = true;
@@ -259,6 +268,7 @@ void handleFlightMode() {
   }
   else if (action == "off") {
     // 强制关闭飞行模式
+    logCaptureLn(String("网页端关闭飞行模式: AT+CFUN=1"));
     String resp = sendATCommand("AT+CFUN=1", 5000);
     if (resp.indexOf("OK") >= 0) {
       success = true;
@@ -921,4 +931,149 @@ void handleLog() {
   }
   json += "]";
   server.send(200, "application/json", json);
+}
+
+// 模组控制命令
+void handleModem() {
+  if (!checkAuth()) return;
+
+  // 防止重入：modemInit() 内部会调 server.handleClient()，
+  // 若浏览器超时重试会导致嵌套调用，最终拖垮 WiFi
+  static bool busy = false;
+  if (busy) {
+    server.send(429, "application/json", "{\"success\":false,\"message\":\"模组正忙，请稍后重试\"}");
+    return;
+  }
+  busy = true;
+
+  String action = server.arg("action");
+  String json = "{";
+  bool success = false;
+  String message = "";
+
+  if (action == "restart") {
+    // AT 软重启 — 先响应浏览器再初始化，防止浏览器超时重试
+    logCaptureLn(String("网页端请求软重启模组..."));
+    server.send(200, "application/json", "{\"success\":true,\"message\":\"正在软重启模组，请等待约 15 秒后刷新页面\"}");
+    String resp = sendATCommand("AT+CFUN=1,1", 15000);
+    success = (resp.indexOf("OK") >= 0);
+    message = success ? "模组软重启成功" : "软重启失败";
+    logCaptureLn(String(message + ": " + resp));
+    if (success) modemInit();
+    busy = false;
+    return;
+  }
+  else if (action == "hardreset") {
+    // EN 引脚断电重启（内部已调用 modemInit()）
+    logCaptureLn(String("网页端请求硬重启模组..."));
+    server.send(200, "application/json", "{\"success\":true,\"message\":\"正在硬重启模组，请等待约 15 秒后刷新页面\"}");
+    resetModule();
+    return;
+  }
+  else if (action == "signal") {
+    logCaptureLn(String("网页端查询信号: AT+CSQ"));
+    String resp = sendATCommand("AT+CSQ", 3000);
+    int csqIdx = resp.indexOf("+CSQ:");
+    if (csqIdx >= 0) {
+      String csqLine = resp.substring(csqIdx);
+      csqLine = csqLine.substring(0, csqLine.indexOf('\n'));
+      csqLine.trim();
+      int commaIdx = csqLine.indexOf(',');
+      if (commaIdx >= 0) {
+        int rssi = csqLine.substring(csqLine.indexOf(':') + 1, commaIdx).toInt();
+        int ber = csqLine.substring(commaIdx + 1).toInt();
+        int dbm = (rssi == 99) ? -999 : (-113 + rssi * 2);
+        String quality;
+        if (rssi >= 19) quality = "优秀";
+        else if (rssi >= 14) quality = "良好";
+        else if (rssi >= 10) quality = "一般";
+        else if (rssi >= 5) quality = "较差";
+        else quality = "很差";
+        message = "RSRP: " + String(dbm) + " dBm (" + quality + "), RSSI: " + String(rssi) + ", BER: " + String(ber);
+        success = true;
+      }
+    }
+    if (!success) message = "无法获取信号: " + resp;
+  }
+  else if (action == "operator") {
+    logCaptureLn(String("网页端查询运营商: AT+COPS?"));
+    String resp = sendATCommand("AT+COPS?", 5000);
+    int copsIdx = resp.indexOf("+COPS:");
+    if (copsIdx >= 0) {
+      String copsLine = resp.substring(copsIdx);
+      copsLine = copsLine.substring(0, copsLine.indexOf('\n'));
+      copsLine.trim();
+      int q1 = copsLine.indexOf('"');
+      int q2 = copsLine.indexOf('"', q1 + 1);
+      if (q1 >= 0 && q2 >= 0) {
+        message = copsLine.substring(q1 + 1, q2);
+        success = true;
+      } else {
+        message = copsLine;
+        success = true;
+      }
+    }
+    if (!success) message = "无法获取运营商: " + resp;
+  }
+  else if (action == "imei") {
+    logCaptureLn(String("网页端查询IMEI: AT+GSN"));
+    String resp = sendATCommand("AT+GSN", 3000);
+    resp.trim();
+    int okIdx = resp.lastIndexOf("OK");
+    if (okIdx > 0) resp = resp.substring(0, okIdx);
+    int gsnIdx = resp.indexOf("AT+GSN");
+    if (gsnIdx >= 0) resp = resp.substring(gsnIdx + 6);
+    resp.trim();
+    if (resp.length() > 0) {
+      message = resp;
+      success = true;
+    } else {
+      message = "无法获取 IMEI";
+    }
+  }
+  else {
+    message = "未知操作: " + action;
+  }
+
+  json += "\"success\":" + String(success ? "true" : "false") + ",";
+  json += "\"message\":\"" + jsonEscape(message) + "\"";
+  json += "}";
+  busy = false;
+  server.send(200, "application/json", json);
+}
+
+// WiFi 重启
+void handleWifi() {
+  if (!checkAuth()) return;
+
+  static bool busy = false;
+  if (busy) {
+    server.send(429, "application/json", "{\"success\":false,\"message\":\"WiFi正忙，请稍后重试\"}");
+    return;
+  }
+  busy = true;
+
+  String action = server.arg("action");
+  if (action == "restart") {
+    logCaptureLn(String("网页端请求重启WiFi..."));
+    server.send(200, "application/json", "{\"success\":true,\"message\":\"WiFi 正在重启，请等待约 5 秒后刷新页面\"}");
+    WiFi.disconnect(true);
+    delay(500);
+    WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+    WiFi.begin(WIFI_SSID, WIFI_PASS, 0, nullptr, true);
+    logCaptureLn(String("正在重新连接WiFi: " + String(WIFI_SSID)));
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+      delay(100);
+      server.handleClient();
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+      logCaptureLn(String("WiFi 重连成功, IP: " + WiFi.localIP().toString()));
+    } else {
+      logCaptureLn(String("WiFi 重连失败"));
+    }
+  } else {
+    server.send(200, "application/json", "{\"success\":false,\"message\":\"未知操作\"}");
+  }
+  busy = false;
 }

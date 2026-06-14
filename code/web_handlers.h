@@ -25,5 +25,7 @@ void handleATCommand();
 void handleSendSms();
 void handlePing();
 void handleLog();
+void handleModem();
+void handleWifi();
 
 #endif

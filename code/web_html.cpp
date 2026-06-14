@@ -224,9 +224,9 @@ const char* htmlPage = R"rawliteral(
         <div class="card-body">
           <div class="overview-grid">
             <div class="overview-item"><div class="label">Device IP</div><div class="value" id="ovIp">%IP%</div></div>
-            <div class="overview-item"><div class="label">WiFi SSID</div><div class="value" id="ovSsid">—</div></div>
-            <div class="overview-item"><div class="label">Free Heap</div><div class="value" id="ovHeap">—</div></div>
-            <div class="overview-item"><div class="label">Uptime</div><div class="value" id="ovUptime">—</div></div>
+            <div class="overview-item"><div class="label">WiFi SSID</div><div class="value" id="ovSsid">%WIFI_SSID%</div></div>
+            <div class="overview-item"><div class="label">Free Heap</div><div class="value" id="ovHeap">%FREE_HEAP%</div></div>
+            <div class="overview-item"><div class="label">Uptime</div><div class="value" id="ovUptime">%UPTIME%</div></div>
           </div>
         </div>
       </div>
@@ -369,12 +369,35 @@ const char* htmlPage = R"rawliteral(
           <div class="result-box" id="pingResult"></div>
         </div>
       </div>
+      <div class="card">
+        <div class="card-header">📡 WiFi 控制</div>
+        <div class="card-body">
+          <button class="btn btn-danger" onclick="wifiRestart()">重启 WiFi</button>
+          <p class="form-hint">断开当前 WiFi 连接并重新连接</p>
+          <div class="result-box" id="wifiResult"></div>
+        </div>
+      </div>
     </div>
 
     <!-- ===== Modem Control ===== -->
     <div class="panel" id="panel-modem">
       <h1 class="page-title">模组控制</h1>
-      <p class="page-subtitle">切换飞行模式控制模组射频</p>
+      <p class="page-subtitle">模组重启、飞行模式、信号查询等操作</p>
+      <div class="card">
+        <div class="card-header">🔄 模组重启</div>
+        <div class="card-body">
+          <div class="btn-row"><button class="btn btn-danger" onclick="modemAction('restart')">软重启 (AT+CFUN)</button><button class="btn btn-danger" onclick="modemAction('hardreset')">硬重启 (EN引脚)</button></div>
+          <p class="form-hint">软重启发送 AT+CFUN=1,1 指令（15s 超时）；硬重启通过 EN 引脚断电后重新上电</p>
+          <div class="result-box" id="modemRstResult"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">📶 信号查询</div>
+        <div class="card-body">
+          <div class="btn-row"><button class="btn btn-primary" onclick="modemAction('signal')">查询信号强度</button><button class="btn btn-primary" onclick="modemAction('operator')">查询运营商</button><button class="btn btn-primary" onclick="modemAction('imei')">查询 IMEI</button></div>
+          <div class="result-box" id="modemQueryResult"></div>
+        </div>
+      </div>
       <div class="card">
         <div class="card-header">✈ 飞行模式</div>
         <div class="card-body">
@@ -492,6 +515,17 @@ const char* htmlPage = R"rawliteral(
       }).catch(function(e){b.disabled=false;b.textContent='Ping 8.8.8.8';r.className='result-box result-error';r.textContent='请求失败: '+e;});
     }
 
+    // ---- WiFi Control ----
+    function wifiRestart(){
+      if(!confirm('确定要重启WiFi吗？网页将暂时不可用。'))return;
+      var r=document.getElementById('wifiResult');
+      r.className='result-box result-loading';r.textContent='WiFi 重启中（约5秒）...';
+      fetch('/wifi?action=restart').then(function(rr){return rr.json()}).then(function(d){
+        r.className=d.success?'result-box result-success':'result-box result-error';
+        r.textContent=d.message;
+      }).catch(function(e){r.className='result-box result-error';r.textContent='请求失败: '+e;});
+    }
+
     // ---- Flight Mode ----
     function queryFlightMode(){
       var r=document.getElementById('flightResult');
@@ -510,6 +544,28 @@ const char* htmlPage = R"rawliteral(
         if(d.success){r.className='result-box result-success';r.innerHTML=d.message;}
         else{r.className='result-box result-error';r.innerHTML='切换失败: '+d.message;}
       }).catch(function(e){b.disabled=false;r.className='result-box result-error';r.textContent='请求失败: '+e;});
+    }
+
+    // ---- Modem Control ----
+    function modemAction(action){
+      var names={'restart':'软重启','hardreset':'硬重启','signal':'信号查询','operator':'运营商查询','imei':'IMEI查询'};
+      var name=names[action]||action;
+      var resultEl=null;
+      if(action==='restart'||action==='hardreset') resultEl=document.getElementById('modemRstResult');
+      else resultEl=document.getElementById('modemQueryResult');
+      if(action==='hardreset'){
+        if(!confirm('硬重启将断电重启模组，确定继续？'))return;
+        resultEl.className='result-box result-loading';resultEl.textContent='硬重启中（约10秒）...';
+        fetch('/modem?action=hardreset').then(function(rr){return rr.json()}).then(function(d){
+          resultEl.className='result-box result-success';resultEl.textContent=d.message+' — 稍后请手动查询信号确认恢复';
+        }).catch(function(e){resultEl.className='result-box result-error';resultEl.textContent='请求失败: '+e;});
+        return;
+      }
+      resultEl.className='result-box result-loading';resultEl.textContent=name+'中...';
+      fetch('/modem?action='+action).then(function(rr){return rr.json()}).then(function(d){
+        if(d.success){resultEl.className='result-box result-success';resultEl.innerHTML=name+'成功: '+d.message;}
+        else{resultEl.className='result-box result-error';resultEl.innerHTML=name+'失败: '+d.message;}
+      }).catch(function(e){resultEl.className='result-box result-error';resultEl.textContent='请求失败: '+e;});
     }
 
     // ---- AT Terminal ----

@@ -40,27 +40,51 @@ void modemPowerCycle() {
   delay(6000);  // 等模组完全启动再发AT（关键）
 }
 
-// 重启模组
+// 重启模组（EN引脚断电重启 + 重新初始化）
 void resetModule() {
   logCaptureLn(String("正在硬重启模组（EN 断电重启）..."));
-
   modemPowerCycle();
+  modemInit();
+}
 
+// 模组 AT 初始化流程（setup 中调用，resetModule 后也调用）
+void modemInit() {
   // 清掉上电噪声/残留
   while (Serial1.available()) Serial1.read();
 
-  // 硬重启后做 AT 握手确认（最多等 10 秒）
-  bool ok = false;
-  for (int i = 0; i < 10; i++) {
-    if (sendATandWaitOK("AT", 1000)) {
-      ok = true;
-      break;
-    }
-    logCaptureLn(String("AT未响应，继续等模组启动..."));
+  while (!sendATandWaitOK("AT", 1000)) {
+    logCaptureLn(String("AT未响应，重试..."));
+    blink_short();
   }
-
-  if (ok) logCaptureLn(String("模组AT恢复正常"));
-  else    logCaptureLn(String("模组AT仍未响应（检查EN接线/供电/波特率）"));
+  logCaptureLn(String("模组AT响应正常"));
+  while (!sendATandWaitOK("AT+CGACT=0,1", 5000)) {
+    logCaptureLn(String("设置CGACT失败，重试..."));
+    blink_short();
+  }
+  logCaptureLn(String("已禁用数据连接(AT+CGACT=0,1)，防止流量消耗"));
+  while (!sendATandWaitOK("AT+CNMI=2,2,0,0,0", 1000)) {
+    logCaptureLn(String("设置CNMI失败，重试..."));
+    blink_short();
+  }
+  logCaptureLn(String("CNMI参数设置完成"));
+  while (!sendATandWaitOK("AT+CMGF=0", 1000)) {
+    logCaptureLn(String("设置PDU模式失败，重试..."));
+    blink_short();
+  }
+  logCaptureLn(String("PDU模式设置完成"));
+  int ceregRetry = 0;
+  while (!waitCEREG() && ceregRetry < 30) {
+    logCaptureLn(String("等待网络注册..."));
+    ceregRetry++;
+    blink_short();
+  }
+  if (ceregRetry < 30) {
+    logCaptureLn(String("网络已注册"));
+    modemReady = true;
+  } else {
+    logCaptureLn(String("⚠️ 网络注册超时（无SIM卡或信号差），模组功能不可用"));
+    modemReady = false;
+  }
 }
 
 void blink_short(unsigned long gap_time) {

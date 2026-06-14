@@ -6,6 +6,7 @@
 String sendATCommand(const char* cmd, unsigned long timeout);
 void modemPowerCycle();
 void resetModule();
+void modemInit();
 bool sendATandWaitOK(const char* cmd, unsigned long timeout);
 bool waitCEREG();
 void blink_short(unsigned long gap_time = 500);

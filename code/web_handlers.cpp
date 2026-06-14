@@ -28,6 +28,16 @@ void handleRoot() {
   html.replace("%SMTP_SEND_TO%", config.smtpSendTo);
   html.replace("%ADMIN_PHONE%", config.adminPhone);
   html.replace("%NUMBER_BLACK_LIST%", config.numberBlackList);
+
+  // 概览页面的配置状态
+  bool emailOk = config.smtpServer.length() > 0 && config.smtpUser.length() > 0 &&
+                 config.smtpPass.length() > 0 && config.smtpSendTo.length() > 0;
+  html.replace("%SMTP_CHECK%", emailOk ? "已配置" : "未配置");
+  int pushCount = 0;
+  for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
+    if (config.pushChannels[i].enabled) pushCount++;
+  }
+  html.replace("%PUSH_COUNT%", String(pushCount));
   
   // 生成推送通道HTML
   String channelsHtml = "";
@@ -100,13 +110,9 @@ void handleRoot() {
   server.send(200, "text/html", html);
 }
 
-// 处理工具箱页面请求
+// 处理工具箱页面请求 — 已整合到主页，直接返回主页
 void handleToolsPage() {
-  if (!checkAuth()) return;
-  
-  String html = String(htmlToolsPage);
-  html.replace("%IP%", WiFi.localIP().toString());
-  server.send(200, "text/html", html);
+  handleRoot();
 }
 
 // 处理飞行模式控制请求

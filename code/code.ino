@@ -70,8 +70,8 @@ void setup() {
   }
   server.on("/", handleRoot);
   server.on("/save", HTTP_POST, handleSave);
-  server.on("/tools", handleToolsPage);
-  server.on("/sms", handleToolsPage);
+  server.on("/tools", handleRoot);
+  server.on("/sms", handleRoot);
   server.on("/sendsms", HTTP_POST, handleSendSms);
   server.on("/ping", HTTP_POST, handlePing);
   server.on("/query", handleQuery);

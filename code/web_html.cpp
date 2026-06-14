@@ -1,502 +1,516 @@
-#include "config_types.h"
+﻿#include "config_types.h"
 
-// HTML配置页面
 const char* htmlPage = R"rawliteral(
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>短信转发配置</title>
+  <title>SMS Forwarding</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
-    .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-    h1 { color: #333; text-align: center; }
-    .form-group { margin-bottom: 15px; }
-    label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
-    input[type="text"], input[type="password"], input[type="number"], textarea, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
-    textarea { resize: vertical; min-height: 80px; }
-    button { width: 100%; padding: 12px; background: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-top: 10px; }
-    button:hover { background: #45a049; }
-    .label-inline { display:inline; font-weight:normal; margin-left: 5px; }
-    .btn-send { background: #2196F3; }
-    .btn-send:hover { background: #1976D2; }
-    .section { border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
-    .section-title { font-size: 18px; color: #333; margin-bottom: 10px; }
-    .status { padding: 10px; background: #e7f3fe; border-left: 4px solid #2196F3; margin-bottom: 20px; }
-    .warning { padding: 10px; background: #fff3cd; border-left: 4px solid #ffc107; margin-bottom: 20px; font-size: 12px; }
-    .hint { font-size: 12px; color: #888; }
-    .nav { display: flex; gap: 10px; margin-bottom: 20px; }
-    .nav a { flex: 1; text-align: center; padding: 10px; background: #eee; border-radius: 5px; text-decoration: none; color: #333; }
-    .nav a.active { background: #4CAF50; color: white; }
-    .push-channel { border: 1px solid #e0e0e0; padding: 12px; margin-bottom: 15px; border-radius: 5px; background: #fafafa; }
-    .push-channel-header { display: flex; align-items: center; margin-bottom: 10px; }
-    .push-channel-header input[type="checkbox"] { width: auto; margin-right: 8px; }
-    .push-channel-header label { margin: 0; font-weight: bold; }
+    :root {
+      --ink: #171717;
+      --body: #4d4d4d;
+      --mute: #888888;
+      --canvas: #ffffff;
+      --canvas-soft: #fafafa;
+      --canvas-soft-2: #f5f5f5;
+      --hairline: #ebebeb;
+      --hairline-strong: #a1a1a1;
+      --link: #0070f3;
+      --error: #ee0000;
+      --warning-soft: #ffefcf;
+      --sidebar-w: 220px;
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-pill: 100px;
+      --shadow-card: 0 0 0 1px rgba(0,0,0,0.08), 0 1px 1px rgba(0,0,0,0.02), 0 2px 2px rgba(0,0,0,0.04);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      font-size: 14px; font-weight: 400; line-height: 1.5;
+      color: var(--ink); background: var(--canvas-soft);
+      display: flex; min-height: 100vh;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      position: fixed; top: 0; left: 0; bottom: 0; width: var(--sidebar-w);
+      background: var(--ink); display: flex; flex-direction: column;
+      z-index: 100; overflow-y: auto;
+    }
+    .sidebar-brand { padding: 22px 18px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .sidebar-brand h2 { font-size: 17px; font-weight: 600; color: #fff; letter-spacing: -0.4px; }
+    .sidebar-brand span { font-size: 10px; color: rgba(255,255,255,0.4); display: block; margin-top: 1px; font-family: 'SF Mono','Cascadia Code','JetBrains Mono','Consolas',monospace; }
+    .sidebar-nav { flex: 1; padding: 10px; }
+    .sidebar-nav a {
+      display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+      border-radius: var(--radius-sm); color: rgba(255,255,255,0.6);
+      font-size: 13px; font-weight: 500; text-decoration: none;
+      transition: all 0.12s; margin-bottom: 1px; cursor: pointer;
+    }
+    .sidebar-nav a:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.85); }
+    .sidebar-nav a.active { background: rgba(255,255,255,0.12); color: #fff; }
+    .sidebar-nav a .ico { font-size: 15px; width: 20px; text-align: center; flex-shrink: 0; }
+    .sidebar-divider { height: 1px; background: rgba(255,255,255,0.08); margin: 8px 12px; }
+    .sidebar-section-label { font-size: 10px; color: rgba(255,255,255,0.3); padding: 4px 16px 6px; text-transform: uppercase; letter-spacing: 0.6px; font-family: 'SF Mono','Cascadia Code','JetBrains Mono','Consolas',monospace; }
+    .sidebar-footer { padding: 12px 16px; border-top: 1px solid rgba(255,255,255,0.08); }
+    .sidebar-footer .btn { width: 100%; }
+
+    /* Main */
+    .main {
+      margin-left: var(--sidebar-w); flex: 1; padding: 32px;
+      max-width: 780px; width: 100%;
+    }
+    .page-title { font-size: 22px; font-weight: 600; color: var(--ink); letter-spacing: -0.5px; margin-bottom: 6px; }
+    .page-subtitle { font-size: 13px; color: var(--mute); margin-bottom: 24px; }
+
+    /* Card */
+    .card { background: var(--canvas); border-radius: var(--radius-md); box-shadow: var(--shadow-card); margin-bottom: 18px; }
+    .card-header { padding: 16px 22px 0; font-size: 14px; font-weight: 600; color: var(--ink); letter-spacing: -0.2px; display: flex; align-items: center; gap: 8px; }
+    .card-body { padding: 16px 22px 22px; }
+    .card-header + .card-body { padding-top: 12px; }
+
+    /* Panel hide/show */
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* Form */
+    .form-group { margin-bottom: 14px; }
+    .form-group:last-child { margin-bottom: 0; }
+    .form-label { display: block; font-size: 12px; font-weight: 500; color: var(--body); margin-bottom: 4px; letter-spacing: -0.1px; }
+    .form-input, .form-select, .form-textarea {
+      width: 100%; padding: 7px 11px; font-size: 13px; font-family: inherit;
+      border: 1px solid var(--hairline); border-radius: var(--radius-sm);
+      background: var(--canvas); color: var(--ink);
+      transition: border-color 0.15s, box-shadow 0.15s; outline: none;
+    }
+    .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+    .form-select { cursor: pointer; }
+    .form-textarea { resize: vertical; min-height: 70px; line-height: 1.5; }
+    .form-hint { font-size: 11px; color: var(--mute); margin-top: 3px; line-height: 1.4; }
+    .form-warning { font-size: 11px; color: #ab570a; background: var(--warning-soft); padding: 9px 12px; border-radius: var(--radius-sm); margin-bottom: 14px; line-height: 1.5; }
+    .form-row { display: flex; gap: 14px; }
+    .form-row .form-group { flex: 1; }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      padding: 7px 14px; font-size: 13px; font-weight: 500; font-family: inherit;
+      border-radius: var(--radius-pill); border: none; cursor: pointer;
+      transition: all 0.15s; line-height: 1.4; white-space: nowrap;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: var(--ink); color: #fff; }
+    .btn-primary:hover { background: #2a2a2a; }
+    .btn-secondary { background: var(--canvas); color: var(--ink); box-shadow: 0 0 0 1px var(--hairline); }
+    .btn-secondary:hover { background: var(--canvas-soft-2); }
+    .btn-danger { background: var(--error); color: #fff; }
+    .btn-danger:hover { background: #c50000; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; border-radius: var(--radius-sm); }
+    .btn-white { background: #fff; color: var(--ink); }
+    .btn-white:hover { background: #f0f0f0; }
+    .btn-block { width: 100%; justify-content: center; }
+    .btn-save { padding: 10px 20px; font-size: 14px; margin-top: 4px; }
+
+    /* Push Channel */
+    .push-channel { border: 1px solid var(--hairline); border-radius: var(--radius-md); padding: 14px; margin-bottom: 10px; background: var(--canvas-soft); transition: border-color 0.15s; }
+    .push-channel:hover { border-color: var(--hairline-strong); }
+    .push-channel-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .push-channel-header label { font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer; }
+    .push-channel-header input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--ink); }
     .push-channel-body { display: none; }
     .push-channel.enabled .push-channel-body { display: block; }
-    .push-type-hint { font-size: 11px; color: #666; margin-top: 5px; padding: 8px; background: #f0f0f0; border-radius: 3px; }
+    .push-channel.enabled { border-color: var(--hairline-strong); background: var(--canvas); }
+    .push-channel-body .form-group { margin-bottom: 12px; }
+    .push-channel-body .form-group:last-child { margin-bottom: 0; }
+    .push-channel-body label { display: block; font-size: 12px; font-weight: 500; color: var(--body); margin-bottom: 4px; letter-spacing: -0.1px; }
+    .push-channel-body input[type="text"], .push-channel-body input[type="password"], .push-channel-body select, .push-channel-body textarea {
+      width: 100%; padding: 7px 11px; font-size: 13px; font-family: inherit;
+      border: 1px solid var(--hairline); border-radius: var(--radius-sm);
+      background: var(--canvas); color: var(--ink);
+      transition: border-color 0.15s, box-shadow 0.15s; outline: none;
+    }
+    .push-channel-body input:focus, .push-channel-body select:focus, .push-channel-body textarea:focus { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+    .push-channel-body select { cursor: pointer; }
+    .push-channel-body textarea { resize: vertical; min-height: 60px; line-height: 1.5; }
+    .push-type-hint { font-size: 11px; color: var(--body); margin-top: 4px; padding: 8px 12px; background: var(--canvas-soft-2); border-radius: var(--radius-sm); font-family: 'SF Mono','Cascadia Code','JetBrains Mono','Consolas',monospace; line-height: 1.5; }
+
+    /* Result Boxes */
+    .result-box { margin-top: 12px; padding: 10px 14px; border-radius: var(--radius-sm); display: none; font-size: 12px; line-height: 1.5; }
+    .result-success { background: #e8f5e9; color: #2e7d32; display: block; }
+    .result-error { background: #ffebee; color: #c62828; display: block; }
+    .result-loading { background: #fff3e0; color: #e65100; display: block; }
+    .result-info { background: #e3f2fd; color: #1565c0; display: block; }
+    .info-table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 12px; }
+    .info-table td { padding: 5px 8px; border-bottom: 1px solid var(--hairline); }
+    .info-table td:first-child { font-weight: 500; color: var(--body); width: 40%; }
+
+    /* Overview */
+    .overview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .overview-item { background: var(--canvas-soft); border-radius: var(--radius-sm); padding: 14px; }
+    .overview-item .label { font-size: 10px; color: var(--mute); text-transform: uppercase; letter-spacing: 0.4px; font-family: 'SF Mono','Cascadia Code','JetBrains Mono','Consolas',monospace; margin-bottom: 4px; }
+    .overview-item .value { font-size: 14px; font-weight: 600; color: var(--ink); }
+
+    /* Tools */
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn-row .btn { flex: 1; min-width: 90px; }
+    .btn-row + .btn-row { margin-top: 8px; }
+    #atLog {
+      background: var(--ink); color: #50e3c2; font-family: 'SF Mono','Cascadia Code','JetBrains Mono','Consolas',monospace;
+      min-height: 130px; max-height: 260px; overflow-y: auto; padding: 12px 14px;
+      border-radius: var(--radius-sm); margin-bottom: 10px; font-size: 12px;
+      white-space: pre-wrap; word-break: break-all; line-height: 1.5;
+    }
+    .at-bar { display: flex; gap: 6px; }
+    .at-bar input { flex: 1; font-family: 'SF Mono','Cascadia Code','JetBrains Mono','Consolas',monospace; }
+    .at-bar .btn { min-width: 60px; }
+
+    /* Responsive */
+    @media (max-width: 700px) {
+      .sidebar { width: 50px; }
+      .sidebar-brand h2 { font-size: 0; }
+      .sidebar-brand h2::first-letter { font-size: 16px; }
+      .sidebar-brand span, .sidebar-section-label { display: none; }
+      .sidebar-nav a { padding: 10px; justify-content: center; }
+      .sidebar-nav a span:not(.ico) { display: none; }
+      .sidebar-nav a .ico { font-size: 16px; }
+      .sidebar-divider { margin: 6px 8px; }
+      .sidebar-footer { padding: 8px; }
+      .sidebar-footer .btn span { display: none; }
+      .sidebar-footer .btn { padding: 6px; font-size: 11px; }
+      .main { margin-left: 50px; padding: 18px 14px; }
+      :root { --sidebar-w: 50px; }
+      .overview-grid { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>📱 短信转发器</h1>
-    <div class="nav">
-      <a href="/" class="active">⚙️ 系统配置</a>
-      <a href="/tools">🧰 工具箱</a>
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <h2>SMS FWD</h2>
+      <span>短信转发器</span>
     </div>
-    <div class="status" id="status">设备IP: <strong>%IP%</strong></div>
-    
-    <form action="/save" method="POST">
-      <div class="section">
-        <div class="section-title">🔐 Web管理账号设置</div>
-        <div class="warning">⚠️ 首次使用请修改默认密码！默认账号: )rawliteral" DEFAULT_WEB_USER "，默认密码: " DEFAULT_WEB_PASS R"rawliteral(
-        </div>
-        <div class="form-group">
-          <label>管理账号</label>
-          <input type="text" name="webUser" value="%WEB_USER%" placeholder="admin">
-        </div>
-        <div class="form-group">
-          <label>管理密码</label>
-          <input type="password" name="webPass" value="%WEB_PASS%" placeholder="请设置复杂密码">
-        </div>
-      </div>
-      
-      <div class="section">
-        <div class="section-title">📧 邮件通知设置</div>
-        <div class="form-group">
-          <label>SMTP服务器</label>
-          <input type="text" name="smtpServer" value="%SMTP_SERVER%" placeholder="smtp.qq.com">
-        </div>
-        <div class="form-group">
-          <label>SMTP端口</label>
-          <input type="number" name="smtpPort" value="%SMTP_PORT%" placeholder="465">
-        </div>
-        <div class="form-group">
-          <label>邮箱账号</label>
-          <input type="text" name="smtpUser" value="%SMTP_USER%" placeholder="your@qq.com">
-        </div>
-        <div class="form-group">
-          <label>邮箱密码/授权码</label>
-          <input type="password" name="smtpPass" value="%SMTP_PASS%" placeholder="授权码">
-        </div>
-        <div class="form-group">
-          <label>接收邮件地址</label>
-          <input type="text" name="smtpSendTo" value="%SMTP_SEND_TO%" placeholder="receiver@example.com">
+    <nav class="sidebar-nav">
+      <div class="sidebar-section-label">配置</div>
+      <a data-panel="overview" class="active"><span class="ico">🏠</span> <span>系统概览</span></a>
+      <a data-panel="account"><span class="ico">🔐</span> <span>账号管理</span></a>
+      <a data-panel="email"><span class="ico">📧</span> <span>邮件通知</span></a>
+      <a data-panel="push"><span class="ico">🔗</span> <span>推送通道</span></a>
+      <a data-panel="admin"><span class="ico">👤</span> <span>管理员 &amp; 黑名单</span></a>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section-label">工具</div>
+      <a data-panel="sendsms"><span class="ico">📤</span> <span>发送短信</span></a>
+      <a data-panel="diagnose"><span class="ico">📊</span> <span>模组诊断</span></a>
+      <a data-panel="network"><span class="ico">🌐</span> <span>网络测试</span></a>
+      <a data-panel="modem"><span class="ico">✈</span> <span>模组控制</span></a>
+      <a data-panel="atterm"><span class="ico">💻</span> <span>AT 终端</span></a>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="btn btn-white btn-sm btn-block" onclick="switchPanel('account')"><span>修改密码</span> 🔑</button>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <!-- ===== Overview ===== -->
+    <div class="panel active" id="panel-overview">
+      <h1 class="page-title">系统概览</h1>
+      <p class="page-subtitle">设备状态与基本信息</p>
+      <div class="card">
+        <div class="card-header">📡 设备信息</div>
+        <div class="card-body">
+          <div class="overview-grid">
+            <div class="overview-item"><div class="label">Device IP</div><div class="value" id="ovIp">%IP%</div></div>
+            <div class="overview-item"><div class="label">WiFi SSID</div><div class="value" id="ovSsid">—</div></div>
+            <div class="overview-item"><div class="label">Free Heap</div><div class="value" id="ovHeap">—</div></div>
+            <div class="overview-item"><div class="label">Uptime</div><div class="value" id="ovUptime">—</div></div>
+          </div>
         </div>
       </div>
-      
-      <div class="section">
-        <div class="section-title">🔗 HTTP推送通道设置</div>
-        <div class="hint" style="margin-bottom:15px;">可同时启用多个推送通道，每个通道独立配置。支持POST JSON、Bark、GET、钉钉、PushPlus、Server酱等多种方式。</div>
-        
-        %PUSH_CHANNELS%
-      </div>
-      
-      <div class="section">
-        <div class="section-title">👤 管理员设置</div>
-        <div class="form-group">
-          <label>管理员手机号</label>
-          <input type="text" name="adminPhone" value="%ADMIN_PHONE%" placeholder="13800138000">
+      <div class="card">
+        <div class="card-header">⚙ 配置状态</div>
+        <div class="card-body">
+          <table class="info-table">
+            <tr><td>邮件通知</td><td id="cfgEmail">%SMTP_CHECK%</td></tr>
+            <tr><td>推送通道</td><td id="cfgPush">%PUSH_COUNT% 个已启用</td></tr>
+            <tr><td>管理员号码</td><td>%ADMIN_PHONE%</td></tr>
+          </table>
         </div>
       </div>
-      
-      <div class="section">
-        <div class="section-title">🚫 号码黑名单</div>
-        <div class="hint" style="margin-bottom:15px;">每行一个号码，来自黑名单号码的短信将被忽略。</div>
-        <div class="form-group">
-          <label>黑名单号码</label>
-          <textarea name="numberBlackList" rows="5">%NUMBER_BLACK_LIST%</textarea>
+    </div>
+
+    <!-- ===== Account ===== -->
+    <div class="panel" id="panel-account">
+      <h1 class="page-title">账号管理</h1>
+      <p class="page-subtitle">修改 Web 管理界面的登录凭据</p>
+      <form action="/save" method="POST" id="mainForm">
+      <div class="card">
+        <div class="card-header">🔐 登录凭据</div>
+        <div class="card-body">
+          <div class="form-warning">首次使用请立即修改默认密码！默认: )rawliteral" DEFAULT_WEB_USER " / " DEFAULT_WEB_PASS R"rawliteral(</div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">管理账号</label><input class="form-input" type="text" name="webUser" value="%WEB_USER%" placeholder="admin"></div>
+            <div class="form-group"><label class="form-label">管理密码</label><input class="form-input" type="password" name="webPass" value="%WEB_PASS%" placeholder="设置复杂密码"></div>
+          </div>
         </div>
       </div>
-      
-      <button type="submit">💾 保存配置</button>
-    </form>
-  </div>
+      <button type="submit" class="btn btn-primary btn-block btn-save">保存配置</button>
+      </form>
+    </div>
+
+    <!-- ===== Email ===== -->
+    <div class="panel" id="panel-email">
+      <h1 class="page-title">邮件通知</h1>
+      <p class="page-subtitle">配置 SMTP 服务器以接收短信邮件通知</p>
+      <form action="/save" method="POST" id="mainForm2">
+      <div class="card">
+        <div class="card-header">📧 SMTP 设置</div>
+        <div class="card-body">
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">SMTP 服务器</label><input class="form-input" type="text" name="smtpServer" value="%SMTP_SERVER%" placeholder="smtp.qq.com"></div>
+            <div class="form-group"><label class="form-label">SMTP 端口</label><input class="form-input" type="number" name="smtpPort" value="%SMTP_PORT%" placeholder="465"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">邮箱账号</label><input class="form-input" type="text" name="smtpUser" value="%SMTP_USER%" placeholder="your@qq.com"></div>
+            <div class="form-group"><label class="form-label">密码 / 授权码</label><input class="form-input" type="password" name="smtpPass" value="%SMTP_PASS%" placeholder="授权码"></div>
+          </div>
+          <div class="form-group"><label class="form-label">接收邮件地址</label><input class="form-input" type="text" name="smtpSendTo" value="%SMTP_SEND_TO%" placeholder="receiver@example.com"></div>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block btn-save">保存配置</button>
+      </form>
+    </div>
+
+    <!-- ===== Push Channels ===== -->
+    <div class="panel" id="panel-push">
+      <h1 class="page-title">推送通道</h1>
+      <p class="page-subtitle">最多 5 个独立推送通道，支持 POST JSON、Bark、钉钉、飞书、PushPlus、Server酱、Gotify、Telegram</p>
+      <form action="/save" method="POST" id="mainForm3">
+      <div class="card">
+        <div class="card-header">🔗 通道配置</div>
+        <div class="card-body">
+          %PUSH_CHANNELS%
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block btn-save">保存配置</button>
+      </form>
+    </div>
+
+    <!-- ===== Admin & Blacklist ===== -->
+    <div class="panel" id="panel-admin">
+      <h1 class="page-title">管理员 &amp; 黑名单</h1>
+      <p class="page-subtitle">远程控制权限与短信过滤</p>
+      <form action="/save" method="POST" id="mainForm4">
+      <div class="card">
+        <div class="card-header">👤 管理员手机号</div>
+        <div class="card-body">
+          <div class="form-group">
+            <input class="form-input" type="text" name="adminPhone" value="%ADMIN_PHONE%" placeholder="13800138000">
+            <p class="form-hint">此号码可通过短信发送远程指令（SMS:号码:内容 发短信、RESET 重启）</p>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">🚫 号码黑名单</div>
+        <div class="card-body">
+          <div class="form-group">
+            <textarea class="form-textarea" name="numberBlackList" rows="5" placeholder="每行一个号码">%NUMBER_BLACK_LIST%</textarea>
+            <p class="form-hint">黑名单号码发来的短信将被自动忽略</p>
+          </div>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block btn-save">保存配置</button>
+      </form>
+    </div>
+
+    <!-- ===== Send SMS ===== -->
+    <div class="panel" id="panel-sendsms">
+      <h1 class="page-title">发送短信</h1>
+      <p class="page-subtitle">通过模组直接发送短信</p>
+      <div class="card">
+        <div class="card-header">📤 新建短信</div>
+        <div class="card-body">
+          <form action="/sendsms" method="POST" target="_self">
+            <div class="form-group"><label class="form-label">目标号码</label><input class="form-input" type="text" name="phone" placeholder="13800138000" required></div>
+            <div class="form-group"><label class="form-label">短信内容</label><textarea class="form-textarea" name="content" placeholder="输入短信内容..." required oninput="updateCount(this)"></textarea><p class="form-hint">已输入 <span id="charCount">0</span> 字符</p></div>
+            <button type="submit" class="btn btn-primary" style="padding:9px 18px;">发送短信</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Diagnostics ===== -->
+    <div class="panel" id="panel-diagnose">
+      <h1 class="page-title">模组诊断</h1>
+      <p class="page-subtitle">查询模组状态、SIM 卡与网络信息</p>
+      <div class="card">
+        <div class="card-header">📊 查询</div>
+        <div class="card-body">
+          <div class="btn-row"><button class="btn btn-secondary" onclick="queryInfo('ati')">固件信息</button><button class="btn btn-secondary" onclick="queryInfo('signal')">信号质量</button></div>
+          <div class="btn-row"><button class="btn btn-secondary" onclick="queryInfo('siminfo')">SIM 卡信息</button><button class="btn btn-secondary" onclick="queryInfo('network')">网络状态</button><button class="btn btn-secondary" onclick="queryInfo('wifi')">WiFi 状态</button></div>
+          <div class="result-box" id="queryResult"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Network Test ===== -->
+    <div class="panel" id="panel-network">
+      <h1 class="page-title">网络测试</h1>
+      <p class="page-subtitle">通过模组数据连接测试网络连通性</p>
+      <div class="card">
+        <div class="card-header">🌐 Ping</div>
+        <div class="card-body">
+          <button class="btn btn-secondary" id="pingBtn" onclick="confirmPing()">Ping 8.8.8.8</button>
+          <p class="form-hint">通过模组执行 Ping，消耗极少流量</p>
+          <div class="result-box" id="pingResult"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Modem Control ===== -->
+    <div class="panel" id="panel-modem">
+      <h1 class="page-title">模组控制</h1>
+      <p class="page-subtitle">切换飞行模式控制模组射频</p>
+      <div class="card">
+        <div class="card-header">✈ 飞行模式</div>
+        <div class="card-body">
+          <div class="btn-row"><button class="btn btn-danger" id="flightBtn" onclick="toggleFlightMode()">切换飞行模式</button><button class="btn btn-secondary" onclick="queryFlightMode()">查询状态</button></div>
+          <p class="form-hint">飞行模式开启后模组射频关闭，无法收发短信</p>
+          <div class="result-box" id="flightResult"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== AT Terminal ===== -->
+    <div class="panel" id="panel-atterm">
+      <h1 class="page-title">AT 指令终端</h1>
+      <p class="page-subtitle">直接向模组发送 AT 指令并接收响应</p>
+      <div class="card">
+        <div class="card-header">💻 终端</div>
+        <div class="card-body">
+          <div id="atLog">就绪 — 输入 AT 指令开始调试</div>
+          <div class="at-bar"><input class="form-input" type="text" id="atCmd" placeholder="AT+CSQ"><button class="btn btn-primary btn-sm" onclick="sendAT()" id="atBtn">发送</button></div>
+          <div class="btn-row" style="margin-top:8px;"><button class="btn btn-secondary btn-sm" onclick="clearATLog()">清空日志</button></div>
+          <p class="form-hint">直接向模组串口发送指令并接收响应，请谨慎操作</p>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
   <script>
+    // ---- Panel switching ----
+    function switchPanel(name) {
+      document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
+      document.getElementById('panel-' + name).classList.add('active');
+      document.querySelectorAll('.sidebar-nav a').forEach(function(a) { a.classList.remove('active'); });
+      document.querySelector('.sidebar-nav a[data-panel="' + name + '"]').classList.add('active');
+    }
+    document.querySelectorAll('.sidebar-nav a').forEach(function(a) {
+      a.addEventListener('click', function() { switchPanel(this.dataset.panel); });
+    });
+
+    // ---- Push Channel JS ----
     function toggleChannel(idx) {
       var ch = document.getElementById('channel' + idx);
       var cb = document.getElementById('push' + idx + 'en');
-      if (cb.checked) {
-        ch.classList.add('enabled');
-      } else {
-        ch.classList.remove('enabled');
-      }
+      if (cb.checked) ch.classList.add('enabled'); else ch.classList.remove('enabled');
     }
     function updateTypeHint(idx) {
       var sel = document.getElementById('push' + idx + 'type');
       var hint = document.getElementById('hint' + idx);
-      var extraFields = document.getElementById('extra' + idx);
-      var customFields = document.getElementById('custom' + idx);
+      var extra = document.getElementById('extra' + idx);
+      var custom = document.getElementById('custom' + idx);
       var type = parseInt(sel.value);
-      
-      // 隐藏所有额外字段
-      extraFields.style.display = 'none';
-      customFields.style.display = 'none';
-      document.getElementById('key1label' + idx).innerText = '参数1';
-      document.getElementById('key2label' + idx).innerText = '参数2';
+      extra.style.display = 'none'; custom.style.display = 'none';
+      document.getElementById('key1label' + idx).innerText = '参数 1';
+      document.getElementById('key2label' + idx).innerText = '参数 2';
       document.getElementById('key1' + idx).placeholder = '';
       document.getElementById('key2' + idx).placeholder = '';
-      // key2 区域默认隐藏，只在需要用到 key2 的通知方式中显示
-      document.getElementById('key2' + idx).closest('.form-group').style.display = 'none';
-      
-      if (type == 1) {
-        hint.innerHTML = '<b>POST JSON格式：</b><br>{"sender":"发送者号码","message":"短信内容","timestamp":"时间戳"}';
-      } else if (type == 2) {
-        hint.innerHTML = '<b>Bark格式：</b><br>POST {"title":"发送者号码","body":"短信内容"}';
-      } else if (type == 3) {
-        hint.innerHTML = '<b>GET请求格式：</b><br>URL?sender=xxx&message=xxx&timestamp=xxx';
-      } else if (type == 4) {
-        hint.innerHTML = '<b>钉钉机器人：</b><br>填写Webhook地址，如需加签请填Secret';
-        extraFields.style.display = 'block';
-        document.getElementById('key1label' + idx).innerText = 'Secret（加签密钥，可选）';
-        document.getElementById('key1' + idx).placeholder = 'SEC...';
-      } else if (type == 5) {
-        hint.innerHTML = '<b>PushPlus：</b><br>填写Token，URL留空使用默认';
-        extraFields.style.display = 'block';
-        document.getElementById('key1label' + idx).innerText = 'Token';
-        document.getElementById('key1' + idx).placeholder = 'pushplus的token';
-        // 显示 key2 区域
-        document.getElementById('key2' + idx).closest('.form-group').style.display = 'block';
-        document.getElementById('key2label' + idx).innerText = '发送渠道';
-        document.getElementById('key2' + idx).placeholder = 'wechat(default), extension, app';
-      } else if (type == 6) {
-        hint.innerHTML = '<b>Server酱：</b><br>填写SendKey，URL留空使用默认';
-        extraFields.style.display = 'block';
-        document.getElementById('key1label' + idx).innerText = 'SendKey';
-        document.getElementById('key1' + idx).placeholder = 'SCT...';
-      } else if (type == 7) {
-        hint.innerHTML = '<b>自定义模板：</b><br>在请求体模板中使用 {sender} {message} {timestamp} 作为占位符';
-        customFields.style.display = 'block';
-      } else if (type == 8) {
-        hint.innerHTML = '<b>飞书机器人：</b><br>填写Webhook地址，如需签名验证请填Secret';
-        extraFields.style.display = 'block';
-        document.getElementById('key1label' + idx).innerText = 'Secret（签名密钥，可选）';
-        document.getElementById('key1' + idx).placeholder = '飞书机器人的签名密钥';
-      } else if (type == 9) {
-        hint.innerHTML = '<b>Gotify：</b><br>填写服务器地址（如 http://gotify.example.com），Token填写应用Token';
-        extraFields.style.display = 'block';
-        document.getElementById('key1label' + idx).innerText = 'Token（应用Token）';
-        document.getElementById('key1' + idx).placeholder = 'A...';
-      } else if (type == 10) {
-        hint.innerHTML = '<b>Telegram Bot：</b><br>填写Chat ID（参数1）和Bot Token（参数2），URL留空默认使用官方API';
-        extraFields.style.display = 'block';
-        document.getElementById('key1label' + idx).innerText = 'Chat ID';
-        document.getElementById('key1' + idx).placeholder = '123456789';
-        document.getElementById('key2label' + idx).innerText = 'Bot Token';
-        document.getElementById('key2' + idx).placeholder = '12345678:ABC...';
-      }
+      var kg = document.getElementById('key2group' + idx);
+      if (kg) kg.style.display = 'none';
+      if (type == 1) hint.innerHTML = 'POST JSON<br>{"sender":"+8613800138000","message":"...","timestamp":"2026-01-01 12:00:00"}';
+      else if (type == 2) hint.innerHTML = 'Bark (iOS)<br>POST {"title":"发送者","body":"短信内容"}';
+      else if (type == 3) hint.innerHTML = 'GET 请求<br>URL?sender=xxx&message=xxx&timestamp=xxx';
+      else if (type == 4) { hint.innerHTML = '钉钉机器人<br>填写 Webhook 地址，加签需填 Secret'; extra.style.display='block'; document.getElementById('key1label'+idx).innerText='Secret（加签密钥，可选）'; document.getElementById('key1'+idx).placeholder='SEC...'; }
+      else if (type == 5) { hint.innerHTML = 'PushPlus<br>填写 Token，URL 留空使用默认'; extra.style.display='block'; document.getElementById('key1label'+idx).innerText='Token'; document.getElementById('key1'+idx).placeholder='pushplus token'; if(kg)kg.style.display='block'; document.getElementById('key2label'+idx).innerText='发送渠道'; document.getElementById('key2'+idx).placeholder='wechat / extension / app'; }
+      else if (type == 6) { hint.innerHTML = 'Server酱<br>填写 SendKey，URL 留空使用默认'; extra.style.display='block'; document.getElementById('key1label'+idx).innerText='SendKey'; document.getElementById('key1'+idx).placeholder='SCT...'; }
+      else if (type == 7) { hint.innerHTML = '自定义模板<br>使用 {sender} {message} {timestamp} 占位符'; custom.style.display='block'; }
+      else if (type == 8) { hint.innerHTML = '飞书机器人<br>填写 Webhook 地址，签名验证需填 Secret'; extra.style.display='block'; document.getElementById('key1label'+idx).innerText='Secret（签名密钥，可选）'; document.getElementById('key1'+idx).placeholder='飞书签名密钥'; }
+      else if (type == 9) { hint.innerHTML = 'Gotify<br>填写服务器地址 + 应用 Token'; extra.style.display='block'; document.getElementById('key1label'+idx).innerText='Token（应用 Token）'; document.getElementById('key1'+idx).placeholder='A...'; }
+      else if (type == 10) { hint.innerHTML = 'Telegram Bot<br>Chat ID（参数1）+ Bot Token（参数2）'; extra.style.display='block'; document.getElementById('key1label'+idx).innerText='Chat ID'; document.getElementById('key1'+idx).placeholder='123456789'; if(kg)kg.style.display='block'; document.getElementById('key2label'+idx).innerText='Bot Token'; document.getElementById('key2'+idx).placeholder='12345678:ABC...'; }
     }
     document.addEventListener('DOMContentLoaded', function() {
-      for (var i = 0; i < 5; i++) {
-        toggleChannel(i);
-        updateTypeHint(i);
-      }
+      for (var i = 0; i < 5; i++) { toggleChannel(i); updateTypeHint(i); }
     });
-  </script>
-</body>
-</html>
-)rawliteral";
 
-// HTML工具箱页面
-const char* htmlToolsPage = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>工具箱</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
-    .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-    h1 { color: #333; text-align: center; }
-    .form-group { margin-bottom: 15px; }
-    label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
-    input[type="text"], textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
-    textarea { resize: vertical; min-height: 100px; }
-    button { width: 100%; padding: 12px; background: #2196F3; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-top: 10px; }
-    button:hover { background: #1976D2; }
-    .btn-query { background: #9C27B0; }
-    .btn-query:hover { background: #7B1FA2; }
-    .btn-ping { background: #FF9800; }
-    .btn-ping:hover { background: #F57C00; }
-    .btn-info { background: #607D8B; }
-    .btn-info:hover { background: #455A64; }
-    button:disabled { background: #ccc; cursor: not-allowed; }
-    .section { border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
-    .section-title { font-size: 18px; color: #333; margin-bottom: 10px; }
-    .status { padding: 10px; background: #e7f3fe; border-left: 4px solid #2196F3; margin-bottom: 20px; }
-    .nav { display: flex; gap: 10px; margin-bottom: 20px; }
-    .nav a { flex: 1; text-align: center; padding: 10px; background: #eee; border-radius: 5px; text-decoration: none; color: #333; }
-    .nav a.active { background: #2196F3; color: white; }
-    .char-count { font-size: 12px; color: #888; text-align: right; }
-    .hint { font-size: 12px; color: #888; margin-top: 5px; }
-    .result-box { margin-top: 10px; padding: 10px; border-radius: 5px; display: none; }
-    .result-success { background: #e8f5e9; border-left: 4px solid #4CAF50; color: #2e7d32; }
-    .result-error { background: #ffebee; border-left: 4px solid #f44336; color: #c62828; }
-    .result-loading { background: #fff3e0; border-left: 4px solid #FF9800; color: #e65100; }
-    .result-info { background: #e3f2fd; border-left: 4px solid #2196F3; color: #1565c0; }
-    .info-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-    .info-table td { padding: 5px 8px; border-bottom: 1px solid #ddd; }
-    .info-table td:first-child { font-weight: bold; width: 40%; color: #555; }
-    .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
-    .btn-group button { flex: 1; min-width: 120px; }
-    #atLog { background: #333; color: #00ff00; font-family: 'Courier New', Courier, monospace; min-height: 150px; max-height: 300px; overflow-y: auto; padding: 10px; border-radius: 5px; margin-bottom: 10px; font-size: 13px; white-space: pre-wrap; word-break: break-all; }
-    .at-input-group { display: flex; gap: 10px; }
-    .at-input-group input { flex: 1; font-family: monospace; }
-    .at-input-group button { width: auto; min-width: 80px; margin-top: 0; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>📱 短信转发器</h1>
-    <div class="nav">
-      <a href="/">⚙️ 系统配置</a>
-      <a href="/tools" class="active">🧰 工具箱</a>
-    </div>
-    <div class="status" id="status">设备IP: <strong>%IP%</strong></div>
-    
-    <form action="/sendsms" method="POST">
-      <div class="section">
-        <div class="section-title">📤 发送短信</div>
-        <div class="form-group">
-          <label>目标号码</label>
-          <input type="text" name="phone" placeholder="13800138000" required>
-        </div>
-        <div class="form-group">
-          <label>短信内容</label>
-          <textarea name="content" placeholder="请输入短信内容..." required oninput="updateCount(this)"></textarea>
-          <div class="char-count">已输入 <span id="charCount">0</span> 字符</div>
-        </div>
-        <button type="submit">📨 发送短信</button>
-      </div>
-    </form>
-    
-    <div class="section">
-      <div class="section-title">📊 模组信息查询</div>
-      <div class="btn-group">
-        <button type="button" class="btn-query" onclick="queryInfo('ati')">📋 固件信息</button>
-        <button type="button" class="btn-query" onclick="queryInfo('signal')">📶 信号质量</button>
-      </div>
-      <div class="btn-group">
-        <button type="button" class="btn-info" onclick="queryInfo('siminfo')">💳 SIM卡信息</button>
-        <button type="button" class="btn-info" onclick="queryInfo('network')">🌍 网络状态</button>
-      </div>
-      <div class="btn-group">
-        <button type="button" class="btn-info" onclick="queryInfo('wifi')" style="background:#00BCD4;">📡 WiFi状态</button>
-      </div>
-      <div class="result-box" id="queryResult"></div>
-    </div>
-    
-    <div class="section">
-      <div class="section-title">🌐 网络测试</div>
-      <button type="button" class="btn-ping" id="pingBtn" onclick="confirmPing()">📡 点我消耗一点流量</button>
-      <div class="hint">将向 8.8.8.8 进行 ping 操作，一次性消耗极少流量费用</div>
-      <div class="result-box" id="pingResult"></div>
-    </div>
-    
-    <div class="section">
-      <div class="section-title">✈️ 模组控制</div>
-      <div class="btn-group">
-        <button type="button" id="flightBtn" onclick="toggleFlightMode()" style="background:#E91E63;">✈️ 切换飞行模式</button>
-        <button type="button" onclick="queryFlightMode()" style="background:#9C27B0;">🔍 查询状态</button>
-      </div>
-      <div class="hint">飞行模式关闭时模组可正常收发短信，开启后将关闭射频无法使用移动网络</div>
-      <div class="result-box" id="flightResult"></div>
-    </div>
+    // ---- Send SMS ----
+    function updateCount(el) { document.getElementById('charCount').textContent = el.value.length; }
 
-    <div class="section">
-      <div class="section-title">💻 AT 指令调试</div>
-      <div id="atLog">等待输入指令...</div>
-      <div class="at-input-group">
-        <input type="text" id="atCmd" placeholder="输入 AT 指令，如: AT+CSQ">
-        <button type="button" onclick="sendAT()" id="atBtn">发送</button>
-      </div>
-      <div class="btn-group" style="margin-top:10px;">
-        <button type="button" class="btn-info" onclick="clearATLog()">🧹 清空日志</button>
-      </div>
-      <div class="hint">直接向模组串口发送指令并接收响应，请谨慎操作</div>
-    </div>
-  </div>
-  <script>
-    function updateCount(el) {
-      document.getElementById('charCount').textContent = el.value.length;
-    }
-    
+    // ---- Query ----
     function queryInfo(type) {
-      var result = document.getElementById('queryResult');
-      result.className = 'result-box result-loading';
-      result.style.display = 'block';
-      result.textContent = '正在查询，请稍候...';
-      
-      fetch('/query?type=' + type)
-        .then(response => response.json())
-        .then(data => {
-          if (data.success) {
-            result.className = 'result-box result-info';
-            result.innerHTML = data.message;
-          } else {
-            result.className = 'result-box result-error';
-            result.innerHTML = '❌ 查询失败<br>' + data.message;
-          }
-        })
-        .catch(error => {
-          result.className = 'result-box result-error';
-          result.textContent = '❌ 请求失败: ' + error;
-        });
+      var r = document.getElementById('queryResult');
+      r.className = 'result-box result-loading'; r.textContent = '查询中...';
+      fetch('/query?type=' + type).then(function(rr){return rr.json()}).then(function(d){
+        if(d.success){r.className='result-box result-info';r.innerHTML=d.message;}
+        else{r.className='result-box result-error';r.innerHTML='查询失败: '+d.message;}
+      }).catch(function(e){r.className='result-box result-error';r.textContent='请求失败: '+e;});
     }
 
-    function confirmPing() {
-      if (confirm("确定要执行 Ping 操作吗？\n\n这将消耗少量流量。")) {
-        doPing();
-      }
+    // ---- Ping ----
+    function confirmPing(){if(confirm('确定要执行 Ping 吗？将消耗少量流量。'))doPing();}
+    function doPing(){
+      var b=document.getElementById('pingBtn'),r=document.getElementById('pingResult');
+      b.disabled=true;b.textContent='Pinging...';
+      r.className='result-box result-loading';r.textContent='正在 Ping 8.8.8.8（最长 30 秒）...';
+      fetch('/ping',{method:'POST'}).then(function(rr){return rr.json()}).then(function(d){
+        b.disabled=false;b.textContent='Ping 8.8.8.8';
+        if(d.success){r.className='result-box result-success';r.innerHTML='Ping 成功 — '+d.message;}
+        else{r.className='result-box result-error';r.innerHTML='Ping 失败 — '+d.message;}
+      }).catch(function(e){b.disabled=false;b.textContent='Ping 8.8.8.8';r.className='result-box result-error';r.textContent='请求失败: '+e;});
     }
 
-    function doPing() {
-      var btn = document.getElementById('pingBtn');
-      var result = document.getElementById('pingResult');
-      
-      btn.disabled = true;
-      btn.textContent = '⏳ 正在 Ping...';
-      result.className = 'result-box result-loading';
-      result.style.display = 'block';
-      result.textContent = '正在执行 Ping 操作，请稍候（最长等待30秒）...';
-      
-      fetch('/ping', { method: 'POST' })
-        .then(response => response.json())
-        .then(data => {
-          btn.disabled = false;
-          btn.textContent = '📡 点我消耗一点流量';
-          if (data.success) {
-            result.className = 'result-box result-success';
-            result.innerHTML = '✅ Ping 成功！<br>' + data.message;
-          } else {
-            result.className = 'result-box result-error';
-            result.innerHTML = '❌ Ping 失败<br>' + data.message;
-          }
-        })
-        .catch(error => {
-          btn.disabled = false;
-          btn.textContent = '📡 点我消耗一点流量';
-          result.className = 'result-box result-error';
-          result.textContent = '❌ 请求失败: ' + error;
-        });
+    // ---- Flight Mode ----
+    function queryFlightMode(){
+      var r=document.getElementById('flightResult');
+      r.className='result-box result-loading';r.textContent='查询中...';
+      fetch('/flight?action=query').then(function(rr){return rr.json()}).then(function(d){
+        if(d.success){r.className='result-box result-info';r.innerHTML=d.message;}
+        else{r.className='result-box result-error';r.innerHTML='查询失败: '+d.message;}
+      }).catch(function(e){r.className='result-box result-error';r.textContent='请求失败: '+e;});
     }
-    
-    function queryFlightMode() {
-      var result = document.getElementById('flightResult');
-      result.className = 'result-box result-loading';
-      result.style.display = 'block';
-      result.textContent = '正在查询飞行模式状态...';
-      
-      fetch('/flight?action=query')
-        .then(response => response.json())
-        .then(data => {
-          if (data.success) {
-            result.className = 'result-box result-info';
-            result.innerHTML = data.message;
-          } else {
-            result.className = 'result-box result-error';
-            result.innerHTML = '❌ 查询失败: ' + data.message;
-          }
-        })
-        .catch(error => {
-          result.className = 'result-box result-error';
-          result.textContent = '❌ 请求失败: ' + error;
-        });
-    }
-    
-    function toggleFlightMode() {
-      if (!confirm('确定要切换飞行模式吗？\n\n开启飞行模式后模组将无法收发短信。')) return;
-      
-      var btn = document.getElementById('flightBtn');
-      var result = document.getElementById('flightResult');
-      btn.disabled = true;
-      result.className = 'result-box result-loading';
-      result.style.display = 'block';
-      result.textContent = '正在切换飞行模式...';
-      
-      fetch('/flight?action=toggle')
-        .then(response => response.json())
-        .then(data => {
-          btn.disabled = false;
-          if (data.success) {
-            result.className = 'result-box result-success';
-            result.innerHTML = '✅ ' + data.message;
-          } else {
-            result.className = 'result-box result-error';
-            result.innerHTML = '❌ 切换失败: ' + data.message;
-          }
-        })
-        .catch(error => {
-          btn.disabled = false;
-          result.className = 'result-box result-error';
-          result.textContent = '❌ 请求失败: ' + error;
-        });
+    function toggleFlightMode(){
+      if(!confirm('确定要切换飞行模式吗？'))return;
+      var b=document.getElementById('flightBtn'),r=document.getElementById('flightResult');
+      b.disabled=true;r.className='result-box result-loading';r.textContent='切换中...';
+      fetch('/flight?action=toggle').then(function(rr){return rr.json()}).then(function(d){
+        b.disabled=false;
+        if(d.success){r.className='result-box result-success';r.innerHTML=d.message;}
+        else{r.className='result-box result-error';r.innerHTML='切换失败: '+d.message;}
+      }).catch(function(e){b.disabled=false;r.className='result-box result-error';r.textContent='请求失败: '+e;});
     }
 
-    function addLog(msg, type = 'resp') {
-      var log = document.getElementById('atLog');
-      var div = document.createElement('div');
-      var b = document.createElement('b');
-      
-      if (type === 'user') {
-        b.style.color = '#fff';
-        b.textContent = '> ';
-      } else if (type === 'error') {
-        b.style.color = '#f44336';
-        b.textContent = '❌ ';
-      } else {
-        b.style.color = '#4CAF50';
-        b.textContent = '[RESP] ';
-      }
-      
-      div.appendChild(b);
-      var textNode = document.createTextNode(msg);
-      div.appendChild(textNode);
-      
-      log.appendChild(div);
-      log.scrollTop = log.scrollHeight;
+    // ---- AT Terminal ----
+    function addLog(msg,type){
+      type=type||'resp';var log=document.getElementById('atLog'),div=document.createElement('div'),b=document.createElement('b');
+      if(type==='user'){b.style.color='#fff';b.textContent='> ';}
+      else if(type==='error'){b.style.color='#f44336';b.textContent='! ';}
+      else{b.style.color='#50e3c2';b.textContent='';}
+      div.appendChild(b);div.appendChild(document.createTextNode(msg));
+      log.appendChild(div);log.scrollTop=log.scrollHeight;
     }
-
-    function sendAT() {
-      var input = document.getElementById('atCmd');
-      var cmd = input.value.trim();
-      if (!cmd) return;
-      
-      var btn = document.getElementById('atBtn');
-      btn.disabled = true;
-      btn.textContent = '...';
-      
-      addLog(cmd, 'user');
-      input.value = '';
-      
-      fetch('/at?cmd=' + encodeURIComponent(cmd))
-        .then(response => response.json())
-        .then(data => {
-          if (data.success) {
-            addLog(data.message);
-          } else {
-            addLog(data.message, 'error');
-          }
-        })
-        .catch(error => {
-          addLog('网络错误: ' + error, 'error');
-        })
-        .finally(() => {
-          btn.disabled = false;
-          btn.textContent = '发送';
-        });
+    function sendAT(){
+      var inp=document.getElementById('atCmd'),cmd=inp.value.trim();if(!cmd)return;
+      var btn=document.getElementById('atBtn');btn.disabled=true;btn.textContent='...';
+      addLog(cmd,'user');inp.value='';
+      fetch('/at?cmd='+encodeURIComponent(cmd)).then(function(rr){return rr.json()}).then(function(d){
+        addLog(d.message,d.success?'resp':'error');
+      }).catch(function(e){addLog('网络错误: '+e,'error')}).finally(function(){btn.disabled=false;btn.textContent='发送';});
     }
-
-    function clearATLog() {
-      document.getElementById('atLog').innerHTML = '';
-    }
-    document.getElementById('atCmd').addEventListener('keydown', function(event) {
-      if (event.key === 'Enter') {
-        sendAT();
-      }
-    });
+    function clearATLog(){var l=document.getElementById('atLog');l.innerHTML='';addLog('日志已清空','resp');}
+    document.getElementById('atCmd').addEventListener('keydown',function(e){if(e.key==='Enter')sendAT();});
   </script>
 </body>
 </html>

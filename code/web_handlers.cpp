@@ -847,38 +847,69 @@ void handlePing() {
 // 处理保存配置请求
 void handleSave() {
   if (!checkAuth()) return;
-  
-  // 获取新的Web账号密码
-  String newWebUser = server.arg("webUser");
-  String newWebPass = server.arg("webPass");
-  
-  // 验证Web账号密码不能为空
-  if (newWebUser.length() == 0) newWebUser = DEFAULT_WEB_USER;
-  if (newWebPass.length() == 0) newWebPass = DEFAULT_WEB_PASS;
-  
-  config.webUser = newWebUser;
-  config.webPass = newWebPass;
-  config.smtpServer = server.arg("smtpServer");
-  config.smtpPort = server.arg("smtpPort").toInt();
-  if (config.smtpPort == 0) config.smtpPort = 465;
-  config.smtpUser = server.arg("smtpUser");
-  config.smtpPass = server.arg("smtpPass");
-  config.smtpSendTo = server.arg("smtpSendTo");
-  config.adminPhone = server.arg("adminPhone");
-  config.numberBlackList = server.arg("numberBlackList");
-  
-  // 保存推送通道配置
+
+  // 账号管理表单：只在字段存在时更新
+  if (server.hasArg("webUser")) {
+    String newWebUser = server.arg("webUser");
+    if (newWebUser.length() == 0) newWebUser = DEFAULT_WEB_USER;
+    config.webUser = newWebUser;
+  }
+  if (server.hasArg("webPass")) {
+    String newWebPass = server.arg("webPass");
+    if (newWebPass.length() == 0) newWebPass = DEFAULT_WEB_PASS;
+    config.webPass = newWebPass;
+  }
+
+  // 邮件通知表单：只在字段存在时更新
+  if (server.hasArg("smtpServer")) {
+    config.smtpServer = server.arg("smtpServer");
+  }
+  if (server.hasArg("smtpPort")) {
+    config.smtpPort = server.arg("smtpPort").toInt();
+    if (config.smtpPort == 0) config.smtpPort = 465;
+  }
+  if (server.hasArg("smtpUser")) {
+    config.smtpUser = server.arg("smtpUser");
+  }
+  if (server.hasArg("smtpPass")) {
+    config.smtpPass = server.arg("smtpPass");
+  }
+  if (server.hasArg("smtpSendTo")) {
+    config.smtpSendTo = server.arg("smtpSendTo");
+  }
+
+  // 管理员 & 黑名单表单：只在字段存在时更新
+  if (server.hasArg("adminPhone")) {
+    config.adminPhone = server.arg("adminPhone");
+  }
+  if (server.hasArg("numberBlackList")) {
+    config.numberBlackList = server.arg("numberBlackList");
+  }
+
+  // 推送通道配置：只在对应通道的字段存在时更新
   for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
     String idx = String(i);
-    config.pushChannels[i].enabled = server.arg("push" + idx + "en") == "on";
-    config.pushChannels[i].type = (PushType)server.arg("push" + idx + "type").toInt();
-    config.pushChannels[i].url = server.arg("push" + idx + "url");
-    config.pushChannels[i].name = server.arg("push" + idx + "name");
-    config.pushChannels[i].key1 = server.arg("push" + idx + "key1");
-    config.pushChannels[i].key2 = server.arg("push" + idx + "key2");
-    config.pushChannels[i].customBody = server.arg("push" + idx + "body");
-    if (config.pushChannels[i].name.length() == 0) {
-      config.pushChannels[i].name = "通道" + String(i + 1);
+    String enKey = "push" + idx + "en";
+    String typeKey = "push" + idx + "type";
+    String urlKey = "push" + idx + "url";
+    String nameKey = "push" + idx + "name";
+    String k1Key = "push" + idx + "key1";
+    String k2Key = "push" + idx + "key2";
+    String bodyKey = "push" + idx + "body";
+    // 只要该通道的任一字段存在，就更新整个通道
+    if (server.hasArg(enKey) || server.hasArg(typeKey) || server.hasArg(urlKey) ||
+        server.hasArg(nameKey) || server.hasArg(k1Key) || server.hasArg(k2Key) ||
+        server.hasArg(bodyKey)) {
+      config.pushChannels[i].enabled = server.arg(enKey) == "on";
+      config.pushChannels[i].type = (PushType)server.arg(typeKey).toInt();
+      config.pushChannels[i].url = server.arg(urlKey);
+      config.pushChannels[i].name = server.arg(nameKey);
+      config.pushChannels[i].key1 = server.arg(k1Key);
+      config.pushChannels[i].key2 = server.arg(k2Key);
+      config.pushChannels[i].customBody = server.arg(bodyKey);
+      if (config.pushChannels[i].name.length() == 0) {
+        config.pushChannels[i].name = "通道" + String(i + 1);
+      }
     }
   }
   

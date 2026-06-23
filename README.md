@@ -1,8 +1,8 @@
 # 低成本短信转发器
 
-> 当前分支为新方案，老方案请前往[luatos分支](https://github.com/chenxuuu/sms_forwarding/tree/old-luatos)。  
-本项目仅用于接收短信与进行保号相关功能。  
-多卡控制、通话、拨号、开放接口、自动化等功能永远不会支持，请勿提出相关需求。
+> 当前分支为新方案，2022年的老方案请前往[luatos分支](https://github.com/chenxuuu/sms_forwarding/tree/old-luatos)。  
+本项目**仅用于接收短信**与进行保号相关功能。  
+多卡控制、通话、拨号、开放接口、自动化等功能，永远不会考虑支持，请勿提出相关需求。
 
 [后台页面演示](https://sms.j2.cx/)
 
@@ -55,16 +55,19 @@
 
 ## 硬件搭配
 
-如果希望自行焊接硬件，参考下面的硬件搭配，总成本约¥27.8，仅支持移动/联通卡。
+若没有焊接能力，希望直接使用成品，可选直接购以下套件（我看过了，和自己做的成本一样）
+支持**移动/联通/电信卡**：
 
-- ESP32C3开发板，当前选用[ESP32C3 Super Mini](https://item.taobao.com/item.htm?id=852057780489&skuId=5813710390565)，¥9.5包邮
-- ML307R-DC开发板，当前选用[小蓝鲸ML307R-DC核心板](https://item.taobao.com/item.htm?id=797466121802&skuId=5722077108045)，¥16.3包邮
+- [小蓝鲸WIFI短信宝](https://item.taobao.com/item.htm?id=1003711355912)（找客服问）
+- [4G FPC天线](https://item.taobao.com/item.htm?id=1003711355912&skuId=6162872574943)，与开发板同购
+
+如果希望自行焊接硬件，参考下面的硬件搭配，总成本约¥27.8（会有浮动，可按实际自行组合搭配）
+仅支持**移动/联通卡**：
+
+- ESP32C3开发板，实测选用[ESP32C3 Super Mini](https://item.taobao.com/item.htm?id=852057780489&skuId=5813710390565)，¥9.5包邮
+- ML307R-DC开发板，实测选用[小蓝鲸ML307R-DC核心板](https://item.taobao.com/item.htm?id=797466121802&skuId=5722077108045)，¥16.3包邮
 - [4G FPC天线](https://item.taobao.com/item.htm?id=797466121802&skuId=5722077108045)，¥2，与核心板同购
 
-若希望直接使用成品，可选直接购以下套件，支持移动/联通/电信卡：
-
-- [小蓝鲸WIFI短信宝](https://item.taobao.com/item.htm?id=1003711355912)
-- [4G FPC天线](https://item.taobao.com/item.htm?id=1003711355912&skuId=6162872574943)，与开发板同购
 
 ## 硬件连接
 
@@ -93,8 +96,8 @@ ESP32C3 与 ML307R-DC 通过串口（UART）连接，接线如下：
                            │  (连接4G天线)   │
                            └─────────────────┘
 ```
-改变接线方式，核心板不再和en短接而是和esp32c3的GPIO5连接，使模块能够被控制上下电(代码也同步改动)。
-可通过USB连接ESP32C3进行编程和供电，正常工作时，ESP32C3的虚拟串口数据将直接被转发到ML307R-DC，方便调试。
+
+可通过USB连接ESP32C3进行编程和供电，正常工作时，可通过网页与模组进行AT通信，方便调试。
 
 ## 软件组成
 

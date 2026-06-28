@@ -56,20 +56,32 @@
    ├── server.on("/log", handleLog)                          # 系统日志 JSON
    └── server.begin()
 
-9. 启动通知
-   └── if(configValid) sendEmailNotification("短信转发器已启动", ...)
+9. 并发原语与后台任务
+   ├── initConcurrency()        // 最早执行：创建 gLogMux / gWorkMux
+   └── startPushWorker()        // ssl_client.setInsecure() 之后启动推送/邮件 worker 任务
+   注：启动不再发送通知邮件（避免断电/重启后产生多余通知）
 ```
 
-### loop() 执行顺序（每帧执行）
+### loop() 执行顺序（loop 任务，每帧执行）
 
 ```cpp
-server.handleClient();        // 1. 处理HTTP请求
-if(!configValid) { ... }      // 2. 配置无效时每秒打印IP
-checkConcatTimeout();          // 3. 长短信超时合并转发
-if(Serial.available())        // 4. USB->模组透传(单字节)
-    Serial1.write(Serial.read());
-checkSerial1URC();             // 5. 检查模组URC(短信上报)
+gInWebRequest=true; server.handleClient(); gInWebRequest=false;  // HTTP 请求处理
+if(apMode) dnsServer.processNextRequest();      // 配网模式强制门户 DNS
+if(!configValid) { ...每60s打印IP... }
+checkConcatTimeout();                            // 长短信超时合并转发
+if(Serial.available()) Serial1.write(Serial.read());  // USB->模组透传
+checkSerial1URC();                               // 检查模组 URC(短信上报)
+processPingJob();                                // /ping 诊断 UDP 后台执行
+processForwardQueue();                           // 取一条短信→规则判定→入 worker 队列(无网络)
+processOutgoingSmsQueue();                        // 网页待发短信异步出队(AT+CMGS)
+wifiEnsureConnected(); modemHealthTick(); signalSampleTick();
+smsReceiveWatchdogTick(); heapGuardTick(); keepAliveTick(); dailyTasksTick();
+yield();
 ```
+
+> **推送/邮件不在 loop 上**：`processRetryQueue()` / `processEmailQueue()` / `processTestPushQueue()`
+> 由独立的 `pushWorkerTask`（`push.cpp`）在后台任务里执行，慢速 TLS/SMTP 不阻塞 loop。
+> 详见架构文档「线程/任务模型」与并发加锁约定。
 
 ### 修改指南
 
@@ -239,16 +251,26 @@ ESP32                         模组
 
 ## push.h / push.cpp — 推送服务
 
-### 推送通道执行流程
+### 异步架构（接收/转发解耦 + 后台 worker）
+
+慢速网络发送全部异步化，分三层队列，三类慢任务由 **后台 `pushWorkerTask`** 执行（不在 loop）：
+
+1. **转发队列** `fwdQueue`（loop 单线程）：URC 收到短信只 `enqueueForward()`；`processForwardQueue()`(loop) 取出做 `forwardNow()`——规则判定后**仅入队**，无网络。
+2. **推送重试队列** `retryQueue`：`sendSMSToServer()` 把每个命中通道 `enqueueInitialPush()`；worker `processRetryQueue()` 逐条发，失败按 `backoffSeconds()` 指数退避，`PUSH_RETRY_MAX` 次封顶。
+3. **邮件队列** `emailQueue`：`enqueueEmailJob()` 入队；worker `processEmailQueue()` 逐封发 SMTP。
+
+并发保护：队列槽位与 worker 对 `config.pushChannels[]`/`config.smtp*` 的快照读用 **`gWorkMux`**；日志用 **`gLogMux`**；**绝不持锁发网络**。`sendToChannel()`/`sendEmailNotification()` 都使用锁内拷出的快照，不在发送期间读全局 `config`。详见架构文档「并发与加锁」。
+
+> 保号动作（含 **HTTP GET baidu 消耗流量**）在 `scheduler.cpp` + `modem.cpp::consumeCellularViaHttpGet()`，走模组 AT，留在 loop 任务（不在本 worker）。
+
+### 推送通道执行流程（worker 内逐通道）
 
 ```
-sendSMSToServer(sender, message, timestamp)
-  │
-  ├─ 检查 WiFi 连接
-  ├─ 检查是否有启用的有效通道
-  │
-  └─ for each valid channel:
-       └─ sendToChannel(channel, sender, message, timestamp)
+sendSMSToServer(sender, message, timestamp, chMask)   // [loop] 仅入队
+  └─ for each valid & 命中通道: enqueueInitialPush()  → retryQueue
+
+processRetryQueue()                                   // [worker] 每次一条
+  └─ 锁内快照 PushChannel → 解锁 → sendToChannel(快照, sender, message, timestamp)
             │
             ├─ jsonEscape() 转义 sender/message/timestamp
             │

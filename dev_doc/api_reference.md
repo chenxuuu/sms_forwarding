@@ -352,7 +352,7 @@ HTTP Basic Authentication，账号密码来自 `config.webUser` / `config.webPas
 ---
 
 ### `void handleSave()`
-解析 POST 表单 → 写入 `config` → `saveConfig()` → 重新校验 → 发送通知邮件 → 返回成功页面（3 秒跳转）。
+解析 POST 表单 → 写入 `config`（写入区在 `gWorkMux` 内，与 worker 的快照读互斥）→ `saveConfig()` → 重新校验 → **快速返回**成功页面（3 秒跳转）。**不发送通知邮件**（避免 SMTP 阻塞前端；连通性请用各通道“测试推送”验证）。
 
 ---
 
@@ -387,16 +387,36 @@ HTTP Basic Authentication，账号密码来自 `config.webUser` / `config.webPas
 ---
 
 ### `void handleSendSms()`
-解析 POST 表单 phone/content → 调用 `sendSMS()` → 返回 HTML 结果页（3 秒跳转）。
+解析 POST 表单 phone/content → `enqueueOutgoingSms()` 入队（HTTP 立即返回）→ 真正的 `AT+CMGS` 由 loop 的 `processOutgoingSmsQueue()` 异步执行，避免浏览器长等。
 
 ---
 
-### `void handlePing()`
-**流程**:
+### `void handlePing()` / `processPingJob()`
+网页“蜂窝 UDP 流量”诊断（与保号不同）。`handlePing()` 只启动/查询后台任务并立即返回；真正流量在 loop 的 `processPingJob()` 执行：
 1. `AT+CGACT=1,1` 激活数据连接
-2. `AT+MPING="8.8.8.8",30,1` ping 一次（30 秒超时）
-3. 解析 `+MPING:` URC 响应，提取 IP/延迟/TTL
-4. `AT+CGACT=0,1` 关闭数据连接
-5. 返回 JSON `{success, message}`
+2. `consumeCellularDataBytes()`：`AT+MIPOPEN` UDP socket → `AT+MIPSEND` 发送约 45KB 上行 → `AT+MIPCLOSE`
+3. `AT+CGACT=0,1` 关闭数据连接
 
-**注意**: 整个操作最长约 35 秒。
+`?action=status` 轮询进度。注意：**保号**动作（默认 HTTP GET baidu）在 `/keepalive`，不是这里。
+
+---
+
+### 其它路由（补充）
+
+下列路由同样注册于 `setup()`（均经 `checkAuth()`）：
+
+| 路由 | 处理函数 | 说明 |
+|---|---|---|
+| `GET /status` | `handleStatus()` | 健康状态 JSON（版本/信号/堆水位/各队列深度/统计/复位原因/时间） |
+| `GET /messages` | `handleMessages()` | 收件箱/已发送 JSON（`?box=sent`），流式分块输出 |
+| `POST /resend` `POST /delete` | `handleResend()` / `handleDeleteMsg()` | 重发/删除收件箱某条（`?id=`） |
+| `GET /keepalive` | `handleKeepAlive()` | 保号：`?action=status\|run\|reset`；`run` 入队由 loop 执行（默认动作 = HTTP GET baidu 消耗流量） |
+| `GET /testpush` | `handleTestPush()` | 通道测试：`?ch=` 入队，`?action=status` 轮询；真实发送在 worker |
+| `GET /ussd` | `handleUssd()` | USSD 查询（`AT+CUSD`，同步最长 ~20s） |
+| `GET /modem` `GET /wifi` `GET /wifiscan` `POST /wificonfig` | — | 模组信息 / WiFi 状态 / 扫描 / 保存并重启接入 |
+| `POST /reboot` `POST /factory` | `handleReboot()` / `handleFactory()` | 重启 / 恢复出厂（清 NVS） |
+| `GET /export` `POST /import` | `handleExport()` / `handleImport()` | 配置导出 / 导入（含凭据，注意保管） |
+| `GET /logdownload` | `handleLogDownload()` | 纯文本下载全部日志 |
+| `POST /update` | `handleOtaUpload()` / `handleOtaFinish()` | 网页 OTA 固件升级 |
+
+并发说明：`/testpush` 真正的推送发送在后台 `pushWorkerTask`；`/keepalive run`、`/sendsms`、`/ping` 的模组/网络动作仍在 loop 任务（经队列异步）。日志相关读取（`/log`、`/logdownload`）与写入用 `gLogMux` 保护。

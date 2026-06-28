@@ -1,1 +1,8 @@
 code/wifi_config.h
+
+# 主机测试构建产物
+test/run_tests
+test/run_tests.exe
+
+# 网页预览产物(由 preview/build_preview.py 生成)
+preview/index.html

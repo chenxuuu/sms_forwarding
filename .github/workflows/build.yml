@@ -32,4 +32,4 @@ jobs:
     
     - name: Compile firmware
       run: |
-        arduino-cli compile --fqbn esp32:esp32:esp32c3 ./code
+        arduino-cli compile --fqbn esp32:esp32:esp32c3:PartitionScheme=min_spiffs,CDCOnBoot=cdc ./code

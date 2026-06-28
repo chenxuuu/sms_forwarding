@@ -73,8 +73,11 @@ $env:Path = "C:\Program Files\Arduino IDE\resources\app\lib\backend\resources;$e
 $env:ARDUINO_DIRECTORIES_DATA = "D:\dev\arduino_pack"
 $env:ARDUINO_DIRECTORIES_USER = "D:\dev\arduino_pack\user"
 
-# 编译
-arduino-cli compile --fqbn esp32:esp32:makergo_c3_supermini --build-path "D:\dev\arduino_pack\build" "D:\dev\sms_forwarding\code"
+# 编译（必须带 min_spiffs 分区，否则固件 ~1.48MB 超过默认 1.31MB APP 上限，编译失败）
+arduino-cli compile --fqbn esp32:esp32:makergo_c3_supermini \
+  --build-property build.partitions=min_spiffs --build-property upload.maximum_size=1966080 \
+  --build-path "D:\dev\arduino_pack\build" "D:\dev\sms_forwarding\code"
+# 或用 Dev Module 板型直接选分区: --fqbn esp32:esp32:esp32c3:PartitionScheme=min_spiffs,CDCOnBoot=cdc
 
 # 烧录
 arduino-cli upload --fqbn esp32:esp32:makergo_c3_supermini --port COM4 --input-dir "D:\dev\arduino_pack\build" "D:\dev\sms_forwarding\code"
@@ -92,23 +95,35 @@ arduino-cli monitor --port COM4 --config 115200
 5. 模组初始化：AT 握手 → 禁用数据连接 → 配置短信 URC 上报 → 设置 PDU 模式 → 等待网络注册
 6. 连接 WiFi，同步 NTP 时间
 7. 启动 HTTP 服务器（端口 80），注册所有路由
-8. 若配置有效，发送启动通知邮件
+8. `initConcurrency()` 建互斥量 + `startPushWorker()` 启动推送/邮件后台任务（启动不再发通知邮件）
 
-## 主循环
+## 主循环与后台任务
+
+固件为**双任务**：loop 任务 + 推送/邮件 worker 任务。
 
 ```
-loop()
-  ├── server.handleClient()     // HTTP 请求处理
-  ├── 配置无效时每秒打印 IP
-  ├── checkConcatTimeout()      // 长短信超时检查
-  ├── Serial → Serial1 透传    // USB → 模组 AT 透传
-  └── checkSerial1URC()        // 模组 URC 解析（短信上报）
+loop() 任务
+  ├── server.handleClient()      // HTTP 请求处理
+  ├── checkConcatTimeout()       // 长短信超时检查
+  ├── Serial → Serial1 透传      // USB → 模组 AT 透传
+  ├── checkSerial1URC()          // 模组 URC 解析（短信上报）
+  ├── processForwardQueue()      // 取一条短信→规则判定→入 worker 队列（无网络）
+  ├── processOutgoingSmsQueue()  // 网页待发短信异步出队（AT+CMGS）
+  └── wifiEnsureConnected / modemHealthTick / signalSampleTick /
+      smsReceiveWatchdogTick / heapGuardTick / keepAliveTick / dailyTasksTick
+
+pushWorkerTask() 任务（后台，慢速 TLS/SMTP，不阻塞 loop）
+  ├── processRetryQueue()        // HTTP 推送（失败指数退避重试）
+  ├── processEmailQueue()        // SMTP 邮件
+  └── processTestPushQueue()     // 通道测试推送
 ```
 
 ## 关键设计决策
 
+- **双任务并发**：网页/模组/收发短信/保号在 loop 任务；推送(HTTP)与邮件(SMTP)在独立 `pushWorkerTask`，慢速 TLS 不阻塞收信与网页。共享状态用 `gWorkMux`/`gLogMux` 保护，绝不持锁发网络（详见 `architecture.md`）
+- **保号 = HTTP GET baidu**：`kaAction==1` 经模组 TCP（MIPOPEN/MIPSEND）对 baidu 发 HTTP GET 产生真实蜂窝下行流量（动账），优于旧的 UDP 打流量；`/ping` 诊断仍用 UDP
 - **PDU 模式** 而非 Text 模式：中文短信必须使用 PDU 编码
-- **CGACT 默认关闭**：启动时主动禁用 4G 数据连接，避免意外流量消耗（Ping 功能会临时激活）
+- **CGACT 默认关闭**：启动时主动禁用 4G 数据连接，避免意外流量消耗（保号/诊断会临时激活）
 - **NVS 持久化**：所有配置存储在 ESP32 非易失存储中，断电不丢失
 - **单页应用 (SPA)**：Web UI 采用侧边栏 + 面板切换，所有功能在一个 HTML 页面中，通过 JS 切换可见面板
 - **日志行缓冲**：`logCapture()` 将输出追加到行缓冲区，仅 `logCaptureLn()` 提交整行到环形缓冲区，避免非换行输出被误拆成多行

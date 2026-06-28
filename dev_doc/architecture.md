@@ -61,13 +61,22 @@ findOrCreateConcatSlot()    │
          └──────┬───────────┘
                 ▼
          processSmsContent()
+           ├── 去重(fnv1a)? → 忽略重复
            ├── isInNumberBlackList()? → 忽略
            ├── isAdmin()? → processAdminCommand()
            │                  ├── "SMS:号码:内容" → sendSMS()
            │                  └── "RESET" → resetModule() + ESP.restart()
-           ├── sendSMSToServer()     [push.cpp]
-           │     └── sendToChannel() × N
-           └── sendEmailNotification()  [push.cpp]
+           ├── inboxAdd()  本地留存
+           └── enqueueForward()   [push.cpp]  接收/转发解耦，仅入队
+                    │
+                    ▼  [loop] processForwardQueue() → forwardNow()
+                    │     evalForwardRules() 决定通道掩码/是否邮件/是否丢弃
+                    ├── sendSMSToServer()  逐通道 enqueueInitialPush() 入重试队列
+                    └── enqueueEmailJob()  入邮件队列
+                             │
+                             ▼  [后台 worker 任务] 慢速 TLS/SMTP 发送，不阻塞 loop
+                       processRetryQueue() → sendToChannel() × N   (失败指数退避重试)
+                       processEmailQueue() → sendEmailNotification()
 ```
 
 ### HTTP 请求流程
@@ -89,9 +98,9 @@ checkAuth()               [web_handlers.cpp]
     GET  /         → handleRoot()        SPA 主页 (HTML 模板变量替换，含 10 个面板)
     GET  /tools    → handleRoot()        兼容旧链接，返回同一 SPA 页面
     GET  /sms      → handleRoot()        兼容旧链接，返回同一 SPA 页面
-    POST /save     → handleSave()        保存配置 → saveConfig() → 发邮件
-    POST /sendsms  → handleSendSms()     网页发送短信 → sendSMS()
-    POST /ping     → handlePing()        AT+CGACT=1 → MPING → AT+CGACT=0
+    POST /save     → handleSave()        保存配置 → saveConfig()（快速返回，不发通知邮件）
+    POST /sendsms  → handleSendSms()     网页发送短信 → 入队 → loop 异步 sendSMS()
+    POST /ping     → handlePing()        诊断: AT+CGACT=1 → MIPOPEN/MIPSEND UDP 流量 → CGACT=0
     GET  /query    → handleQuery()       查询 ATI/CESQ/ICCID/CEREG 等
     GET  /flight   → handleFlightMode()  AT+CFUN 查询/切换飞行模式
     GET  /at       → handleATCommand()   透传 AT 指令到模组
@@ -139,20 +148,36 @@ saveConfig()              [config.cpp]
 configValid = isConfigValid()  重新校验
     │
     ▼
-sendEmailNotification()   发送 "配置已更新" 邮件
+快速返回响应（不发送通知邮件，避免 SMTP 阻塞前端；连通性请用各通道“测试推送”验证）
+    注：handleSave/handleImport 的 config 写入区在 gWorkMux 内，与 worker 的快照读互斥
 ```
 
 ## 线程/任务模型
 
-单线程事件循环（标准 Arduino 模型），所有操作在主 loop 中串行执行：
+**双任务**：Arduino **loop 任务** + 一个**推送/邮件后台 worker 任务**（`pushWorkerTask`，`push.cpp`，由 `setup()` 中 `startPushWorker()` 启动）。
 
-| 操作 | 频率 | 超时保护 |
+绝大多数工作仍在 loop 上串行执行（网页服务、模组 AT/Serial1、短信收发与转发判定、保号、定时任务）；**只有慢速的 WiFi/TLS 发送**——`processRetryQueue()`（HTTP 推送）、`processEmailQueue()`（SMTP）、`processTestPushQueue()`——被移到 worker。这样一次阻塞数秒的 TLS/SMTP **既不卡收短信、也不卡网页刷新**。worker 只碰 WiFi（全局 `smtp`/`ssl_client` 为其独占），**绝不触碰** Serial1/模组、`inbox`、`concatBuffer`、`pdu`、`smsTotalCount`。单 worker 串行 ⇒ 任意时刻仅一个 TLS 会话（堆峰值与改造前持平，仍由 `TLS_MIN_FREE_HEAP` 预检兜底）。
+
+loop 任务每帧（节选）：
+
+| 操作 | 频率 | 说明 |
 |---|---|---|
-| HTTP 请求处理 | 每帧 | 无（非阻塞） |
-| 长短信超时检查 | 每帧 | 30s 超时自动转发不完整消息 |
-| Serial→Serial1 透传 | 每帧 | 无（单字节读） |
-| Serial1 URC 检查 | 每帧 | 逐行读取，无行则立即返回 |
-| 配置无效告警 | 每秒 | 仅 configValid=false 时 |
+| `server.handleClient()` | 每帧 | HTTP 请求处理（非阻塞） |
+| `checkConcatTimeout()` | 每帧 | 长短信 30s 超时强制转发 |
+| Serial→Serial1 透传 | 每帧 | USB↔模组 AT 透传（单字节） |
+| `checkSerial1URC()` | 每帧 | 逐行读 `+CMT`，无行立即返回 |
+| `processForwardQueue()` | 每帧 | 取一条短信做规则判定 + 入 worker 队列（无网络，开销极小） |
+| `processOutgoingSmsQueue()` | 每帧 | 网页待发短信异步出队（AT+CMGS，loop 上） |
+| `wifiEnsureConnected` / `modemHealthTick` / `signalSampleTick` / `smsReceiveWatchdogTick` / `heapGuardTick` / `keepAliveTick` / `dailyTasksTick` | millis 门控 | 各自周期任务 |
+
+### 并发与加锁（最小面）
+
+worker 与 loop 之间仅有少量共享可变状态，用两把 FreeRTOS 互斥量保护（`globals.h`）：
+
+- **`gWorkMux`**：推送/邮件/测试三类任务队列 + worker 对 `config.pushChannels[]`/`config.smtp*` 的**快照读**（写方为 `handleSave`/`handleImport`）。
+- **`gLogMux`**：日志环形缓冲（`logCapture*` ↔ `handleLog`/`handleLogDownload`）。
+
+**铁律**：绝不在持锁期间发起网络/AT 调用（只在“取槽/快照/释放”时短暂持锁，解锁后再发送）；持锁顺序只允许 `gWorkMux→gLogMux`（`logCapture` 是叶子锁，从不取 `gWorkMux`）。`muxLock`/`muxUnlock` 对 `initConcurrency()` 之前的早期调用 NULL 安全。`gSlowWorkBusy`（volatile）标记邮件“已出队、SMTP 在途”窗口，供 `heapGuardTick`/定时重启避让。网页 handler 跑在 loop 任务的 `server.handleClient()` 内，故 loop-vs-loop 访问（如 `forwardNow` 读 config 与 `handleSave` 写 config）**不构成竞态**，只有 worker-vs-loop 才需加锁。
 
 ## 内存管理
 
@@ -179,7 +204,7 @@ sendEmailNotification()   发送 "配置已更新" 邮件
 - **模组 AT 无响应**：重试（最多 10 次），LED 闪烁指示
 - **WiFi 连接失败**：阻塞等待，LED 闪烁
 - **NTP 同步失败**：记录日志，后续推送使用设备时间
-- **HTTP 推送失败**：记录错误码和响应内容，不重试（避免卡顿）
+- **HTTP 推送失败 / 断网**：进入有界重试队列（`PUSH_QUEUE_MAX`），指数退避重试（`PUSH_RETRY_MAX` 次封顶），由后台 worker 处理，不阻塞 loop
 - **PDU 解析失败**：记录日志，丢弃该条短信
 - **长短信超时**：强制转发已收到的分段（标记缺失段）
 - **配置无效**：每秒打印设备 IP 提示用户配置

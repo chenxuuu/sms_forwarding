@@ -147,6 +147,19 @@ const char* htmlPage = R"rawliteral(
     .btn-block { width: 100%; justify-content: center; }
     .btn-save { padding: 9px 18px; font-size: 13px; margin-top: 4px; margin-bottom: 14px; }   /* 与卡片 14px 间距统一 */
 
+    /* 定时任务 */
+    .panel form.schedule-form { max-width: 1040px; }
+    .schedule-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr); gap: 14px; align-items: start; }
+    .schedule-stack { display: flex; flex-direction: column; gap: 14px; }
+    .schedule-grid .card { margin-bottom: 0; }
+    .schedule-switch { display: flex; align-items: center; gap: 8px; padding: 9px 10px; background: var(--inset); border: 1px solid var(--hairline); border-radius: var(--radius-sm); color: var(--ink); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+    .schedule-switch input { width: 14px; height: 14px; accent-color: var(--amber); }
+    .schedule-status { margin: 12px 0 13px; padding: 9px 10px; background: var(--canvas-soft); border: 1px solid var(--hairline); border-left: 2px solid var(--amber); color: var(--body); font-family: var(--mono); font-size: 11.5px; line-height: 1.5; }
+    .schedule-grid .form-row { gap: 12px; }
+    .schedule-grid .form-row .form-group { min-width: 0; }
+    .schedule-actions .btn-row .btn { min-width: 138px; }
+    .schedule-tag { margin-left: auto; padding: 2px 6px; border: 1px solid var(--hairline); background: var(--inset); color: var(--faint); border-radius: var(--radius-sm); font: 600 9.5px/1.4 var(--mono); letter-spacing: 0; text-transform: none; }
+
     /* Push Channel */
     .push-channel { border: 1px solid var(--hairline); border-radius: var(--radius-sm); padding: 13px; margin-bottom: 10px; background: var(--canvas-soft); transition: border-color 0.15s; }
     .push-channel:hover { border-color: var(--hairline-strong); }
@@ -265,6 +278,9 @@ const char* htmlPage = R"rawliteral(
       .main { margin-left: 50px; padding: 18px 14px; }
       :root { --sidebar-w: 50px; }
       .card-grid { column-count: 1; }
+      .schedule-grid { grid-template-columns: 1fr; }
+      .schedule-grid .form-row { flex-direction: column; gap: 10px; }
+      .schedule-actions .btn-row .btn { min-width: 0; }
     }
     /* 保存提示 toast（AJAX 原地保存，不跳页） */
     .save-toast{position:fixed;right:20px;top:20px;z-index:9999;padding:11px 18px;border-radius:8px;font-size:13px;font-weight:600;color:#fff;box-shadow:0 4px 16px rgba(0,0,0,.25);opacity:0;transform:translateY(-8px);transition:opacity .25s,transform .25s;pointer-events:none;}
@@ -282,13 +298,13 @@ const char* htmlPage = R"rawliteral(
     <nav class="sidebar-nav">
       <div class="sidebar-section-label">概览</div>
       <a data-panel="overview" class="active"><span class="ico"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg></span> <span>系统概览</span></a>
-      <a data-panel="sim"><span class="ico"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V8l5-5h9a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2z"/><rect x="8" y="13" width="8" height="5" rx="1"/></svg></span> <span>网络</span></a>
+      <a data-panel="sim"><span class="ico"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V8l5-5h9a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2z"/><rect x="8" y="13" width="8" height="5" rx="1"/></svg></span> <span>网络设置</span></a>
       <div class="sidebar-divider"></div>
       <div class="sidebar-section-label">短信</div>
       <a data-panel="inbox"><span class="ico"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span> <span>收发短信</span></a>
       <div class="sidebar-divider"></div>
       <div class="sidebar-section-label">转发设置</div>
-      <a data-panel="push"><span class="ico"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg></span> <span>转发</span></a>
+      <a data-panel="push"><span class="ico"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg></span> <span>转发设置</span></a>
       <div class="sidebar-divider"></div>
       <div class="sidebar-section-label">诊断</div>
       <a data-panel="diagnose"><span class="ico"><svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span> <span>诊断与控制</span></a>
@@ -353,7 +369,7 @@ const char* htmlPage = R"rawliteral(
               <tr><td>时间同步</td><td id="tTime">--</td></tr>
               <tr><td>邮件通知</td><td id="cfgEmail">%SMTP_CHECK%</td></tr>
               <tr><td>推送通道</td><td id="cfgPush">%PUSH_COUNT% 个已启用</td></tr>
-              <tr><td>管理员号码</td><td>%ADMIN_PHONE%</td></tr>
+              <tr><td>管理员号码</td><td id="cfgAdmin">%ADMIN_PHONE%</td></tr>
             </table>
           </div>
         </div>
@@ -408,10 +424,10 @@ const char* htmlPage = R"rawliteral(
 
     </div>
 
-    <!-- ===== SIM / 网络 ===== -->
+    <!-- ===== SIM / 网络设置 ===== -->
     <div class="panel" id="panel-sim">
-      <h1 class="page-title">网络</h1>
-      <p class="page-subtitle">WiFi 接入与蜂窝/SIM 设置。本机经 WiFi 转发，默认不开启蜂窝流量</p>
+      <h1 class="page-title">网络设置</h1>
+      <p class="page-subtitle">WiFi 接入、蜂窝数据与 SIM 注册设置。本机经 WiFi 转发，默认不开启蜂窝流量</p>
       <div class="card-grid">
         <form action="/save" method="POST" id="simFormEl">
         <input type="hidden" name="simForm" value="1">
@@ -435,7 +451,7 @@ const char* htmlPage = R"rawliteral(
               <p class="form-hint">从列表选运营商或手动填 PLMN(MCC+MNC，国外同理)。仅能选 SIM 可接入的网络，锁定不可达会失网；不确定留空自动。</p></div>
           </div>
         </div>
-        <button type="submit" class="btn btn-primary btn-block btn-save">保存 SIM 设置</button>
+        <button type="submit" class="btn btn-primary btn-block btn-save">保存蜂窝设置</button>
         </form>
         <div class="card">
           <div class="card-header">WiFi 网络<button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="wifiScan()">扫描</button></div>
@@ -530,9 +546,9 @@ const char* htmlPage = R"rawliteral(
       </div>
     </div>
 
-    <!-- ===== 转发（通道 + 规则 + 过滤） ===== -->
+    <!-- ===== 转发设置（通道 + 规则 + 过滤） ===== -->
     <div class="panel" id="panel-push">
-      <h1 class="page-title">转发</h1>
+      <h1 class="page-title">转发设置</h1>
       <p class="page-subtitle">邮件通知与最多 5 个推送通道（POST JSON、Bark、钉钉、飞书、PushPlus、Server酱、Gotify、Telegram）</p>
       <div class="card-grid">
       <div>
@@ -608,42 +624,51 @@ const char* htmlPage = R"rawliteral(
     <div class="panel" id="panel-keepalive">
       <h1 class="page-title">定时任务</h1>
       <p class="page-subtitle">SIM 保号、定时重启与每日心跳</p>
-      <form action="/save" method="POST">
+      <form action="/save" method="POST" class="schedule-form">
       <input type="hidden" name="kaForm" value="1">
       <input type="hidden" name="schedForm" value="1">
-      <div class="card-grid">
+      <div class="schedule-grid">
         <div class="card">
-          <div class="card-header">保号设置</div>
+          <div class="card-header">保号设置<span class="schedule-tag">48KiB UDP</span></div>
           <div class="card-body">
-            <div class="form-group"><label class="form-label"><input type="checkbox" id="kaEnabled" name="kaEnabled"> 启用保号定时</label></div>
-            <div class="form-group"><label class="form-label">触发周期（天）</label><input class="form-input" type="number" id="kaIntervalDays" name="kaIntervalDays" value="175"><p class="form-hint">建议小于运营商要求天数（如 giffgaff 180 天则设 175）</p></div>
-            <div class="form-group"><label class="form-label">动作</label>
-              <select class="form-select" id="kaAction" name="kaAction">
-                <option value="1">蜂窝 UDP 流量（约48KB）</option>
-                <option value="2">发送短信</option>
-                <option value="3">USSD 查询</option>
-              </select>
+            <label class="schedule-switch"><input type="checkbox" id="kaEnabled" name="kaEnabled"> 启用保号定时</label>
+            <div class="schedule-status" id="kaCountdown">距下次保号: --</div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">触发周期（天）</label>
+                <input class="form-input" type="number" id="kaIntervalDays" name="kaIntervalDays" value="175">
+                <p class="form-hint">建议小于运营商要求天数（如 giffgaff 180 天则设 175）</p>
+              </div>
+              <div class="form-group">
+                <label class="form-label">动作</label>
+                <select class="form-select" id="kaAction" name="kaAction">
+                  <option value="1">蜂窝 UDP 流量（约48KB）</option>
+                  <option value="2">发送短信</option>
+                  <option value="3">USSD 查询</option>
+                </select>
+              </div>
             </div>
             <div class="form-group"><label class="form-label">目标（短信号码 / USSD 码；流量保号时留空）</label><input class="form-input" type="text" id="kaTarget" name="kaTarget" placeholder="如 10086 或 *122#"></div>
-            <p class="form-hint" id="kaCountdown">距下次保号: --</p>
           </div>
         </div>
-        <div class="card">
-          <div class="card-header">定时重启 / 每日心跳</div>
-          <div class="card-body">
-            <div class="form-group"><label class="form-label"><input type="checkbox" name="rebootEnabled" %RB_CHECKED%> 每日定时重启</label></div>
-            <div class="form-group"><label class="form-label">重启时刻（本地小时 0-23）</label><input class="form-input" type="number" name="rebootHour" value="%RB_HOUR%" min="0" max="23"></div>
-            <div class="form-group"><label class="form-label"><input type="checkbox" name="hbEnabled" %HB_CHECKED%> 每日心跳通知（邮件）</label></div>
-            <div class="form-group"><label class="form-label">心跳时刻（本地小时 0-23）</label><input class="form-input" type="number" name="hbHour" value="%HB_HOUR%" min="0" max="23"></div>
-            <p class="form-hint">定时重启在空闲时段执行；心跳用于确认设备存活</p>
+        <div class="schedule-stack">
+          <div class="card schedule-actions">
+            <div class="card-header">手动操作</div>
+            <div class="card-body">
+              <div class="btn-row"><button type="button" class="btn btn-secondary" onclick="kaRun()">立即执行一次</button><button type="button" class="btn btn-secondary" onclick="kaReset()">重置基准日为今天</button></div>
+              <p class="form-hint">“立即执行”触发一次动作并把基准日更新为今天；“重置基准日”只更新计时</p>
+              <div class="result-box" id="kaResult"></div>
+            </div>
           </div>
-        </div>
-        <div class="card">
-          <div class="card-header">手动操作</div>
-          <div class="card-body">
-            <div class="btn-row"><button type="button" class="btn btn-secondary" onclick="kaRun()">立即执行一次</button><button type="button" class="btn btn-secondary" onclick="kaReset()">重置基准日为今天</button></div>
-            <p class="form-hint">“立即执行”触发一次动作并把基准日更新为今天；“重置基准日”只更新计时</p>
-            <div class="result-box" id="kaResult"></div>
+          <div class="card">
+            <div class="card-header">定时重启 / 每日心跳</div>
+            <div class="card-body">
+              <div class="form-row">
+                <div class="form-group"><label class="form-label"><input type="checkbox" name="rebootEnabled" %RB_CHECKED%> 每日定时重启</label><input class="form-input" type="number" name="rebootHour" value="%RB_HOUR%" min="0" max="23"></div>
+                <div class="form-group"><label class="form-label"><input type="checkbox" name="hbEnabled" %HB_CHECKED%> 每日心跳通知（邮件）</label><input class="form-input" type="number" name="hbHour" value="%HB_HOUR%" min="0" max="23"></div>
+              </div>
+              <p class="form-hint">小时按本地时间 0-23 执行；定时重启建议放在空闲时段</p>
+            </div>
           </div>
         </div>
       </div>
@@ -1220,6 +1245,9 @@ const char* htmlPage = R"rawliteral(
         ovSet('tMaxBlock', kb(d.maxAllocHeap));
         ovSet('tReset', resetReasonText(d.resetReason));
         ovSet('tTime', (d.timeSynced ? '已同步 ' : '未同步 ') + (d.nowEpoch > 100000 ? fmtEpoch(d.nowEpoch) : '--'));
+        ovSet('cfgEmail', d.emailEnabled ? (d.emailConfigured ? '已配置' : '未配置') : '已关闭');
+        ovSet('cfgPush', d.pushEnabled ? ((d.pushEnabledCount || 0) + ' 个已启用') : '已关闭');
+        ovSet('cfgAdmin', d.adminPhone || '--');
         if (d.apMode) {
           var lv = document.getElementById('ovLive');
           if (lv) { lv.textContent = '● 配网模式（请到 WiFi 设置配置网络）'; lv.style.color = 'var(--error)'; }

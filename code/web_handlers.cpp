@@ -795,8 +795,14 @@ void handleStatus() {
   server.sendHeader("Pragma", "no-cache");
   long up = millis() / 1000;
   String phone = modemPhone.length() ? modemPhone : config.phoneNumber;
+  bool emailOk = config.smtpServer.length() > 0 && config.smtpUser.length() > 0 &&
+                 config.smtpPass.length() > 0 && config.smtpSendTo.length() > 0;
+  int pushCount = 0;
+  for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
+    if (config.pushChannels[i].enabled) pushCount++;
+  }
   String j;
-  j.reserve(1200);  // /status 字段较多，预留足够空间减少 String 重分配
+  j.reserve(1450);  // /status 字段较多，预留足够空间减少 String 重分配
   j += "{";
   j += "\"version\":\""; j += FW_VERSION; j += "\",";
   j += "\"modemReady\":"; j += (modemReady ? "true" : "false"); j += ",";
@@ -843,6 +849,11 @@ void handleStatus() {
   j += "\"outSmsQueueDepth\":"; j += String(outgoingSmsQueueDepth()); j += ",";
   j += "\"emailQueueDepth\":"; j += String(emailQueueDepth()); j += ",";
   j += "\"slowBusy\":"; j += (gSlowWorkBusy ? "true" : "false"); j += ",";
+  j += "\"emailEnabled\":"; j += (config.emailEnabled ? "true" : "false"); j += ",";
+  j += "\"emailConfigured\":"; j += (emailOk ? "true" : "false"); j += ",";
+  j += "\"pushEnabled\":"; j += (config.pushEnabled ? "true" : "false"); j += ",";
+  j += "\"pushEnabledCount\":"; j += String(pushCount); j += ",";
+  j += "\"adminPhone\":\""; j += jsonEscape(config.adminPhone); j += "\",";
   j += "\"smsTotal\":"; j += String(smsTotalCount); j += ",";
   j += "\"lastSmsEpoch\":"; j += String((long)lastSmsEpoch); j += ",";
   j += "\"resetReason\":"; j += String((int)esp_reset_reason()); j += ",";

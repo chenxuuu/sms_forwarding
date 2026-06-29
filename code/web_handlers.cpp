@@ -747,13 +747,7 @@ struct PingJob {
 };
 static PingJob pingJob;
 
-static void pumpWebDuringBackgroundWait() {
-  if (gInWebRequest) { yield(); return; }
-  gInWebRequest = true;
-  server.handleClient();
-  gInWebRequest = false;
-  yield();
-}
+static void pumpWebDuringBackgroundWait() { pumpWebDuringWait(); }  // 统一实现见 globals.h
 
 static bool pingHostValid(const String& pingHost, String& err) {
   if (pingHost.length() > 64) { err = "目标地址过长"; return false; }

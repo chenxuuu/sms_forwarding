@@ -220,12 +220,12 @@ void processAdminCommand(const char* sender, const char* text) {
       // P0-6 入参校验：目标号码须合法，内容非空且不超长，防畸形/超长污染发送流程
       if (!isValidPhoneNumber(targetPhone)) {
         logCaptureLn("目标号码非法，拒绝执行");
-        sendEmailNotification("命令执行失败", "SMS命令目标号码非法（应为 3-20 位数字，可带 + 前缀）");
+        enqueueEmailNotification("命令执行失败", "SMS命令目标号码非法（应为 3-20 位数字，可带 + 前缀）");
         return;
       }
       if (smsContent.length() == 0 || smsContent.length() > 300) {
         logCaptureLn("短信内容为空或超长，拒绝执行");
-        sendEmailNotification("命令执行失败", "SMS命令内容为空或超过 300 字符");
+        enqueueEmailNotification("命令执行失败", "SMS命令内容为空或超过 300 字符");
         return;
       }
 
@@ -238,11 +238,11 @@ void processAdminCommand(const char* sender, const char* text) {
       body += "目标号码: " + targetPhone + "\n";
       body += "短信内容: " + smsContent + "\n";
       body += "执行结果: " + String(success ? "成功" : "失败");
-      
-      sendEmailNotification(subject.c_str(), body.c_str());
+
+      enqueueEmailNotification(subject.c_str(), body.c_str());
     } else {
       logCaptureLn("SMS命令格式错误");
-      sendEmailNotification("命令执行失败", "SMS命令格式错误，正确格式: SMS:号码:内容");
+      enqueueEmailNotification("命令执行失败", "SMS命令格式错误，正确格式: SMS:号码:内容");
     }
   }
   // 处理 RESET 命令
@@ -251,14 +251,17 @@ void processAdminCommand(const char* sender, const char* text) {
     // 每次重启后的前 60s 也不会立即再次重启，打断"反复重启致设备不可用"的循环。
     if (millis() < 60000UL) {
       logCaptureLn("设备刚启动，忽略RESET命令（防重启风暴）");
-      sendEmailNotification("RESET已忽略", "设备启动不足60秒，已忽略RESET命令以防重启风暴。请稍后重试。");
+      enqueueEmailNotification("RESET已忽略", "设备启动不足60秒，已忽略RESET命令以防重启风暴。请稍后重试。");
       return;
     }
     logCaptureLn("执行RESET命令");
 
-    // 先发送邮件通知（因为重启后就发不了了）
-    sendEmailNotification("重启命令已执行", "收到RESET命令，即将重启模组和ESP32...");
-    
+    // 先入队邮件通知，再等后台 worker 发出(有界等待)——绝不在 loop 直接调 SMTP，
+    // 否则与 worker 共用全局 smtp/ssl_client 并发会撕裂 TLS 会话(见 push.cpp 注释)。
+    enqueueEmailNotification("重启命令已执行", "收到RESET命令，即将重启模组和ESP32...");
+    unsigned long drainStart = millis();
+    while ((emailQueueDepth() > 0 || gSlowWorkBusy) && millis() - drainStart < 5000UL) delay(50);
+
     // 重启模组
     resetModule();
     

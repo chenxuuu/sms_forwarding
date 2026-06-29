@@ -76,4 +76,15 @@ void startPushWorker();      // 启动推送/邮件后台 worker 任务
 static inline void muxLock(SemaphoreHandle_t m)   { if (m) xSemaphoreTake(m, portMAX_DELAY); }
 static inline void muxUnlock(SemaphoreHandle_t m) { if (m) xSemaphoreGive(m); }
 
+// loop 线程的阻塞等待(AT/保号/诊断)期间泵一次网页，保持网页可响应。
+// gInWebRequest 重入保护：已在 web handler 栈内则不再重入 WebServer，仅让出 CPU。
+// (modem/scheduler/web_handlers 三处此前各有一份同样实现，统一到此免漂移。)
+static inline void pumpWebDuringWait() {
+  if (gInWebRequest) { yield(); return; }
+  gInWebRequest = true;
+  server.handleClient();
+  gInWebRequest = false;
+  yield();
+}
+
 #endif

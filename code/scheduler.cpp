@@ -18,13 +18,7 @@ struct KeepAliveJob {
 
 static KeepAliveJob kaJob;
 
-static void schedulerPumpWebDuringWait() {
-  if (gInWebRequest) { yield(); return; }
-  gInWebRequest = true;
-  server.handleClient();
-  gInWebRequest = false;
-  yield();
-}
+static void schedulerPumpWebDuringWait() { pumpWebDuringWait(); }  // 统一实现见 globals.h
 
 // 保号动作：激活数据连接 + 对 baidu 发起一次 HTTP GET 产生真实蜂窝流量(动账)，再关闭 PDP 省流量。
 // 改用 HTTP GET(原为 ~45KB UDP 上行)：下行响应是真实数据会话，运营商更确切按用量计费，保号更稳妥。
@@ -109,7 +103,10 @@ static void enqueueScheduledKeepAlive() {
 
 static void processKeepAliveJob() {
   if (!kaJob.pending) return;
-  if (lastWebRequestMs != 0 && millis() - lastWebRequestMs < SLOW_WORK_WEB_GRACE_MS) return;
+  // 网页刚活跃则短暂避让模组AT，给SPA留窗口；但避让有上限——超过 SLOW_WORK_MAX_DEFER_MS 仍强制执行，
+  // 防 SPA 持续轮询(每次刷新都刷新 lastWebRequestMs)把保号动作无限期饿死。
+  if (lastWebRequestMs != 0 && millis() - lastWebRequestMs < SLOW_WORK_WEB_GRACE_MS &&
+      millis() - kaJob.queuedMs < SLOW_WORK_MAX_DEFER_MS) return;
   if (smsUrcReceiving()) return;
   if (!modemReady) {
     kaJob.pending = false;

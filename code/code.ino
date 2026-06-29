@@ -171,6 +171,15 @@ void wifiEnsureConnected() {
   lastCheck = millis();
 
   if (WiFi.status() == WL_CONNECTED) {
+    if (apMode) {
+      // 开机时连不上而进了配网热点，但 STA 现已连上(自动重连/凭据可用)：拆掉热点+强制门户，
+      // 回到纯 STA。否则瞬时开机断网会让设备永久卡在开放热点+DNS 劫持里(apMode 此前永不清除)。
+      dnsServer.stop();
+      WiFi.softAPdisconnect(true);
+      WiFi.mode(WIFI_STA);
+      apMode = false;
+      logCaptureLn(String("WiFi 已连上，关闭配网热点。IP: " + WiFi.localIP().toString()));
+    }
     if (wasDown) {
       wasDown = false;
       logCaptureLn(String("WiFi 已恢复, IP: " + WiFi.localIP().toString()));

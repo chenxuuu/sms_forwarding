@@ -359,6 +359,7 @@ struct RetryItem {
   bool used;
   uint8_t channelIdx;
   uint8_t attempts;       // 已尝试次数
+  uint16_t gen;           // 槽位代号：每次占用 +1，供发送完回写时识别"槽是否已被回收复用"(防 ABA)
   uint32_t nextAttemptMs; // 下次重试时间(millis)
   String sender;
   String message;
@@ -390,6 +391,7 @@ static void enqueueRetryDelayMs(uint8_t ch, const char* sender, const char* mess
     slot = victim;
   }
   retryQueue[slot].used = true;
+  retryQueue[slot].gen++;          // 占用即翻新代号：若此槽正被 worker 发送(used 仍为 true)，回写时会因代号不符而放弃，不误伤新消息
   retryQueue[slot].channelIdx = ch;
   retryQueue[slot].attempts = attempts;
   retryQueue[slot].sender = sender;
@@ -432,6 +434,7 @@ void processRetryQueue() {
 
   int picked = -1;
   uint8_t ch = 0, attempts = 0;
+  uint16_t pickedGen = 0;
   String sndr, msg, ts;
   PushChannel chCopy;
   bool valid = false;
@@ -441,6 +444,7 @@ void processRetryQueue() {
     if ((int32_t)(now - retryQueue[i].nextAttemptMs) < 0) continue;  // 未到时间
     picked = i;
     ch = retryQueue[i].channelIdx;
+    pickedGen = retryQueue[i].gen;
     attempts = retryQueue[i].attempts;
     sndr = retryQueue[i].sender;
     msg = retryQueue[i].message;
@@ -458,7 +462,7 @@ void processRetryQueue() {
   gSlowWorkBusy = false;
 
   muxLock(gWorkMux);
-  if (retryQueue[picked].used && retryQueue[picked].channelIdx == ch) {  // 槽未被回收复用
+  if (retryQueue[picked].used && retryQueue[picked].gen == pickedGen) {  // 槽仍是同一条消息(未被回收复用)
     retryQueue[picked].attempts++;
     if (ok) {
       freeRetrySlot(picked);
@@ -469,7 +473,9 @@ void processRetryQueue() {
       int i = picked;
       uint32_t delaySec = backoffSeconds(retryQueue[i].attempts, PUSH_RETRY_BASE_SEC,
                                          PUSH_RETRY_MAX_SEC, (uint32_t)i * 7 + retryQueue[i].attempts);
-      retryQueue[i].nextAttemptMs = now + delaySec * 1000UL;
+      // 用发送完成后的当前时刻计算退避，而非进入函数时的 now：发送可能阻塞数秒，
+      // 否则 nextAttemptMs 会偏早(甚至落在过去)，对慢失败通道形同取消退避。
+      retryQueue[i].nextAttemptMs = millis() + delaySec * 1000UL;
     }
   }
   muxUnlock(gWorkMux);

@@ -32,4 +32,13 @@ jobs:
     
     - name: Compile firmware
       run: |
-        arduino-cli compile --fqbn esp32:esp32:esp32c3:PartitionScheme=min_spiffs,CDCOnBoot=cdc ./code
+        arduino-cli compile --fqbn esp32:esp32:esp32c3:PartitionScheme=min_spiffs,CDCOnBoot=cdc --output-dir build ./code
+
+    - name: Upload firmware artifact (7-day retention)
+      uses: actions/upload-artifact@v4
+      with:
+        name: firmware-bin
+        path: |
+          build/*.ino.bin
+          build/*.merged.bin
+        retention-days: 7

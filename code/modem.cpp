@@ -26,15 +26,7 @@ static void endModemSerialOp() {
   modemSerialEnd();
 }
 
-static void pumpWebServerDuringWait() {
-  if (gInWebRequest) {
-    yield();
-    return;
-  }
-  gInWebRequest = true;
-  server.handleClient();
-  gInWebRequest = false;
-}
+static void pumpWebServerDuringWait() { pumpWebDuringWait(); }  // 统一实现见 globals.h
 
 // 发送AT命令并获取响应
 String sendATCommand(const char* cmd, unsigned long timeout) {
@@ -711,14 +703,21 @@ bool consumeCellularViaHttpGet(const char* host) {
     Serial1.print(req);
     if (!waitToken("OK", "ERROR", 5000)) { logCaptureLn("保号: HTTP 请求发送未确认"); break; }
 
-    // 4) 读取响应若干秒：这些下行字节(+MIPURC:"rtcp")即为消耗的流量；不解析内容，仅计数。
-    unsigned long rx = 0, start = millis();
+    // 4) 读取响应：这些下行字节(+MIPURC:"rtcp")即为消耗的流量；不解析内容，仅计数。
+    //    收到响应后连续静默 KEEPALIVE_HTTP_IDLE_MS 即提前结束(响应已收完)，省去固定 5s 空转、
+    //    并收窄"读取期间吞掉随后到达的 +CMT 短信"的窗口；硬上限仍为 KEEPALIVE_HTTP_DRAIN_MS。
+    unsigned long rx = 0, start = millis(), lastByte = start;
     while (millis() - start < KEEPALIVE_HTTP_DRAIN_MS) {
-      while (Serial1.available()) { Serial1.read(); rx++; }
+      bool got = false;
+      while (Serial1.available()) { Serial1.read(); rx++; got = true; }
+      if (got) lastByte = millis();
+      else if (rx > 0 && millis() - lastByte > KEEPALIVE_HTTP_IDLE_MS) break;
       pumpWebServerDuringWait();
     }
     logCaptureF("保号: HTTP GET 完成，下行已收约 %lu 字节(含协议头与URC封装)\n", rx);
-    ok = (rx > 0);  // 收到任意下行即视为产生了真实数据会话
+    // 仅当下行达到阈值才算真实数据会话：RST/URC 封装等少量噪声(rx 很小)不应被误判为保号成功，
+    // 否则会把 kaLastTime 推进整个周期、却没真正动账，导致 SIM 静默失活。
+    ok = (rx >= KEEPALIVE_HTTP_MIN_RX);
   } while (false);
 
   // 5) 关闭 socket
@@ -735,6 +734,7 @@ bool consumeCellularViaHttpGet(const char* host) {
 struct OutgoingSmsItem {
   String phone;
   String text;
+  unsigned long queuedMs;  // 入队时刻：用于限制网页避让(grace)对本条的最长拖延，防被持续轮询饿死
 };
 
 static OutgoingSmsItem outSmsQueue[OUT_SMS_QUEUE_MAX];
@@ -758,6 +758,7 @@ bool enqueueOutgoingSms(const char* phoneNumber, const char* message) {
   int tail = (outSmsHead + outSmsCount) % OUT_SMS_QUEUE_MAX;
   outSmsQueue[tail].phone = phoneNumber;
   outSmsQueue[tail].text = message;
+  outSmsQueue[tail].queuedMs = millis();
   outSmsCount++;
   logCaptureF("网页短信已入队，当前待发=%d\n", outSmsCount);
   return true;
@@ -767,7 +768,9 @@ void processOutgoingSmsQueue() {
   if (outSmsCount == 0) return;
   if (!modemReady) return;       // 模组未就绪时保留队列，待健康检查恢复后再发
   if (smsUrcReceiving()) return; // 正在接收短信时避让，防止冲掉 PDU
-  if (lastWebRequestMs != 0 && millis() - lastWebRequestMs < SLOW_WORK_WEB_GRACE_MS) return;
+  // 网页刚活跃则避让模组AT，但有上限：避让超过 SLOW_WORK_MAX_DEFER_MS 仍强制发出，防 SPA 持续轮询饿死本条。
+  if (lastWebRequestMs != 0 && millis() - lastWebRequestMs < SLOW_WORK_WEB_GRACE_MS &&
+      millis() - outSmsQueue[outSmsHead].queuedMs < SLOW_WORK_MAX_DEFER_MS) return;
 
   OutgoingSmsItem it = outSmsQueue[outSmsHead];
   clearOutgoingSmsSlot(outSmsHead);

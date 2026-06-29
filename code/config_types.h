@@ -4,7 +4,7 @@
 #include <Arduino.h>
 
 // 固件版本（/status 与启动日志展示）
-#define FW_VERSION "2.1.0"
+#define FW_VERSION "1.0.1"
 
 // 配网热点(STA 连接失败/未配置时广播)
 #define AP_SSID_PREFIX "SMS-Forwarder-"
@@ -116,16 +116,16 @@ struct Config {
 #define CELLULAR_BURN_MIPSEND_BYTES (45UL * 1024UL)  // 单次 MIPSEND 发送大小：按用户要求一次发完 45KB
 #define CELLULAR_BURN_DEFAULT_HOST "223.5.5.5"    // 默认 UDP 目标：阿里公共 DNS
 #define KEEPALIVE_HTTP_HOST      "www.baidu.com"   // 保号 HTTP GET 目标(产生真实下行流量/动账)
-#define KEEPALIVE_HTTP_DRAIN_MS  5000              // 保号 HTTP GET 读取响应(消耗下行)的时长(ms)
-#if CELLULAR_BURN_BYTES > CELLULAR_BURN_MAX_BYTES
-#error "CELLULAR_BURN_BYTES must not exceed CELLULAR_BURN_MAX_BYTES"
-#endif
+#define KEEPALIVE_HTTP_DRAIN_MS  5000              // 保号 HTTP GET 读取响应(消耗下行)的硬上限时长(ms)
+#define KEEPALIVE_HTTP_IDLE_MS   800               // 收到响应后连续静默此时长即提前结束读取(省 loop 占用，收窄吞短信窗口)
+#define KEEPALIVE_HTTP_MIN_RX    100               // 视为"真实数据会话成功"的最小下行字节数：排除 RST/URC 封装等噪声(按模组/网络可调)
 #define HTTP_CONNECT_TIMEOUT_MS  3000     // 推送 HTTP 连接超时：坏通道更快释放 WebServer
 #define HTTP_READ_TIMEOUT_MS     5000     // 推送 HTTP 读超时，避免慢 Webhook 长时间拖住网页
 // 推送/邮件/测试三类慢任务已移到后台 worker(见 push.cpp::pushWorkerTask)，loop 不再被其阻塞，
 // 故原 FORWARD_WEB_GRACE_MS / PUSH_JOB_GAP_MS 人为节流已删除(worker 单任务串行天然限速)。
 // SLOW_WORK_WEB_GRACE_MS 仍保留：供 loop 线程上的保号/网页发短信/诊断UDP 在网页活跃后短暂避让模组AT。
 #define SLOW_WORK_WEB_GRACE_MS   1500UL   // 刚处理过网页请求后，loop 上的模组类慢任务暂缓，给SPA留窗口
+#define SLOW_WORK_MAX_DEFER_MS   10000UL  // 但单个慢任务被避让的上限：超过即强制执行，防 SPA 持续轮询饿死保号/网页发短信
 #define TLS_MIN_FREE_HEAP        50000UL  // 发起 TLS(SMTP/HTTPS) 前要求的最小可分配堆(worker与网页并发，留余量)
 // 后台 worker 任务参数：栈给足(TLS/SMTP 握手较吃栈；现有代码在 8KB 的 loopTask 上已能跑通，10KB 留余量)。
 #define PUSH_WORKER_STACK        10240    // worker 任务栈字节数(按需调；可观察 uxTaskGetStackHighWaterMark)

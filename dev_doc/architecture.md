@@ -43,8 +43,10 @@
     ▼
 checkSerial1URC()          [sms_process.cpp]
     │  逐行读取 Serial1
-    │  识别 "+CMT:" 头
-    │  接收 PDU hex 数据
+    │  优先识别 "+CMTI:" 存储通知并排队索引
+    │  processStoredSmsIndexQueue() → AT+CMGR=<index>
+    │  60s watchdog 用 AT+CMGL 兜底补收/清存储
+    │  兼容 "+CMT:" 直推 PDU hex 数据
     ▼
 pdu.decodePDU()            [pdulib 库]
     │  提取 sender / timestamp / text
@@ -101,7 +103,6 @@ checkAuth()               [web_handlers.cpp]
     POST /save     → handleSave()        保存配置 → saveConfig()（快速返回，不发通知邮件）
     POST /sendsms  → handleSendSms()     网页发送短信 → 入队 → loop 异步 sendSMS()
     POST /ping     → handlePing()        诊断: AT+CGACT=1 → MIPOPEN/MIPSEND UDP 流量 → CGACT=0
-    GET  /query    → handleQuery()       查询 ATI/CESQ/ICCID/CEREG 等
     GET  /flight   → handleFlightMode()  AT+CFUN 查询/切换飞行模式
     GET  /at       → handleATCommand()   透传 AT 指令到模组
     GET  /log      → handleLog()         返回环形缓冲区日志 (JSON 数组)
@@ -165,7 +166,7 @@ loop 任务每帧（节选）：
 | `server.handleClient()` | 每帧 | HTTP 请求处理（非阻塞） |
 | `checkConcatTimeout()` | 每帧 | 长短信 30s 超时强制转发 |
 | Serial→Serial1 透传 | 每帧 | USB↔模组 AT 透传（单字节） |
-| `checkSerial1URC()` | 每帧 | 逐行读 `+CMT`，无行立即返回 |
+| `checkSerial1URC()` | 每帧 | 逐行读 `+CMTI/+CMT`，无行立即返回 |
 | `processForwardQueue()` | 每帧 | 取一条短信做规则判定 + 入 worker 队列（无网络，开销极小） |
 | `processOutgoingSmsQueue()` | 每帧 | 网页待发短信异步出队（AT+CMGS，loop 上） |
 | `wifiEnsureConnected` / `modemHealthTick` / `signalSampleTick` / `smsReceiveWatchdogTick` / `heapGuardTick` / `keepAliveTick` / `dailyTasksTick` | millis 门控 | 各自周期任务 |

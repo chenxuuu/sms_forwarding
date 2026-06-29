@@ -36,7 +36,7 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
   Serial.begin(115200);
-  logCaptureF("固件 %s 启动，复位原因=%d\n", FW_VERSION, (int)esp_reset_reason());  // D3
+  logCaptureF("固件 %s 启动，复位原因=%d\n", FW_VERSION, (int)esp_reset_reason());
   // 缩短初始化延时，WiFi连接会处理自己的超时
   delay(200);
   Serial1.begin(115200, SERIAL_8N1, RXD, TXD);
@@ -91,7 +91,6 @@ void setup() {
   server.on("/ping", HTTP_POST, handlePing);
   server.on("/resend", HTTP_POST, handleResend);
   server.on("/delete", HTTP_POST, handleDeleteMsg);
-  server.on("/query", handleQuery);
   server.on("/flight", handleFlightMode);
   server.on("/at", handleATCommand);
   server.on("/log", handleLog);
@@ -121,7 +120,7 @@ void setup() {
   server.begin();
   logCaptureLn("HTTP服务器已启动");
 
-  // ---- D1 mDNS：可用 http://sms.local 访问，免记 IP ----
+  // ---- mDNS：可用 http://sms.local 访问，免记 IP ----
   if (MDNS.begin("sms")) {
     MDNS.addService("http", "tcp", 80);
     logCaptureLn("mDNS 已启动: http://sms.local");
@@ -140,8 +139,8 @@ void setup() {
     timeSynced = true;
     logCaptureLn("NTP时间同步成功");
     time_t now = time(nullptr);
-    logCapture("当前UTC时间戳: ");
-    logCaptureLn(String(now));
+    logCapture("当前本地时间: ");
+    logCaptureLn(formatEpochLocal((uint32_t)now, config.tzOffsetMin));
   } else {
     logCaptureLn("NTP时间同步失败，将使用设备时间");
   }
@@ -153,7 +152,7 @@ void setup() {
   // ---- 模组初始化（较慢，但网页已可访问；使短信收发尽早就绪） ----
   modemInit();
 
-  // ---- A2 开机补收 SIM 中暂存的短信（断电期间到达的消息不丢） ----
+  // ---- 开机补收 SIM 中暂存的短信（断电期间到达的消息不丢）----
   if (modemReady) backfillStoredSms(true);
 
   // 启动只写日志，不再发送邮件，避免断电/重启后产生多余通知。
@@ -162,7 +161,7 @@ void setup() {
   }
 }
 
-// P0-3 WiFi 掉线兜底：周期检查，未连接则触发重连；恢复后重新对时。
+// WiFi 掉线兜底：周期检查，未连接则触发重连；恢复后重新对时。
 // 与 setAutoReconnect(true) 互补（后者负责即时重连，本函数负责日志与对时刷新）。
 void wifiEnsureConnected() {
   static unsigned long lastCheck = 0;
@@ -192,7 +191,7 @@ void wifiEnsureConnected() {
   WiFi.reconnect();
 }
 
-// P1-7 低堆有序重启兜底：空闲堆过低且当前空闲(无半成品长短信、无待重试)时，
+// 低堆有序重启兜底：空闲堆过低且当前空闲(无半成品长短信、无待重试)时，
 // 主动重启优于稍后 OOM 崩溃/看门狗硬复位。对只收转发设备而言短暂重启可接受。
 void heapGuardTick() {
   static unsigned long lastCheck = 0;
@@ -222,16 +221,16 @@ void loop() {
   checkConcatTimeout();
   if (Serial.available()) Serial1.write(Serial.read());
   checkSerial1URC();
+  smsReceiveWatchdogTick(); // 收到 +CMTI 后优先按索引读取，避免其它 AT 操作抢串口
   processPingJob();       // 诊断 UDP 流量后台执行，避免 /ping 请求占住 WebServer
   processForwardQueue();   // 接收/转发解耦：每帧最多转发一条(仅规则判定+入队，无网络，开销极小)
   processOutgoingSmsQueue(); // 网页发短信异步出队，避免HTTP请求阻塞等待AT+CMGS
   // 推送/邮件/测试推送已移到后台 worker 线程(pushWorkerTask)，不再占用 loop —— 转发/邮件不阻塞收信与网页。
-  wifiEnsureConnected();   // P0-3 WiFi 掉线兜底重连
-  modemHealthTick();       // P0-2 模组健康探测/自动恢复
+  wifiEnsureConnected();   // WiFi 掉线兜底重连
+  modemHealthTick();       // 模组健康探测/自动恢复
   signalSampleTick();      // 4G 信号采样(CSQ 高频/详情低频，与接收轮询解耦防长阻塞)
-  smsReceiveWatchdogTick();// 修复"运行数天后只能发不能收"：兜底轮询暂存短信 + 重申 CNMI
-  heapGuardTick();         // P1-7 低堆有序重启兜底
-  keepAliveTick();         // E0 保号定时任务(绝对日期)
+  heapGuardTick();         // 低堆有序重启兜底
+  keepAliveTick();         // 保号定时任务(绝对日期)
   dailyTasksTick();        // 定时重启 / 每日心跳
   yield();                 // 让出 CPU，喂看门狗与后台(WiFi/lwIP)任务
 }

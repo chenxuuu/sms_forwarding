@@ -14,7 +14,7 @@
 String logBuffer[LOG_BUF_SIZE];
 int logBufIdx = 0;
 int logBufCount = 0;
-unsigned long logSeq = 0;  // 单调递增的累计行号(P1-3 /log since 游标)
+unsigned long logSeq = 0;  // 单调递增的累计行号(/log since 游标)
 static String _logLine;    // 行缓冲：logCapture 写入这里，logCaptureLn 提交整行
 
 // 首页是大块 HTML/JS/CSS，允许浏览器缓存；配置变更后递增版本让缓存自动失效。
@@ -123,7 +123,7 @@ bool checkAuth() {
 
 // 处理配置页面请求
 //
-// 关键优化(P0-1)：不再 `String html = String(htmlPage)`(整页 ~37KB 拷进堆) + ~20 次
+// 关键优化：不再 `String html = String(htmlPage)`(整页 ~37KB 拷进堆) + ~20 次
 // replace()(每次可重分配) + send()(再缓冲)。改为分块流式：静态片段用 sendContent_P 直接
 // 从 flash 流出，仅把小动态值/通道块写出。占位符识别走 sms_logic.h::streamTemplate
 // (已主机测试，安全跳过 CSS 中的裸 %)。峰值堆从 ~80KB+ 降到 <10KB。
@@ -206,7 +206,7 @@ void handleRoot() {
     channelsHtml += "</div>";
     channelsHtml += "</div>";
     
-    // C2 测试按钮(置于通道体内，启用时可见)
+    // 测试按钮(置于通道体内，启用时可见)
     channelsHtml += "<button type=\"button\" class=\"btn btn-secondary btn-sm\" onclick=\"testPush(" + idx + ")\">测试推送</button>";
     channelsHtml += "<div class=\"result-box\" id=\"pushTestResult" + idx + "\"></div>";
 
@@ -359,7 +359,7 @@ void handleFlightMode() {
           message = "已关闭飞行模式 <br>模组恢复正常工作";
         }
       } else {
-        message = "切换失败: " + setResp;
+        message = "切换失败: " + htmlEscape(setResp);
       }
     } else {
       message = "无法获取当前状态";
@@ -373,7 +373,7 @@ void handleFlightMode() {
       success = true;
       message = "已开启飞行模式 ";
     } else {
-      message = "开启失败: " + resp;
+      message = "开启失败: " + htmlEscape(resp);
     }
   }
   else if (action == "off") {
@@ -384,7 +384,7 @@ void handleFlightMode() {
       success = true;
       message = "已关闭飞行模式 ";
     } else {
-      message = "关闭失败: " + resp;
+      message = "关闭失败: " + htmlEscape(resp);
     }
   }
   else {
@@ -392,7 +392,7 @@ void handleFlightMode() {
   }
   
   json += "\"success\":" + String(success ? "true" : "false") + ",";
-  json += "\"message\":\"" + message + "\"";
+  json += "\"message\":\"" + jsonEscape(message) + "\"";
   json += "}";
   
   server.send(200, "application/json", json);
@@ -424,278 +424,6 @@ void handleATCommand() {
   String json = "{";
   json += "\"success\":" + String(success ? "true" : "false") + ",";
   json += "\"message\":\"" + jsonEscape(message) + "\"";
-  json += "}";
-  
-  server.send(200, "application/json", json);
-}
-
-// 处理模组信息查询请求
-void handleQuery() {
-  if (!checkAuth()) return;
-  
-  String type = server.arg("type");
-  String json = "{";
-  bool success = false;
-  String message = "";
-  
-  if (type == "ati") {
-    // 固件信息查询
-    String resp = sendATCommand("ATI", 2000);
-    logCaptureLn(String("ATI响应: " + resp));
-    
-    if (resp.indexOf("OK") >= 0) {
-      success = true;
-      String manufacturer = "未知", model = "未知", version = "未知";
-      parseATI(resp, manufacturer, model, version);
-
-      message = "<table class='info-table'>";
-      message += "<tr><td>制造商</td><td>" + manufacturer + "</td></tr>";
-      message += "<tr><td>模组型号</td><td>" + model + "</td></tr>";
-      message += "<tr><td>固件版本</td><td>" + version + "</td></tr>";
-      message += "</table>";
-    } else {
-      message = "查询失败";
-    }
-  }
-  else if (type == "signal") {
-    // 信号质量查询
-    String resp = sendATCommand("AT+CESQ", 2000);
-    logCaptureLn(String("CESQ响应: " + resp));
-    
-    if (resp.indexOf("+CESQ:") >= 0) {
-      success = true;
-      // 解析 +CESQ: <rxlev>,<ber>,<rscp>,<ecno>,<rsrq>,<rsrp>
-      int idx = resp.indexOf("+CESQ:");
-      String params = resp.substring(idx + 6);
-      int endIdx = params.indexOf('\r');
-      if (endIdx < 0) endIdx = params.indexOf('\n');
-      if (endIdx > 0) params = params.substring(0, endIdx);
-      params.trim();
-      
-      // 分割参数
-      String values[6];
-      int valIdx = 0;
-      int startPos = 0;
-      for (int i = 0; i <= params.length() && valIdx < 6; i++) {
-        if (i == params.length() || params.charAt(i) == ',') {
-          values[valIdx] = params.substring(startPos, i);
-          values[valIdx].trim();
-          valIdx++;
-          startPos = i + 1;
-        }
-      }
-      
-      // RSRP转换为dBm (0-97映射到-140到-44 dBm, 99表示未知)
-      int rsrp = values[5].toInt();
-      String rsrpStr;
-      if (rsrp == 99 || rsrp == 255) {
-        rsrpStr = "未知";
-      } else {
-        int rsrpDbm = -140 + rsrp;
-        rsrpStr = String(rsrpDbm) + " dBm";
-        if (rsrpDbm >= -80) rsrpStr += " (信号极好)";
-        else if (rsrpDbm >= -90) rsrpStr += " (信号良好)";
-        else if (rsrpDbm >= -100) rsrpStr += " (信号一般)";
-        else if (rsrpDbm >= -110) rsrpStr += " (信号较弱)";
-        else rsrpStr += " (信号很差)";
-      }
-      
-      // RSRQ转换 (0-34映射到-19.5到-3 dB)
-      int rsrq = values[4].toInt();
-      String rsrqStr;
-      if (rsrq == 99 || rsrq == 255) {
-        rsrqStr = "未知";
-      } else {
-        float rsrqDb = -19.5 + rsrq * 0.5;
-        rsrqStr = String(rsrqDb, 1) + " dB";
-      }
-      
-      message = "<table class='info-table'>";
-      message += "<tr><td>信号强度 (RSRP)</td><td>" + rsrpStr + "</td></tr>";
-      message += "<tr><td>信号质量 (RSRQ)</td><td>" + rsrqStr + "</td></tr>";
-      message += "<tr><td>原始数据</td><td>" + params + "</td></tr>";
-      message += "</table>";
-    } else {
-      message = "查询失败";
-    }
-  }
-  else if (type == "siminfo") {
-    // SIM卡信息查询
-    success = true;
-    message = "<table class='info-table'>";
-    
-    // 查询IMSI
-    String resp = sendATCommand("AT+CIMI", 2000);
-    String imsi = "未知";
-    if (resp.indexOf("OK") >= 0) {
-      int start = resp.indexOf('\n');
-      if (start >= 0) {
-        int end = resp.indexOf('\n', start + 1);
-        if (end < 0) end = resp.indexOf('\r', start + 1);
-        if (end > start) {
-          imsi = resp.substring(start + 1, end);
-          imsi.trim();
-          if (imsi == "OK" || imsi.length() < 10) imsi = "未知";
-        }
-      }
-    }
-    message += "<tr><td>IMSI</td><td>" + imsi + "</td></tr>";
-    
-    // 查询ICCID
-    resp = sendATCommand("AT+ICCID", 2000);
-    String iccid = "未知";
-    if (resp.indexOf("+ICCID:") >= 0) {
-      int idx = resp.indexOf("+ICCID:");
-      String tmp = resp.substring(idx + 7);
-      int endIdx = tmp.indexOf('\r');
-      if (endIdx < 0) endIdx = tmp.indexOf('\n');
-      if (endIdx > 0) iccid = tmp.substring(0, endIdx);
-      iccid.trim();
-    }
-    message += "<tr><td>ICCID</td><td>" + iccid + "</td></tr>";
-    
-    // 查询本机号码 (如果SIM卡支持)
-    resp = sendATCommand("AT+CNUM", 2000);
-    String phoneNum = "未存储或不支持";
-    if (resp.indexOf("+CNUM:") >= 0) {
-      int idx = resp.indexOf(",\"");
-      if (idx >= 0) {
-        int endIdx = resp.indexOf("\"", idx + 2);
-        if (endIdx > idx) {
-          phoneNum = resp.substring(idx + 2, endIdx);
-        }
-      }
-    }
-    message += "<tr><td>本机号码</td><td>" + phoneNum + "</td></tr>";
-    
-    message += "</table>";
-  }
-  else if (type == "network") {
-    // 网络状态查询
-    success = true;
-    message = "<table class='info-table'>";
-    
-    // 查询网络注册状态
-    String resp = sendATCommand("AT+CEREG?", 2000);
-    String regStatus = "未知";
-    if (resp.indexOf("+CEREG:") >= 0) {
-      int idx = resp.indexOf("+CEREG:");
-      String tmp = resp.substring(idx + 7);
-      int commaIdx = tmp.indexOf(',');
-      if (commaIdx >= 0) {
-        String stat = tmp.substring(commaIdx + 1, commaIdx + 2);
-        int s = stat.toInt();
-        switch(s) {
-          case 0: regStatus = "未注册，未搜索"; break;
-          case 1: regStatus = "已注册，本地网络"; break;
-          case 2: regStatus = "未注册，正在搜索"; break;
-          case 3: regStatus = "注册被拒绝"; break;
-          case 4: regStatus = "未知"; break;
-          case 5: regStatus = "已注册，漫游"; break;
-          default: regStatus = "状态码: " + stat;
-        }
-      }
-    }
-    message += "<tr><td>网络注册</td><td>" + regStatus + "</td></tr>";
-    
-    // 查询运营商
-    resp = sendATCommand("AT+COPS?", 2000);
-    String oper = "未知";
-    if (resp.indexOf("+COPS:") >= 0) {
-      int idx = resp.indexOf(",\"");
-      if (idx >= 0) {
-        int endIdx = resp.indexOf("\"", idx + 2);
-        if (endIdx > idx) {
-          oper = resp.substring(idx + 2, endIdx);
-        }
-      }
-    }
-    message += "<tr><td>运营商</td><td>" + oper + "</td></tr>";
-    
-    // 查询PDP上下文激活状态
-    resp = sendATCommand("AT+CGACT?", 2000);
-    String pdpStatus = "未激活";
-    if (resp.indexOf("+CGACT: 1,1") >= 0) {
-      pdpStatus = "已激活";
-    } else if (resp.indexOf("+CGACT:") >= 0) {
-      pdpStatus = "未激活";
-    }
-    message += "<tr><td>数据连接</td><td>" + pdpStatus + "</td></tr>";
-    
-    // 查询APN
-    resp = sendATCommand("AT+CGDCONT?", 2000);
-    String apn = "未知";
-    if (resp.indexOf("+CGDCONT:") >= 0) {
-      int idx = resp.indexOf(",\"");
-      if (idx >= 0) {
-        idx = resp.indexOf(",\"", idx + 2);  // 跳过PDP类型
-        if (idx >= 0) {
-          int endIdx = resp.indexOf("\"", idx + 2);
-          if (endIdx > idx) {
-            apn = resp.substring(idx + 2, endIdx);
-            if (apn.length() == 0) apn = "(自动)";
-          }
-        }
-      }
-    }
-    message += "<tr><td>APN</td><td>" + apn + "</td></tr>";
-    
-    message += "</table>";
-  }
-  else if (type == "wifi") {
-    // WiFi状态查询
-    success = true;
-    message = "<table class='info-table'>";
-    
-    // WiFi连接状态
-    String wifiStatus = WiFi.isConnected() ? "已连接" : "未连接";
-    message += "<tr><td>连接状态</td><td>" + wifiStatus + "</td></tr>";
-    
-    // SSID
-    String ssid = WiFi.SSID();
-    if (ssid.length() == 0) ssid = "未知";
-    message += "<tr><td>当前SSID</td><td>" + ssid + "</td></tr>";
-    
-    // 信号强度 RSSI
-    int rssi = WiFi.RSSI();
-    String rssiStr = String(rssi) + " dBm";
-    if (rssi >= -50) rssiStr += " (信号极好)";
-    else if (rssi >= -60) rssiStr += " (信号很好)";
-    else if (rssi >= -70) rssiStr += " (信号良好)";
-    else if (rssi >= -80) rssiStr += " (信号一般)";
-    else if (rssi >= -90) rssiStr += " (信号较弱)";
-    else rssiStr += " (信号很差)";
-    message += "<tr><td>信号强度 (RSSI)</td><td>" + rssiStr + "</td></tr>";
-    
-    // IP地址
-    message += "<tr><td>IP地址</td><td>" + WiFi.localIP().toString() + "</td></tr>";
-    
-    // 网关
-    message += "<tr><td>网关</td><td>" + WiFi.gatewayIP().toString() + "</td></tr>";
-    
-    // 子网掩码
-    message += "<tr><td>子网掩码</td><td>" + WiFi.subnetMask().toString() + "</td></tr>";
-    
-    // DNS
-    message += "<tr><td>DNS服务器</td><td>" + WiFi.dnsIP().toString() + "</td></tr>";
-    
-    // MAC地址
-    message += "<tr><td>MAC地址</td><td>" + WiFi.macAddress() + "</td></tr>";
-    
-    // BSSID (路由器MAC)
-    message += "<tr><td>路由器BSSID</td><td>" + WiFi.BSSIDstr() + "</td></tr>";
-    
-    // 信道
-    message += "<tr><td>WiFi信道</td><td>" + String(WiFi.channel()) + "</td></tr>";
-    
-    message += "</table>";
-  }
-  else {
-    message = "未知的查询类型";
-  }
-  
-  json += "\"success\":" + String(success ? "true" : "false") + ",";
-  json += "\"message\":\"" + message + "\"";
   json += "}";
   
   server.send(200, "application/json", json);
@@ -897,7 +625,7 @@ void handleSave() {
     config.forwardRules = server.arg("forwardRules");
   }
 
-  // E0 保号定时任务表单（kaLastTime 由调度器/重置按钮管理，不在此处更新）
+  // 保号定时任务表单（kaLastTime 由调度器/重置按钮管理，不在此处更新）
   if (server.hasArg("kaIntervalDays") || server.hasArg("kaAction") ||
       server.hasArg("kaTarget") || server.hasArg("kaForm")) {
     config.kaEnabled = (server.arg("kaEnabled") == "on");
@@ -1024,7 +752,7 @@ void handleSave() {
 }
 
 // 处理日志查询请求 — 返回环形缓冲区中的日志行
-// P1-3/P1-4：流式返回，避免一次性拼出 ~10KB String；支持 ?since=<seq> 只回增量。
+// 流式返回，避免一次性拼出 ~10KB String；支持 ?since=<seq> 只回增量。
 // 响应: {"seq":<当前累计行号>,"lines":[...]}
 void handleLog() {
   if (!checkAuth()) return;
@@ -1060,7 +788,7 @@ void handleLog() {
   server.sendContent("");
 }
 
-// P1-7 机器可读健康状态：供前端概览与外部监控读取
+// 机器可读健康状态：供前端概览与外部监控读取
 void handleStatus() {
   if (!checkAuth()) return;
   server.sendHeader("Cache-Control", "no-store, max-age=0");
@@ -1068,7 +796,7 @@ void handleStatus() {
   long up = millis() / 1000;
   String phone = modemPhone.length() ? modemPhone : config.phoneNumber;
   String j;
-  j.reserve(560);
+  j.reserve(1200);  // /status 字段较多，预留足够空间减少 String 重分配
   j += "{";
   j += "\"version\":\""; j += FW_VERSION; j += "\",";
   j += "\"modemReady\":"; j += (modemReady ? "true" : "false"); j += ",";
@@ -1077,12 +805,18 @@ void handleStatus() {
   j += "\"ssid\":\""; j += jsonEscape(WiFi.SSID()); j += "\",";
   j += "\"rssi\":"; j += String(WiFi.RSSI()); j += ",";
   j += "\"csq\":"; j += String(modemCsq); j += ",";          // 4G 信号(0-31,99=未知)
+  j += "\"ber\":"; j += String(modemBer); j += ",";          // 误码率(0-7,99=未知)
   j += "\"rsrp\":"; j += String(modemRsrp); j += ",";        // LTE RSRP 实际 dBm(>=0=未知)
   j += "\"tz\":"; j += String(config.tzOffsetMin); j += ",";  // 本地时区分钟偏移(前端格式化用)
   j += "\"nowEpoch\":"; j += String((long)time(nullptr)); j += ",";  // 设备当前 UTC 秒，前端以此统一时间显示
   j += "\"operator\":\""; j += jsonEscape(modemOperator); j += "\",";
   j += "\"imei\":\""; j += jsonEscape(modemImei); j += "\",";
   j += "\"iccid\":\""; j += jsonEscape(modemIccid); j += "\",";
+  j += "\"imsi\":\""; j += jsonEscape(modemImsi); j += "\",";       // SIM IMSI
+  j += "\"apnSim\":\""; j += jsonEscape(modemApn); j += "\",";      // 模组读到的 APN
+  j += "\"mfr\":\""; j += jsonEscape(modemMfr); j += "\",";         // 模组制造商
+  j += "\"model\":\""; j += jsonEscape(modemModel); j += "\",";    // 模组型号
+  j += "\"fwver\":\""; j += jsonEscape(modemFwVer); j += "\",";    // 模组固件版本
   j += "\"phone\":\""; j += jsonEscape(phone); j += "\",";
   j += "\"dataEnabled\":"; j += (config.dataEnabled ? "true" : "false"); j += ",";
   j += "\"apn\":\""; j += jsonEscape(config.apn); j += "\",";
@@ -1094,6 +828,12 @@ void handleStatus() {
   j += "\"tac\":\""; j += jsonEscape(modemTac); j += "\",";
   j += "\"inboxCount\":"; j += String(inboxCount()); j += ",";
   j += "\"ip\":\""; j += WiFi.localIP().toString(); j += "\",";
+  j += "\"gw\":\""; j += WiFi.gatewayIP().toString(); j += "\",";       // WiFi 网关
+  j += "\"mask\":\""; j += WiFi.subnetMask().toString(); j += "\",";    // 子网掩码
+  j += "\"dns\":\""; j += WiFi.dnsIP().toString(); j += "\",";          // DNS
+  j += "\"mac\":\""; j += WiFi.macAddress(); j += "\",";                // 本机 MAC
+  j += "\"bssid\":\""; j += WiFi.BSSIDstr(); j += "\",";                // 路由器 BSSID
+  j += "\"chan\":"; j += String(WiFi.channel()); j += ",";              // WiFi 信道
   j += "\"freeHeap\":"; j += String(ESP.getFreeHeap()); j += ",";
   j += "\"minFreeHeap\":"; j += String(ESP.getMinFreeHeap()); j += ",";
   j += "\"maxAllocHeap\":"; j += String(ESP.getMaxAllocHeap()); j += ",";
@@ -1102,16 +842,18 @@ void handleStatus() {
   j += "\"fwdQueueDepth\":"; j += String(forwardQueueDepth()); j += ",";
   j += "\"outSmsQueueDepth\":"; j += String(outgoingSmsQueueDepth()); j += ",";
   j += "\"emailQueueDepth\":"; j += String(emailQueueDepth()); j += ",";
-  j += "\"smsTotal\":"; j += String(smsTotalCount); j += ",";          // D4
-  j += "\"lastSmsEpoch\":"; j += String((long)lastSmsEpoch); j += ",";  // D4
-  j += "\"resetReason\":"; j += String((int)esp_reset_reason()); j += ",";  // D3
+  j += "\"slowBusy\":"; j += (gSlowWorkBusy ? "true" : "false"); j += ",";
+  j += "\"smsTotal\":"; j += String(smsTotalCount); j += ",";
+  j += "\"lastSmsEpoch\":"; j += String((long)lastSmsEpoch); j += ",";
+  j += "\"resetReason\":"; j += String((int)esp_reset_reason()); j += ",";
   j += "\"configValid\":"; j += (configValid ? "true" : "false"); j += ",";
-  j += "\"timeSynced\":"; j += (timeSynced ? "true" : "false");
+  j += "\"timeSynced\":"; j += (timeSynced ? "true" : "false"); j += ",";
+  j += "\"chipTemp\":"; j += String(temperatureRead(), 1);   // ESP32-C3 片内温度(℃)，非环境/模组温度，仅供过热趋势参考(读数偏高且不精确)
   j += "}";
   server.send(200, "application/json", j);
 }
 
-// C2 通道发送测试：用当前配置向指定通道发一条测试推送，便于配置后即时验证
+// 通道发送测试：用当前配置向指定通道发一条测试推送，便于配置后即时验证
 void handleTestPush() {
   if (!checkAuth()) return;
   int ch = server.arg("ch").toInt();
@@ -1133,7 +875,7 @@ void handleTestPush() {
   server.send(200, "application/json", j);
 }
 
-// C1 USSD 查询(如查余额): 发送 AT+CUSD 并等待 +CUSD 结果(最长 ~20s)
+// USSD 查询(如查余额): 发送 AT+CUSD 并等待 +CUSD 结果(最长 ~20s)
 void handleUssd() {
   if (!checkAuth()) return;
   String code = server.arg("code");
@@ -1476,7 +1218,7 @@ void handleDeleteMsg() {
   server.send(200, "application/json", ok ? "{\"success\":true,\"message\":\"已删除\"}" : "{\"success\":false,\"message\":\"未找到\"}");
 }
 
-// E0 保号: action=status(默认) / run(立即执行) / reset(仅重置基准日)
+// 保号: action=status(默认) / run(立即执行) / reset(仅重置基准日)
 void handleKeepAlive() {
   if (!checkAuth()) return;
   String action = server.arg("action");
@@ -1532,6 +1274,7 @@ void handleModem() {
     logCaptureLn("网页端请求硬重启模组...");
     server.send(200, "application/json", "{\"success\":true,\"message\":\"正在硬重启模组，请等待约 15 秒后刷新页面\"}");
     resetModule();
+    busy = false;
     return;
   }
   else if (action == "signal") {
@@ -1553,7 +1296,9 @@ void handleModem() {
         else if (rssi >= 10) quality = "一般";
         else if (rssi >= 5) quality = "较差";
         else quality = "很差";
-        message = "RSRP: " + String(dbm) + " dBm (" + quality + "), RSSI: " + String(rssi) + ", BER: " + String(ber);
+        // 注意：AT+CSQ 给的是 RSSI(总接收功率)，不是 RSRP(服务小区每RE功率)。此前误标为 RSRP，
+        // 导致与首页(AT+MUESTATS 真实 RSRP)对不上。这里如实标为信号强度(RSSI)，原始值标为 CSQ。
+        message = "信号强度(RSSI): " + String(dbm) + " dBm (" + quality + "), CSQ原始值: " + String(rssi) + ", BER: " + String(ber);
         success = true;
       }
     }

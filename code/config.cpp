@@ -19,7 +19,7 @@ void saveConfig() {
   preferences.putBool("emailEn", config.emailEnabled);
   preferences.putBool("pushEn", config.pushEnabled);
 
-  // E0 保号定时任务
+  // 保号定时任务
   preferences.putBool("kaEn", config.kaEnabled);
   preferences.putInt("kaDays", config.kaIntervalDays);
   preferences.putUChar("kaAct", config.kaAction);
@@ -71,7 +71,7 @@ void loadConfig() {
   config.emailEnabled = preferences.getBool("emailEn", true);
   config.pushEnabled = preferences.getBool("pushEn", true);
 
-  // E0 保号定时任务（带默认值，旧配置升级零迁移）
+  // 保号定时任务（带默认值，旧配置升级零迁移）
   config.kaEnabled = preferences.getBool("kaEn", false);
   config.kaIntervalDays = preferences.getInt("kaDays", 175);
   config.kaAction = preferences.getUChar("kaAct", KA_ACTION_PING);

@@ -19,7 +19,6 @@ bool checkAuth();
 void handleRoot();
 void handleToolsPage();
 void handleSave();
-void handleQuery();
 void handleFlightMode();
 void handleATCommand();
 void handleSendSms();
@@ -28,7 +27,7 @@ void processPingJob();    // 诊断 UDP 流量后台任务，避免 /ping HTTP h
 void handleLog();
 void handleModem();
 void handleWifi();
-void handleStatus();      // P1-7 机器可读健康状态 JSON
+void handleStatus();      // 机器可读健康状态 JSON
 void handleMessages();    // 收件箱: 最近短信 JSON
 void handleResend();      // 重发收件箱某条(/resend?id=)
 void handleDeleteMsg();   // 删除收件箱某条(/delete?id=)
@@ -41,8 +40,8 @@ void handleWifiScan();    // 扫描周边 WiFi
 void handleWifiConfig();  // 保存 WiFi 并重启接入
 void handleOtaUpload();   // OTA 上传(分块)
 void handleOtaFinish();   // OTA 完成响应
-void handleKeepAlive();   // E0 保号: status / run / reset
-void handleTestPush();    // C2 通道发送测试
-void handleUssd();        // C1 USSD 查询
+void handleKeepAlive();   // 保号: status / run / reset
+void handleTestPush();    // 通道发送测试
+void handleUssd();        // USSD 查询
 
 #endif

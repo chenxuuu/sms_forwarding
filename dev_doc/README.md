@@ -121,7 +121,7 @@ pushWorkerTask() 任务（后台，慢速 TLS/SMTP，不阻塞 loop）
 ## 关键设计决策
 
 - **双任务并发**：网页/模组/收发短信/保号在 loop 任务；推送(HTTP)与邮件(SMTP)在独立 `pushWorkerTask`，慢速 TLS 不阻塞收信与网页。共享状态用 `gWorkMux`/`gLogMux` 保护，绝不持锁发网络（详见 `architecture.md`）
-- **保号 = HTTP GET baidu**：`kaAction==1` 经模组 TCP（MIPOPEN/MIPSEND）对 baidu 发 HTTP GET 产生真实蜂窝下行流量（动账），优于旧的 UDP 打流量；`/ping` 诊断仍用 UDP
+- **保号 = 固定字节 UDP 上行**：`kaAction==1` 临时激活 PDP，经模组 UDP socket 发送约 48KB 上行；`/ping` 诊断复用同一字节数，便于按漫游每 MB 资费估算扣费
 - **PDU 模式** 而非 Text 模式：中文短信必须使用 PDU 编码
 - **CGACT 默认关闭**：启动时主动禁用 4G 数据连接，避免意外流量消耗（保号/诊断会临时激活）
 - **NVS 持久化**：所有配置存储在 ESP32 非易失存储中，断电不丢失

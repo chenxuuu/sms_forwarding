@@ -85,6 +85,11 @@ int main() {
   check(keepAliveDue(0, NOW, 175), "keepAlive no baseline -> due");
   check(!keepAliveDue(NOW - 200u * 86400u, NOW, 0), "keepAlive interval 0 -> off");
 
+  // ---- formatEpochLocal ----
+  eq(formatEpochLocal(1750000000u, 480), "2025-06-15 23:06:40 (UTC+8)", "formatEpochLocal UTC+8");
+  eq(formatEpochLocal(1750000000u, 0), "2025-06-15 15:06:40 (UTC)", "formatEpochLocal UTC");
+  eq(formatEpochLocal(12345u, 480), "时间未同步", "formatEpochLocal invalid epoch");
+
   // ---- extractOtp ----
   eq(extractOtp(String("您的验证码是 482913，请勿泄露")), "482913", "otp extract 6-digit");
   eq(extractOtp(String("code 12 then 8765")), "8765", "otp skip short, take 4-digit");
@@ -132,6 +137,9 @@ int main() {
     String m2, model2, v2;
     parseATI(String("ATI\r\nx\r\nML307Y\r\ny\r\nOK\r\n"), m2, model2, v2);
     eq(model2, "ML307Y", "parseATI model ML307Y");
+    String m3, model3, v3;
+    parseATI(String("ATI\r\nMOBILETEK\r\nML307R\r\nV1.0"), m3, model3, v3);
+    eq(v3, "V1.0", "parseATI no trailing newline");
   }
 
   // ---- streamTemplate ----

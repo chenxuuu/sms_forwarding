@@ -133,6 +133,54 @@ inline uint32_t fnv1a32(const String& s) {
 // ---- 绝对时间是否有效（Unix 秒，>= 2023-11，过滤未对时的垃圾 RTC 值） ----
 inline bool epochIsValid(uint32_t epoch) { return epoch >= 1700000000u; }
 
+// ---- Unix 秒按设备时区格式化：不依赖 libc 全局时区，适合日志/推送显示。 ----
+inline void civilFromDays(int64_t z, int& y, int& m, int& d) {
+  z += 719468;
+  const int64_t era = (z >= 0 ? z : z - 146096) / 146097;
+  const unsigned doe = (unsigned)(z - era * 146097);
+  const unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+  y = (int)yoe + (int)era * 400;
+  const unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  const unsigned mp = (5 * doy + 2) / 153;
+  d = (int)(doy - (153 * mp + 2) / 5 + 1);
+  m = (int)(mp + (mp < 10 ? 3 : -9));
+  y += (m <= 2);
+}
+
+inline String formatTzOffset(int tzOffsetMin) {
+  if (tzOffsetMin == 0) return String("UTC");
+  char buf[16];
+  int total = tzOffsetMin < 0 ? -tzOffsetMin : tzOffsetMin;
+  int hh = total / 60;
+  int mm = total % 60;
+  if (mm == 0) snprintf(buf, sizeof(buf), "UTC%c%d", tzOffsetMin < 0 ? '-' : '+', hh);
+  else snprintf(buf, sizeof(buf), "UTC%c%d:%02d", tzOffsetMin < 0 ? '-' : '+', hh, mm);
+  return String(buf);
+}
+
+inline String formatEpochLocalRaw(int64_t epoch, int tzOffsetMin) {
+  int64_t local = epoch + (int64_t)tzOffsetMin * 60;
+  int64_t days = local / 86400;
+  int64_t rem = local % 86400;
+  if (rem < 0) { rem += 86400; days--; }
+  int y, mo, d;
+  civilFromDays(days, y, mo, d);
+  int h = (int)(rem / 3600);
+  int mi = (int)((rem % 3600) / 60);
+  int se = (int)(rem % 60);
+  char buf[40];
+  snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d (", y, mo, d, h, mi, se);
+  String out = buf;
+  out += formatTzOffset(tzOffsetMin);
+  out += ")";
+  return out;
+}
+
+inline String formatEpochLocal(uint32_t epoch, int tzOffsetMin) {
+  if (!epochIsValid(epoch)) return String("时间未同步");
+  return formatEpochLocalRaw((int64_t)epoch, tzOffsetMin);
+}
+
 // ---- 保号是否到期：now/last 为 Unix 秒。仅在 now 有效时判断；
 //      无有效基准则视为到期（触发一次以建立基准）。 ----
 inline bool keepAliveDue(uint32_t lastTs, uint32_t now, uint32_t intervalDays) {
@@ -209,18 +257,22 @@ inline String bodyPreview(const String& text, bool verbose) {
 //      modem.cpp 初始化与网页诊断查询共用，行为与原内联解析一致。 ----
 inline void parseATI(const String& resp, String& mfg, String& model, String& ver) {
   int lineStart = 0, lineNum = 0, n = (int)resp.length();
-  for (int i = 0; i < n; i++) {
-    if (resp.charAt(i) == '\n' || i == n - 1) {
-      String line = resp.substring(lineStart, i);
-      line.trim();
-      if (line.length() > 0 && line != "ATI" && line != "OK") {
-        lineNum++;
-        if (lineNum == 1) mfg = line;
-        else if (lineNum == 2) model = line;
-        else if (lineNum == 3) ver = line;
+  while (lineStart <= n) {
+    int lineEnd = lineStart;
+    while (lineEnd < n && resp.charAt(lineEnd) != '\n') lineEnd++;
+    String line = resp.substring(lineStart, lineEnd);
+    line.trim();
+    if (line.length() > 0 && line != "ATI" && line != "OK") {
+      lineNum++;
+      if (lineNum == 1) mfg = line;
+      else if (lineNum == 2) model = line;
+      else if (lineNum == 3) {
+        ver = line;
+        return;
       }
-      lineStart = i + 1;
     }
+    if (lineEnd >= n) break;
+    lineStart = lineEnd + 1;
   }
 }
 

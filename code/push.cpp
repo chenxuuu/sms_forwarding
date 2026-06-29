@@ -9,7 +9,7 @@
 
 // 发送邮件通知函数（在后台 worker 线程执行）。先在锁内快照 SMTP 配置(String 拷贝)，
 // 之后整个 SMTP 会话只用本地副本，杜绝与 handleSave 改写 config.smtp* 的撕裂读。
-void sendEmailNotification(const char* subject, const char* body) {
+bool sendEmailNotification(const char* subject, const char* body) {
   muxLock(gWorkMux);
   String smServer = config.smtpServer;
   int    smPort   = config.smtpPort;
@@ -21,15 +21,19 @@ void sendEmailNotification(const char* subject, const char* body) {
   if (smServer.length() == 0 || smUser.length() == 0 ||
       smPass.length() == 0 || smTo.length() == 0) {
     logCaptureLn("邮件配置不完整，跳过发送");
-    return;
+    return false;
   }
 
   auto statusCallback = [](SMTPStatus status) {
+#if SMS_LOG_VERBOSE
     logCaptureLn(String(status.text));
+#else
+    (void)status;
+#endif
   };
-  smtp.connect(smServer.c_str(), smPort, statusCallback);
-  if (smtp.isConnected()) {
-    smtp.authenticate(smUser.c_str(), smPass.c_str(), readymail_auth_password);
+  bool ok = false;
+  if (smtp.connect(smServer.c_str(), smPort, statusCallback) && smtp.isConnected()) {
+    bool authed = smtp.authenticate(smUser.c_str(), smPass.c_str(), readymail_auth_password);
 
     SMTPMessage msg;
     String from = "sms notify <"; from += smUser; from += ">";
@@ -39,11 +43,13 @@ void sendEmailNotification(const char* subject, const char* body) {
     msg.headers.add(rfc822_subject, subject);
     msg.text.body(body);
     msg.timestamp = time(nullptr);
-    smtp.send(msg);
-    logCaptureLn("邮件发送完成");
+    ok = authed && smtp.send(msg);
+    logCaptureLn(ok ? "邮件发送完成" : "邮件发送失败");
   } else {
     logCaptureLn("邮件服务器连接失败");
   }
+  smtp.stop();
+  return ok;
 }
 
 // urlEncode 已移至 sms_logic.h（带 reserve，设备与主机测试共用）
@@ -79,7 +85,7 @@ int64_t getUtcMillis() {
 
 // jsonEscape 已移至 sms_logic.h（带 reserve + 控制字符 \u00XX，设备与主机测试共用）
 
-// P0-5 脱敏：推送负载含短信正文，默认只记字节数(不入网页日志)，SMS_LOG_VERBOSE 时记完整内容
+// 推送负载含短信正文，默认只记字节数；SMS_LOG_VERBOSE 时记完整内容。
 static void logPayload(const char* label, const String& payload) {
 #if SMS_LOG_VERBOSE
   logCaptureLn(String(label) + ": " + payload);
@@ -98,7 +104,7 @@ bool sendToChannel(const PushChannel& channel, const char* sender, const char* m
                   channel.type == PUSH_TYPE_CUSTOM);
   if (needUrl && channel.url.length() == 0) return false;
 
-  // P1-1 TLS 前预检：可分配堆不足时跳过，避免握手途中 OOM 崩溃(由重试队列稍后补发)
+  // TLS 前预检：可分配堆不足时跳过，避免握手途中 OOM 崩溃。
   if (ESP.getMaxAllocHeap() < TLS_MIN_FREE_HEAP) {
     logCaptureF("可分配堆不足(%u<%u)，跳过本次推送，稍后重试\n",
                 (unsigned)ESP.getMaxAllocHeap(), (unsigned)TLS_MIN_FREE_HEAP);
@@ -107,8 +113,8 @@ bool sendToChannel(const PushChannel& channel, const char* sender, const char* m
 
   HTTPClient http;
   http.setReuse(false);
-  http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);  // P1-1 连接超时
-  http.setTimeout(HTTP_READ_TIMEOUT_MS);            // P1-1 读超时，避免无限阻塞
+  http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
+  http.setTimeout(HTTP_READ_TIMEOUT_MS);
   String channelName = channel.name.length() > 0 ? channel.name : ("通道" + String(channel.type));
   logCaptureLn(String("发送到推送通道: " + channelName));
 
@@ -323,7 +329,7 @@ bool sendToChannel(const PushChannel& channel, const char* sender, const char* m
       
       String jsonData = "{";
       jsonData += "\"chat_id\":\"" + channel.key1 + "\",";
-      String text = "短信通知\n发送者: " + senderEscaped + "\n内容: " + messageEscaped + "\n时间: " + timestampEscaped;
+      String text = "短信通知\\n发送者: " + senderEscaped + "\\n内容: " + messageEscaped + "\\n时间: " + timestampEscaped;
       jsonData += "\"text\":\"" + text + "\"";
       jsonData += "}";
       
@@ -340,10 +346,12 @@ bool sendToChannel(const PushChannel& channel, const char* sender, const char* m
   bool ok = (httpCode >= 200 && httpCode < 300);
   if (httpCode > 0) {
     logCaptureF("[%s] 响应码: %d\n", channelName.c_str(), httpCode);
+#if SMS_LOG_VERBOSE
     if (ok) {
       String response = http.getString();
       logPayload("响应", response);
     }
+#endif
   } else {
     logCaptureF("[%s] HTTP请求失败: %s\n", channelName.c_str(), http.errorToString(httpCode).c_str());
   }
@@ -351,7 +359,7 @@ bool sendToChannel(const PushChannel& channel, const char* sender, const char* m
   return ok;
 }
 
-// ---- P1-2 有界推送重试队列 ----
+// ---- 有界推送重试队列 ----
 // 注：推送/邮件/测试三类慢任务已移到后台 worker 线程执行(见 pushWorkerTask)，loop 不再被其阻塞，
 // 故原先用于避让网页的人为节流(slowWorkGraceActive + 各 grace 间隔)整套删除——worker 单任务串行
 // 本身就是天然限速，无需再额外延迟。所有队列槽位访问改用 gWorkMux 保护(loop 生产 / worker 消费)。
@@ -366,6 +374,35 @@ struct RetryItem {
   String timestamp;
 };
 static RetryItem retryQueue[PUSH_QUEUE_MAX];  // 全局零初始化 -> used=false
+static uint8_t pushChannelFailCount[MAX_PUSH_CHANNELS];
+static uint32_t pushChannelCooldownUntil[MAX_PUSH_CHANNELS];
+
+static bool pushChannelCooling(uint8_t ch, uint32_t now) {
+  return ch < MAX_PUSH_CHANNELS && pushChannelCooldownUntil[ch] &&
+         (int32_t)(now - pushChannelCooldownUntil[ch]) < 0;
+}
+
+static uint32_t pushChannelCooldownLeftMs(uint8_t ch, uint32_t now) {
+  if (!pushChannelCooling(ch, now)) return 0;
+  return pushChannelCooldownUntil[ch] - now;
+}
+
+static void notePushChannelResult(uint8_t ch, bool ok) {
+  if (ch >= MAX_PUSH_CHANNELS) return;
+  if (ok) {
+    pushChannelFailCount[ch] = 0;
+    pushChannelCooldownUntil[ch] = 0;
+    return;
+  }
+  if (pushChannelFailCount[ch] < 255) pushChannelFailCount[ch]++;
+  if (pushChannelFailCount[ch] >= 2) {
+    uint32_t coolMs = 30000UL * (uint32_t)pushChannelFailCount[ch];
+    if (coolMs > 300000UL) coolMs = 300000UL;
+    pushChannelCooldownUntil[ch] = millis() + coolMs;
+    logCaptureF("通道%u 连续失败%u次，冷却 %lu 秒\n",
+                ch + 1, pushChannelFailCount[ch], (unsigned long)(coolMs / 1000UL));
+  }
+}
 
 int retryQueueDepth() {
   muxLock(gWorkMux);
@@ -427,9 +464,9 @@ static void freeRetrySlot(int i) {
 
 // 后台 worker 周期调用：每次最多处理一条到期项。锁内挑选+快照通道配置，解锁后再做阻塞网络发送，
 // 完成后再加锁更新该槽(重试/释放)。绝不在持锁期间发起网络。
-void processRetryQueue() {
-  if (WiFi.status() != WL_CONNECTED) return;
-  if (ESP.getMaxAllocHeap() < TLS_MIN_FREE_HEAP) return;            // 堆紧张，稍后再试
+bool processRetryQueue() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  if (ESP.getMaxAllocHeap() < TLS_MIN_FREE_HEAP) return false;      // 堆紧张，稍后再试
   uint32_t now = millis();
 
   int picked = -1;
@@ -452,14 +489,21 @@ void processRetryQueue() {
     if (ch < MAX_PUSH_CHANNELS) { chCopy = config.pushChannels[ch]; valid = isPushChannelValid(chCopy); }
     break;
   }
-  if (picked < 0) { muxUnlock(gWorkMux); return; }
-  if (!valid) { freeRetrySlot(picked); muxUnlock(gWorkMux); return; }  // 通道已被删除/禁用，放弃
+  if (picked < 0) { muxUnlock(gWorkMux); return false; }
+  if (!valid) { freeRetrySlot(picked); muxUnlock(gWorkMux); return true; }  // 通道已被删除/禁用，放弃
+  uint32_t coolLeft = pushChannelCooldownLeftMs(ch, now);
+  if (coolLeft > 0) {
+    retryQueue[picked].nextAttemptMs = now + coolLeft + 1000UL;
+    muxUnlock(gWorkMux);
+    return false;
+  }
   muxUnlock(gWorkMux);
 
   logCaptureF("%s 通道%u 第%u次\n", attempts ? "重试推送" : "发送推送", ch + 1, attempts + 1);
   gSlowWorkBusy = true;
   bool ok = sendToChannel(chCopy, sndr.c_str(), msg.c_str(), ts.c_str());
   gSlowWorkBusy = false;
+  notePushChannelResult(ch, ok);
 
   muxLock(gWorkMux);
   if (retryQueue[picked].used && retryQueue[picked].gen == pickedGen) {  // 槽仍是同一条消息(未被回收复用)
@@ -479,9 +523,10 @@ void processRetryQueue() {
     }
   }
   muxUnlock(gWorkMux);
+  return true;
 }
 
-// ---- C2 测试推送后台队列：避免 /testpush 请求同步等待慢 HTTPS/Webhook ----
+// ---- 测试推送后台队列：避免 /testpush 请求同步等待慢 HTTPS/Webhook ----
 struct TestPushJob {
   bool pending;
   bool running;
@@ -544,9 +589,9 @@ String testPushStatusJson(uint8_t ch) {
 }
 
 // 后台 worker 周期调用：锁内取一个待测通道 + 快照通道配置，解锁后做阻塞发送，再加锁写回结果。
-void processTestPushQueue() {
-  if (WiFi.status() != WL_CONNECTED) return;
-  if (ESP.getMaxAllocHeap() < TLS_MIN_FREE_HEAP) return;
+bool processTestPushQueue() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  if (ESP.getMaxAllocHeap() < TLS_MIN_FREE_HEAP) return false;
 
   int picked = -1;
   PushChannel chCopy;
@@ -565,20 +610,17 @@ void processTestPushQueue() {
     break;
   }
   muxUnlock(gWorkMux);
-  if (picked < 0) return;
+  if (picked < 0) return false;
 
   bool ok = false;
   String resultMsg;
   if (!valid) {
     resultMsg = "通道配置已变更或未启用，测试取消";
   } else {
-    char ts[24];
-    time_t now = time(nullptr);
-    struct tm* t = localtime(&now);
-    strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", t);
+    String ts = formatEpochLocal((uint32_t)time(nullptr), config.tzOffsetMin);
     logCaptureF("后台测试推送通道%u开始\n", picked + 1);
     gSlowWorkBusy = true;
-    ok = sendToChannel(chCopy, "测试", "这是一条来自 SMS Forwarder 的测试推送", ts);
+    ok = sendToChannel(chCopy, "测试", "这是一条来自 SMS Forwarder 的测试推送", ts.c_str());
     gSlowWorkBusy = false;
     resultMsg = ok ? "测试推送已发送" : "测试推送失败，请查看日志";
   }
@@ -589,6 +631,7 @@ void processTestPushQueue() {
   testPushJobs[picked].success = ok;
   testPushJobs[picked].message = resultMsg;
   muxUnlock(gWorkMux);
+  return true;
 }
 
 // ---- 短信转发邮件队列：避免 SMTP 在收到短信当帧阻塞网页刷新 ----
@@ -600,6 +643,26 @@ struct EmailItem {
 static EmailItem emailQueue[EMAIL_QUEUE_MAX];
 static int emailHead = 0;
 static int emailCount = 0;
+static uint8_t emailFailCount = 0;
+static uint32_t emailCooldownUntil = 0;
+
+static bool emailCooling(uint32_t now) {
+  return emailCooldownUntil && (int32_t)(now - emailCooldownUntil) < 0;
+}
+
+static void noteEmailResult(bool ok) {
+  if (ok) {
+    emailFailCount = 0;
+    emailCooldownUntil = 0;
+    return;
+  }
+  if (emailFailCount < 255) emailFailCount++;
+  uint32_t coolMs = 60000UL * (uint32_t)emailFailCount;
+  if (coolMs > 300000UL) coolMs = 300000UL;
+  emailCooldownUntil = millis() + coolMs;
+  logCaptureF("邮件连续失败%u次，冷却 %lu 秒\n",
+              emailFailCount, (unsigned long)(coolMs / 1000UL));
+}
 
 int emailQueueDepth() {
   muxLock(gWorkMux);
@@ -635,12 +698,22 @@ bool enqueueEmailNotification(const char* subject, const char* body) {
 }
 
 // 消费端(后台 worker)：锁内出队一封(拷出后释放槽)，解锁后做阻塞 SMTP 发送。
-void processEmailQueue() {
-  if (WiFi.status() != WL_CONNECTED) return;
-  if (ESP.getMaxAllocHeap() < TLS_MIN_FREE_HEAP) return;
+bool processEmailQueue() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  if (ESP.getMaxAllocHeap() < TLS_MIN_FREE_HEAP) return false;
+  if (emailCooling(millis())) return false;
 
   muxLock(gWorkMux);
-  if (emailCount == 0) { muxUnlock(gWorkMux); return; }
+  if (!config.emailEnabled) {
+    if (emailCount > 0) {
+      for (int i = 0; i < EMAIL_QUEUE_MAX; i++) clearEmailSlot(i);
+      emailHead = 0;
+      emailCount = 0;
+    }
+    muxUnlock(gWorkMux);
+    return false;
+  }
+  if (emailCount == 0) { muxUnlock(gWorkMux); return false; }
   EmailItem it = emailQueue[emailHead];
   clearEmailSlot(emailHead);
   emailHead = (emailHead + 1) % EMAIL_QUEUE_MAX;
@@ -648,8 +721,10 @@ void processEmailQueue() {
   muxUnlock(gWorkMux);
 
   gSlowWorkBusy = true;   // 邮件已出队、SMTP 在途：让 heapGuard/定时重启避让，避免误判空闲
-  sendEmailNotification(it.subject.c_str(), it.body.c_str());
+  bool ok = sendEmailNotification(it.subject.c_str(), it.body.c_str());
   gSlowWorkBusy = false;
+  noteEmailResult(ok);
+  return true;
 }
 
 // ---- 接收/转发解耦：已收短信先入有界转发队列，由 loop() 异步逐条转发，
@@ -670,6 +745,7 @@ static void forwardNow(const ForwardItem& it) {
   ForwardDecision fd = evalForwardRules(config.forwardRules, it.sender, it.text);
   if (fd.matched && fd.drop) {
     logCaptureLn(String("转发规则命中：丢弃来自 ") + maskPhone(it.sender));
+    inboxMarkForwarded(it.inboxId);  // 已按规则处理，不再在收件箱显示"待处理"
     return;  // 不转发、不发邮件
   }
   unsigned mask = fd.matched ? fd.chMask : 0xFF;   // 命中按规则掩码；未命中=全部通道
@@ -689,7 +765,10 @@ static void forwardNow(const ForwardItem& it) {
       emailQueued = enqueueEmailJob(subject.c_str(), body.c_str());
     }
   }
-  if (pushed || emailQueued) inboxMarkForwarded(it.inboxId);  // 至少有动作成功入队才标记"已转发"
+  if (!pushed && !emailQueued) {
+    logCaptureLn("该短信无有效转发目标或目标未启用，已完成规则处理");
+  }
+  inboxMarkForwarded(it.inboxId);  // 已完成本地转发拆分；后续 HTTP/SMTP 成败由重试队列负责
 }
 
 void enqueueForward(const char* sender, const char* text, const char* timestamp, uint32_t inboxId) {
@@ -708,16 +787,20 @@ void enqueueForward(const char* sender, const char* text, const char* timestamp,
   fwdCount++;
 }
 
-// loop() 周期调用：每帧最多转发一条。forwardNow 只做规则判定 + 把任务塞进 worker 的推送/邮件队列
+// loop() 周期调用：每帧只拆少量转发任务。forwardNow 只做规则判定 + 把任务塞进 worker 的推送/邮件队列
 // (无网络)，开销极小、立即执行——真正的慢速 HTTP/SMTP 由后台 worker 发出，不阻塞接收与网页。
 // fwdQueue 仅 loop/URC 单线程访问(生产 enqueueForward / 消费此处)，无需加锁。
 void processForwardQueue() {
-  if (fwdCount == 0) return;
-  ForwardItem it = fwdQueue[fwdHead];                 // 复制出来
-  clearFwdSlot(fwdHead);
-  fwdHead = (fwdHead + 1) % FWD_QUEUE_MAX;
-  fwdCount--;
-  forwardNow(it);
+  int maxJobs = 2;
+  int n = 0;
+  while (fwdCount > 0 && n < maxJobs) {
+    ForwardItem it = fwdQueue[fwdHead];                 // 复制出来
+    clearFwdSlot(fwdHead);
+    fwdHead = (fwdHead + 1) % FWD_QUEUE_MAX;
+    fwdCount--;
+    forwardNow(it);
+    n++;
+  }
 }
 
 // 将短信拆成逐通道推送任务（失败/断网则继续留在重试队列，不静默丢失）
@@ -737,7 +820,6 @@ bool sendSMSToServer(const char* sender, const char* message, const char* timest
   bool wifiUp = (WiFi.status() == WL_CONNECTED);
   if (!wifiUp) logCaptureLn("WiFi未连接，推送任务等待网络恢复");
 
-  logCaptureLn("\n=== 多通道推送入队 ===");
   int dispatched = 0;
   for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
     if (!isPushChannelValid(config.pushChannels[i])) continue;
@@ -749,7 +831,7 @@ bool sendSMSToServer(const char* sender, const char* message, const char* timest
     }
     dispatched++;
   }
-  logCaptureLn("=== 多通道推送已入队 ===\n");
+  if (dispatched > 0) logCaptureF("推送任务已入队: %d 个通道\n", dispatched);
   return dispatched > 0;  // 至少一个启用通道被规则选中并发送/入队，才算转发动作发生
 }
 
@@ -761,13 +843,15 @@ bool sendSMSToServer(const char* sender, const char* message, const char* timest
 static void pushWorkerTask(void* arg) {
   for (;;) {
     bool wifi = (WiFi.status() == WL_CONNECTED);
+    bool didWork = false;
     if (wifi) {
-      processRetryQueue();     // 每次最多一条到期推送
-      processEmailQueue();     // 每次最多一封转发邮件
-      processTestPushQueue();  // 每次最多一个测试通道
+      // 一轮只跑一类慢任务，避免连续 TLS/SMTP/HTTP 把 WiFi 栈和堆长时间占满。
+      didWork = processRetryQueue();     // 每次最多一条到期推送
+      if (!didWork) didWork = processEmailQueue();     // 每次最多一封转发邮件
+      if (!didWork) didWork = processTestPushQueue();  // 每次最多一个测试通道
     }
     // 阻塞式发送本身已在网络等待时让出 CPU；无活时小睡，喂看门狗、把 CPU 还给 loop。
-    vTaskDelay(pdMS_TO_TICKS(wifi ? 20 : 500));
+    vTaskDelay(pdMS_TO_TICKS(wifi ? (didWork ? 1 : 30) : 500));
   }
 }
 

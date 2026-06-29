@@ -14,6 +14,7 @@ void smsReceiveWatchdogTick();           // 接收看门狗：兜底轮询 + 重
 String readSerialLine(HardwareSerial& port);
 bool isHexString(const String& str);
 bool smsUrcReceiving();                   // 当前是否处在 +CMT/PDU 接收窗口或已有半行 URC
+bool smsStoredWorkPending();              // 已收到 +CMTI 或需 CMGL 兜底，模组串口应优先留给收信
 void drainPendingSmsUrc(unsigned long maxWaitMs = 3000);  // AT 命令前优先消化待处理短信 URC
 int processSmsUrcText(const String& text); // 从 AT 响应文本中提取并处理混入的 +CMT/PDU
 bool isInNumberBlackList(const char* sender);

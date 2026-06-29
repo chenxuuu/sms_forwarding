@@ -20,17 +20,18 @@ static KeepAliveJob kaJob;
 
 static void schedulerPumpWebDuringWait() { pumpWebDuringWait(); }  // 统一实现见 globals.h
 
-// 保号动作：激活数据连接 + 对 baidu 发起一次 HTTP GET 产生真实蜂窝流量(动账)，再关闭 PDP 省流量。
-// 改用 HTTP GET(原为 ~45KB UDP 上行)：下行响应是真实数据会话，运营商更确切按用量计费，保号更稳妥。
+// 保号动作：激活数据连接 + 发送固定字节 UDP 上行，再关闭 PDP 省流量。
+// giffgaff 中国漫游约 20p/MB，48KiB 用户数据约 0.98p；固定上行比小 HTTP 首页更可控。
 static bool keepAliveDataPing() {
   logCaptureLn("保号: 激活数据连接(CGACT=1)...");
   String r = sendATCommand("AT+CGACT=1,1", 10000);
   bool active = (r.indexOf("OK") >= 0);
   unsigned long stableStart = millis();
   while (millis() - stableStart < 500) schedulerPumpWebDuringWait();
-  bool ok = active && consumeCellularViaHttpGet(KEEPALIVE_HTTP_HOST);
-  if (ok) logCaptureLn("保号: 已通过 HTTP GET 产生一次蜂窝数据流量");
-  else logCaptureLn("保号: HTTP GET 保号流量失败");
+  bool ok = active && consumeCellularDataBytes(CELLULAR_BURN_BYTES, CELLULAR_BURN_DEFAULT_HOST, 53);
+  if (ok) logCaptureF("保号: 已发送约 %luKB 蜂窝 UDP 上行流量\n",
+                      (unsigned long)(CELLULAR_BURN_BYTES / 1024UL));
+  else logCaptureLn("保号: UDP 流量保号失败");
   // 仅在用户未启用蜂窝数据时关闭 PDP 省流量；若用户已在 SIM 页开启数据，保留其连接不误关。
   if (!config.dataEnabled) sendATCommand("AT+CGACT=0,1", 5000);
   return ok;
@@ -107,7 +108,7 @@ static void processKeepAliveJob() {
   // 防 SPA 持续轮询(每次刷新都刷新 lastWebRequestMs)把保号动作无限期饿死。
   if (lastWebRequestMs != 0 && millis() - lastWebRequestMs < SLOW_WORK_WEB_GRACE_MS &&
       millis() - kaJob.queuedMs < SLOW_WORK_MAX_DEFER_MS) return;
-  if (smsUrcReceiving()) return;
+  if (smsUrcReceiving() || smsStoredWorkPending()) return;
   if (!modemReady) {
     kaJob.pending = false;
     kaJob.running = false;

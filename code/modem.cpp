@@ -2,6 +2,7 @@
 #include "web_handlers.h"
 #include "inbox.h"
 #include "sms_process.h"
+#include "push.h"
 
 static bool modemSerialBusy = false;
 
@@ -28,6 +29,32 @@ static void endModemSerialOp() {
 
 static void pumpWebServerDuringWait() { pumpWebDuringWait(); }  // 统一实现见 globals.h
 
+static bool drainSerial1PreservingSms(const char* label) {
+  if (!Serial1.available()) return true;
+
+  String pending;
+  pending.reserve(160);
+  unsigned long start = millis();
+  while (millis() - start < 30) {
+    while (Serial1.available()) {
+      if (pending.length() < (MAX_PDU_LENGTH * 2 + 120)) pending += (char)Serial1.read();
+      else Serial1.read();  // 异常残留限长，避免 String 膨胀
+      start = millis();     // 字节仍在连续到达时多等一点，尽量收完整 +CMT/PDU 两行
+    }
+    if (!Serial1.available()) break;
+    yield();
+  }
+  if (pending.length() == 0) return true;
+
+  processSmsUrcText(pending);
+  if (smsUrcReceiving()) {
+    logCaptureLn(String("清理串口残留时遇到短信接收窗口，暂缓操作: ") + label);
+    drainPendingSmsUrc(3000);
+    if (smsUrcReceiving()) return false;
+  }
+  return true;
+}
+
 // 发送AT命令并获取响应
 String sendATCommand(const char* cmd, unsigned long timeout) {
   if (modemSerialBusy) {
@@ -45,7 +72,10 @@ String sendATCommand(const char* cmd, unsigned long timeout) {
     return "";
   }
   if (!beginModemSerialOp(cmd)) return "";
-  while (Serial1.available()) Serial1.read();
+  if (!drainSerial1PreservingSms(cmd)) {
+    endModemSerialOp();
+    return "";
+  }
   Serial1.println(cmd);
   
   unsigned long start = millis();
@@ -107,7 +137,7 @@ void resetModule() {
 }
 
 // 模组 AT 初始化流程（setup 中调用，resetModule 后也调用）
-// P0-2：所有原"无限 while 重试"改为有限重试，握手彻底失败时断电重启一次再试，
+// 所有原"无限 while 重试"改为有限重试，握手彻底失败时断电重启一次再试，
 // 仍失败则标记 modemReady=false 退出，绝不永久阻塞（后续由 modemHealthTick 自动重试恢复）。
 void modemInit() {
   // 清掉上电噪声/残留
@@ -174,11 +204,13 @@ void modemInit() {
   } else {
     logCaptureLn("短信存储设置失败，沿用模组默认存储");
   }
-  for (int tries = 0; tries < MODEM_INIT_CMD_RETRIES && !sendATandWaitOK("AT+CNMI=2,2,0,0,0", 1000); tries++) {
+  // mt=1：短信先落到 SM/MT 存储并发 +CMTI 通知；即使通知被 AT 事务打断，
+  // 60s CMGL 兜底轮询也能捞回，避免 mt=2 直推 +CMT 在极端串口竞争下丢正文。
+  for (int tries = 0; tries < MODEM_INIT_CMD_RETRIES && !sendATandWaitOK("AT+CNMI=2,1,0,0,0", 1000); tries++) {
     logCaptureLn("设置CNMI失败，重试...");
     blink_short();
   }
-  logCaptureLn("CNMI参数设置完成");
+  logCaptureLn("CNMI参数设置完成(存储通知模式)");
   for (int tries = 0; tries < MODEM_INIT_CMD_RETRIES && !sendATandWaitOK("AT+CMGF=0", 1000); tries++) {
     logCaptureLn("设置PDU模式失败，重试...");
     blink_short();
@@ -257,6 +289,35 @@ void sampleModemIdentity() {
     if (nl >= 0) v = v.substring(0, nl);
     v.trim();
     if (v.length() >= 15) modemIccid = v;
+  }
+  // IMSI：AT+CIMI 返回纯数字行(无前缀)，后跟 OK；逐行找 14-16 位纯数字，跳过命令回显与 OK
+  String im = sendATCommand("AT+CIMI", 2000);
+  im.replace("\r", "\n");
+  for (int from = 0; from < (int)im.length(); ) {
+    int nl = im.indexOf('\n', from);
+    String line = (nl < 0) ? im.substring(from) : im.substring(from, nl);
+    line.trim();
+    bool allDigit = (line.length() >= 14 && line.length() <= 16);
+    for (int k = 0; allDigit && k < (int)line.length(); k++) if (line[k] < '0' || line[k] > '9') allDigit = false;
+    if (allDigit) { modemImsi = line; break; }
+    if (nl < 0) break; from = nl + 1;
+  }
+  // APN：读 AT+CGDCONT? 上下文1 的第3字段(SIM 默认/已配置接入点)。+CGDCONT: 1,"IP","apn",...
+  String cg = sendATCommand("AT+CGDCONT?", 2000);
+  int cgp = cg.indexOf("+CGDCONT: 1,");
+  if (cgp >= 0) {
+    int q1 = cg.indexOf('"', cgp), q2 = cg.indexOf('"', q1 + 1);
+    int q3 = cg.indexOf('"', q2 + 1), q4 = cg.indexOf('"', q3 + 1);
+    if (q3 >= 0 && q4 > q3 + 1) modemApn = cg.substring(q3 + 1, q4);
+  }
+  // 模组制造商/型号/固件版本：ATI 一次取齐，复用 sms_logic.h::parseATI(与诊断"固件信息"一致)
+  String ati = sendATCommand("ATI", 2000);
+  if (ati.indexOf("OK") >= 0) {
+    String mfr = "未知", model = "未知", ver = "未知";
+    parseATI(ati, mfr, model, ver);
+    if (mfr.length()   && mfr != "未知")   modemMfr = mfr;
+    if (model.length() && model != "未知") modemModel = model;
+    if (ver.length()   && ver != "未知")   modemFwVer = ver;
   }
   if (modemImei != oldImei || modemIccid != oldIccid) saveModemIdentityCache();
 }
@@ -346,8 +407,12 @@ void sampleSignalDetail() {
 void signalSampleTick() {
   if (!modemReady) return;
   if (smsRecvGuardUntil && millis() < smsRecvGuardUntil) return;  // 短信接收窗口内不采样，避免AT清缓冲冲掉URC
+  if (smsStoredWorkPending()) return;
   static unsigned long lastFast = 0, lastDetail = 0;
   unsigned long now = millis();
+  if (lastWebRequestMs != 0 && now - lastWebRequestMs < SLOW_WORK_WEB_GRACE_MS) return;
+  if (gSlowWorkBusy || forwardQueueDepth() > 0 || emailQueueDepth() > 0 ||
+      outgoingSmsQueueDepth() > 0) return;
   if (now - lastFast >= SIGNAL_FAST_INTERVAL_MS) {
     lastFast = now;
     String csq = sendATCommand("AT+CSQ", 1500);
@@ -355,7 +420,10 @@ void signalSampleTick() {
     if (ci >= 0) {
       int colon = csq.indexOf(':', ci);
       int comma = csq.indexOf(',', colon);
-      if (colon >= 0 && comma > colon) modemCsq = csq.substring(colon + 1, comma).toInt();
+      if (colon >= 0 && comma > colon) {
+        modemCsq = csq.substring(colon + 1, comma).toInt();
+        modemBer = csq.substring(comma + 1).toInt();   // 逗号后即 <ber>，toInt 自动忽略尾部 \r\nOK
+      }
     }
   }
   if (now - lastDetail >= SIGNAL_DETAIL_INTERVAL_MS) {
@@ -396,7 +464,7 @@ void modemApplyDataMode() {
   }
 }
 
-// P0-2 模组健康探测：loop() 周期调用。仅在"距上次确认存活已超过探测周期"时才主动发
+// 模组健康探测：loop() 周期调用。仅在"距上次确认存活已超过探测周期"时才主动发
 // AT+CEREG? —— 任何收到的串口行(含短信URC)都会刷新 lastModemOkMs(见 checkSerial1URC)，
 // 因此有真实短信流量或近期 AT 操作时不会主动探测，最大限度降低探测 AT 抢占到达短信 URC 的概率。
 // 连续失败达阈值则自动断电重启并重新初始化恢复。探测仅走本地 AT，不产生流量/资费。
@@ -475,8 +543,6 @@ static bool sendSMSImpl(const char* phoneNumber, const char* message) {
   
 #if SMS_LOG_VERBOSE
   logCapture("PDU数据: "); logCaptureLn(String(pdu.getSMS()));
-#else
-  logCaptureLn("PDU数据: [hidden]");
 #endif
   logCapture("PDU长度: "); logCaptureLn(String(pduLen));
   
@@ -484,7 +550,10 @@ static bool sendSMSImpl(const char* phoneNumber, const char* message) {
   String cmgsCmd = "AT+CMGS=";
   cmgsCmd += pduLen;
 
-  while (Serial1.available()) Serial1.read();
+  if (!drainSerial1PreservingSms("发送短信")) {
+    endModemSerialOp();
+    return false;
+  }
   Serial1.println(cmgsCmd);
   
   // 等待 > 提示符
@@ -493,7 +562,9 @@ static bool sendSMSImpl(const char* phoneNumber, const char* message) {
   while (millis() - start < 5000) {
     if (Serial1.available()) {
       char c = Serial1.read();
+#if SMS_LOG_VERBOSE
       logCapture(String(c));
+#endif
       if (c == '>') {
         gotPrompt = true;
         break;
@@ -519,17 +590,19 @@ static bool sendSMSImpl(const char* phoneNumber, const char* message) {
     while (Serial1.available()) {
       char c = Serial1.read();
       resp += c;
+#if SMS_LOG_VERBOSE
       logCapture(String(c));
+#endif
       if (resp.indexOf("OK") >= 0) {
         endModemSerialOp();
         processSmsUrcText(resp);
-        logCaptureLn("\n短信发送成功");
+        logCaptureLn("短信发送成功");
         return true;
       }
       if (resp.indexOf("ERROR") >= 0) {
         endModemSerialOp();
         processSmsUrcText(resp);
-        logCaptureLn("\n短信发送失败");
+        logCaptureLn("短信发送失败");
         return false;
       }
     }
@@ -551,7 +624,10 @@ bool sendSMS(const char* phoneNumber, const char* message) {
 
 static bool sendUdpDataChunk(uint16_t len) {
   if (!beginModemSerialOp("发送UDP流量数据")) return false;
-  while (Serial1.available()) Serial1.read();
+  if (!drainSerial1PreservingSms("发送UDP流量数据")) {
+    endModemSerialOp();
+    return false;
+  }
   Serial1.print("AT+MIPSEND=0,");
   Serial1.println(len);
 
@@ -652,83 +728,6 @@ bool consumeCellularDataBytes(unsigned long targetBytes, const char* host, uint1
   return true;
 }
 
-// 保号: 通过模组 TCP 向 baidu 发起一次 HTTP GET 以产生真实蜂窝流量(动账)。
-// 相比 UDP 打流量，HTTP GET 的下行响应(baidu 首页/跳转)会被模组自动以 +MIPURC:"rtcp" 收下 ——
-// 这部分下行字节即为消耗的流量，运营商按真实数据会话计费，更稳妥地维持号码活跃。
-// 全程占用模组串口(beginModemSerialOp)，与 UDP 路径一致；只用 MIPOPEN/MIPSEND/MIPCLOSE，不引入HTTP库。
-// 前置条件: PDP 已激活(调用方先 AT+CGACT=1,1)。
-bool consumeCellularViaHttpGet(const char* host) {
-  if (!host || !host[0]) host = KEEPALIVE_HTTP_HOST;
-  logCaptureF("保号: 准备 HTTP GET 消耗流量 http://%s/\n", host);
-  if (!beginModemSerialOp("HTTP GET 保号")) return false;
-
-  // 等待 Serial1 出现 needle 或 fail 标记，期间泵网页。命中 needle 返回 true。
-  auto waitToken = [](const char* needle, const char* failTok, unsigned long timeout) -> bool {
-    String buf; unsigned long start = millis();
-    while (millis() - start < timeout) {
-      while (Serial1.available()) {
-        buf += (char)Serial1.read();
-        if (buf.indexOf(needle) >= 0) return true;
-        if (failTok && failTok[0] && buf.indexOf(failTok) >= 0) return false;
-        if (buf.length() > 600) buf.remove(0, buf.length() - 80);  // 限长防膨胀，保留尾部
-      }
-      pumpWebServerDuringWait();
-    }
-    return false;
-  };
-
-  bool ok = false;
-  do {
-    // 1) 清理旧 socket(失败也继续)
-    while (Serial1.available()) Serial1.read();
-    Serial1.println("AT+MIPCLOSE=0");
-    waitToken("OK", "ERROR", 2000);
-
-    // 2) 打开 TCP 到 host:80；OK 仅表示命令受理，连接结果由 +MIPOPEN: 0,<r> URC 给出(0=成功)
-    while (Serial1.available()) Serial1.read();
-    Serial1.println(String("AT+MIPOPEN=0,\"TCP\",\"") + host + "\",80");
-    // 先等 +MIPOPEN: 0,0(成功)；DNS+握手可能数秒。失败码(非0)亦以 +MIPOPEN: 0, 形式出现 -> 由超时兜底。
-    if (!waitToken("+MIPOPEN: 0,0", nullptr, 15000)) {
-      logCaptureLn("保号: TCP 连接 baidu 未成功(+MIPOPEN 非0或超时)");
-      break;
-    }
-
-    // 3) 发送 HTTP GET 请求(MIPSEND 提示符方式，原样写入请求字节)
-    String req = String("GET / HTTP/1.0\r\nHost: ") + host +
-                 "\r\nUser-Agent: ESP32-SMS-Forwarder\r\nConnection: close\r\n\r\n";
-    while (Serial1.available()) Serial1.read();
-    Serial1.print("AT+MIPSEND=0,");
-    Serial1.println(req.length());
-    if (!waitToken(">", "ERROR", 5000)) { logCaptureLn("保号: MIPSEND 未收到 > 提示符"); break; }
-    Serial1.print(req);
-    if (!waitToken("OK", "ERROR", 5000)) { logCaptureLn("保号: HTTP 请求发送未确认"); break; }
-
-    // 4) 读取响应：这些下行字节(+MIPURC:"rtcp")即为消耗的流量；不解析内容，仅计数。
-    //    收到响应后连续静默 KEEPALIVE_HTTP_IDLE_MS 即提前结束(响应已收完)，省去固定 5s 空转、
-    //    并收窄"读取期间吞掉随后到达的 +CMT 短信"的窗口；硬上限仍为 KEEPALIVE_HTTP_DRAIN_MS。
-    unsigned long rx = 0, start = millis(), lastByte = start;
-    while (millis() - start < KEEPALIVE_HTTP_DRAIN_MS) {
-      bool got = false;
-      while (Serial1.available()) { Serial1.read(); rx++; got = true; }
-      if (got) lastByte = millis();
-      else if (rx > 0 && millis() - lastByte > KEEPALIVE_HTTP_IDLE_MS) break;
-      pumpWebServerDuringWait();
-    }
-    logCaptureF("保号: HTTP GET 完成，下行已收约 %lu 字节(含协议头与URC封装)\n", rx);
-    // 仅当下行达到阈值才算真实数据会话：RST/URC 封装等少量噪声(rx 很小)不应被误判为保号成功，
-    // 否则会把 kaLastTime 推进整个周期、却没真正动账，导致 SIM 静默失活。
-    ok = (rx >= KEEPALIVE_HTTP_MIN_RX);
-  } while (false);
-
-  // 5) 关闭 socket
-  while (Serial1.available()) Serial1.read();
-  Serial1.println("AT+MIPCLOSE=0");
-  waitToken("OK", "ERROR", 3000);
-
-  endModemSerialOp();
-  return ok;
-}
-
 // ---- 网页端待发短信队列 ----
 // HTTP 请求只入队并立即返回；真正发送在 loop() 中执行，避免浏览器长等 AT+CMGS 导致超时/崩溃。
 struct OutgoingSmsItem {
@@ -768,6 +767,7 @@ void processOutgoingSmsQueue() {
   if (outSmsCount == 0) return;
   if (!modemReady) return;       // 模组未就绪时保留队列，待健康检查恢复后再发
   if (smsUrcReceiving()) return; // 正在接收短信时避让，防止冲掉 PDU
+  if (smsStoredWorkPending()) return;
   // 网页刚活跃则避让模组AT，但有上限：避让超过 SLOW_WORK_MAX_DEFER_MS 仍强制发出，防 SPA 持续轮询饿死本条。
   if (lastWebRequestMs != 0 && millis() - lastWebRequestMs < SLOW_WORK_WEB_GRACE_MS &&
       millis() - outSmsQueue[outSmsHead].queuedMs < SLOW_WORK_MAX_DEFER_MS) return;

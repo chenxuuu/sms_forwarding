@@ -10,6 +10,64 @@ static int serialLinePos = 0;
 enum SmsUrcState { SMS_URC_IDLE, SMS_URC_WAIT_PDU };
 static SmsUrcState smsUrcState = SMS_URC_IDLE;
 static bool storedSmsPending = false;  // 收到 +CMTI 后尽快补收 SIM/ME 暂存短信
+static int storedSmsIndexQueue[SMS_STORED_INDEX_QUEUE_MAX];
+static uint8_t storedSmsIndexHead = 0;
+static uint8_t storedSmsIndexCount = 0;
+static unsigned long nextStoredSmsProcessMs = 0;
+
+static void enterPduWaitWindow(const char* reason) {
+  if (reason && reason[0]) logCaptureLn(reason);
+  smsUrcState = SMS_URC_WAIT_PDU;
+  smsRecvGuardUntil = millis() + 3000;
+}
+
+static void leavePduWaitWindow() {
+  smsUrcState = SMS_URC_IDLE;
+  smsRecvGuardUntil = 0;
+}
+
+static int parseCmtiIndex(const String& line) {
+  int comma = line.lastIndexOf(',');
+  if (comma < 0 || comma + 1 >= (int)line.length()) return -1;
+  String idx = line.substring(comma + 1);
+  idx.trim();
+  if (idx.length() == 0) return -1;
+  for (unsigned i = 0; i < idx.length(); i++) {
+    if (idx[i] < '0' || idx[i] > '9') return -1;
+  }
+  return idx.toInt();
+}
+
+static bool storedSmsIndexQueued(int idx) {
+  for (uint8_t i = 0; i < storedSmsIndexCount; i++) {
+    uint8_t pos = (storedSmsIndexHead + i) % SMS_STORED_INDEX_QUEUE_MAX;
+    if (storedSmsIndexQueue[pos] == idx) return true;
+  }
+  return false;
+}
+
+static void enqueueStoredSmsIndex(int idx) {
+  if (idx < 0) {
+    storedSmsPending = true;  // 索引解析失败，退回 CMGL 兜底
+    return;
+  }
+  if (storedSmsIndexQueued(idx)) return;
+  if (storedSmsIndexCount >= SMS_STORED_INDEX_QUEUE_MAX) {
+    storedSmsPending = true;  // 索引队列满，稍后做一次全量兜底
+    return;
+  }
+  uint8_t tail = (storedSmsIndexHead + storedSmsIndexCount) % SMS_STORED_INDEX_QUEUE_MAX;
+  storedSmsIndexQueue[tail] = idx;
+  storedSmsIndexCount++;
+}
+
+static bool popStoredSmsIndex(int& idx) {
+  if (storedSmsIndexCount == 0) return false;
+  idx = storedSmsIndexQueue[storedSmsIndexHead];
+  storedSmsIndexHead = (storedSmsIndexHead + 1) % SMS_STORED_INDEX_QUEUE_MAX;
+  storedSmsIndexCount--;
+  return true;
+}
 
 // 初始化长短信缓存
 void initConcatBuffer() {
@@ -87,7 +145,7 @@ String assembleConcatSms(int slot) {
                 concatBuffer[slot].totalParts, MAX_CONCAT_PARTS);
     totalParts = MAX_CONCAT_PARTS;
   }
-  // P1-4 预估总长度一次预留，避免逐段 += 多次重分配
+  // 预估总长度一次预留，避免逐段 += 多次重分配
   size_t total = 0;
   for (int i = 0; i < totalParts; i++) {
     if (concatBuffer[slot].parts[i].valid) total += concatBuffer[slot].parts[i].text.length();
@@ -217,7 +275,7 @@ void processAdminCommand(const char* sender, const char* text) {
       logCaptureLn(String("目标号码: " + maskPhone(targetPhone)));
       logCaptureLn(String("短信内容: " + bodyPreview(smsContent, SMS_LOG_VERBOSE)));
 
-      // P0-6 入参校验：目标号码须合法，内容非空且不超长，防畸形/超长污染发送流程
+      // 入参校验：目标号码须合法，内容非空且不超长，防畸形/超长污染发送流程
       if (!isValidPhoneNumber(targetPhone)) {
         logCaptureLn("目标号码非法，拒绝执行");
         enqueueEmailNotification("命令执行失败", "SMS命令目标号码非法（应为 3-20 位数字，可带 + 前缀）");
@@ -247,7 +305,7 @@ void processAdminCommand(const char* sender, const char* text) {
   }
   // 处理 RESET 命令
   else if (cmd.equals("RESET")) {
-    // P0-6 防重启风暴：刚启动 60s 内忽略 RESET。攻击者即便积压多条 RESET，
+    // 防重启风暴：刚启动 60s 内忽略 RESET。攻击者即便积压多条 RESET，
     // 每次重启后的前 60s 也不会立即再次重启，打断"反复重启致设备不可用"的循环。
     if (millis() < 60000UL) {
       logCaptureLn("设备刚启动，忽略RESET命令（防重启风暴）");
@@ -275,7 +333,7 @@ void processAdminCommand(const char* sender, const char* text) {
   }
 }
 
-// ---- P1-6 短信去重：最近哈希环(有界)，防设备/上游重复上报导致重复转发 ----
+// ---- 短信去重：最近哈希环(有界)，防设备/上游重复上报导致重复转发 ----
 // 用 filled 计数只比较"已填充"的槽，避免与零初始化的空槽误匹配；因此无需对 h==0 特判，
 // 哈希恰为 0 的正常短信也能被正确去重。
 static uint32_t recentSmsHashes[DEDUP_WINDOW];
@@ -295,12 +353,19 @@ static void rememberSms(uint32_t h) {
 
 // 处理最终的短信内容（管理员命令检查和转发）
 void processSmsContent(const char* sender, const char* text, const char* timestamp) {
-  // P0-5 脱敏：默认仅记录脱敏号码与正文长度，完整内容不入(网页可见的)日志环形缓冲
+  String displayTs = formatEpochLocal((uint32_t)time(nullptr), config.tzOffsetMin);
+  if (displayTs == "时间未同步") displayTs = String(timestamp);
+  // 脱敏：默认仅记录脱敏号码与正文长度，完整内容不入(网页可见的)日志环形缓冲
+#if SMS_LOG_VERBOSE
   logCaptureLn("=== 处理短信内容 ===");
   logCaptureLn(String("发送者: " + maskPhone(String(sender))));
-  logCaptureLn(String("时间戳: " + String(timestamp)));
+  logCaptureLn(String("时间: " + displayTs));
   logCaptureLn(String("内容: " + bodyPreview(String(text), SMS_LOG_VERBOSE)));
   logCaptureLn("====================");
+#else
+  logCaptureF("处理短信: %s, %u 字符\n",
+              maskPhone(String(sender)).c_str(), (unsigned)strlen(text));
+#endif
 
   // 检查是否在号码黑名单中
   if (isInNumberBlackList(sender)) {
@@ -308,7 +373,7 @@ void processSmsContent(const char* sender, const char* text, const char* timesta
     return;
   }
 
-  // P1-6 幂等去重：同发件人+时间戳+内容在最近窗口内重复则忽略
+  // 幂等去重：同发件人+时间戳+内容在最近窗口内重复则忽略
   uint32_t h = fnv1a32(String(sender) + "|" + String(timestamp) + "|" + String(text));
   if (smsSeenRecently(h)) {
     logCaptureLn("重复短信(发件人/时间/内容一致)，已忽略");
@@ -316,7 +381,7 @@ void processSmsContent(const char* sender, const char* text, const char* timesta
   }
   rememberSms(h);
 
-  // D4 统计：累计已处理短信数与最近一条时间
+  // 统计：累计已处理短信数与最近一条时间
   smsTotalCount++;
   lastSmsEpoch = time(nullptr);
 
@@ -336,23 +401,27 @@ void processSmsContent(const char* sender, const char* text, const char* timesta
 
   // 存入本地收件箱(供网页查看)，并接收/转发解耦：入队由 loop() 异步推送+发邮件，
   // 避免慢速 HTTP/SMTP 阻塞 URC 接收。
-  uint32_t mid = inboxAdd(sender, text, timestamp);
-  enqueueForward(sender, text, timestamp, mid);
+  uint32_t mid = inboxAdd(sender, text, displayTs.c_str());
+  enqueueForward(sender, text, displayTs.c_str(), mid);
 }
 
 // 处理一条已 decodePDU 成功的短信（被实时 URC 与开机 SIM 补收复用）。操作全局 pdu。
 static void handleDecodedPdu() {
+#if SMS_LOG_VERBOSE
   logCaptureLn("PDU解析成功");
   logCaptureLn("=== 短信内容 ===");
   logCaptureLn(String("发送者: " + maskPhone(String(pdu.getSender()))));
-  logCaptureLn(String("时间戳: " + String(pdu.getTimeStamp())));
+  logCaptureLn(String("PDU时间: " + String(pdu.getTimeStamp())));
   logCaptureLn(String("内容: " + bodyPreview(String(pdu.getText()), SMS_LOG_VERBOSE)));
+#endif
 
   int* concatInfo = pdu.getConcatInfo();
   int refNumber = concatInfo[0];
   int partNumber = concatInfo[1];
   int totalParts = concatInfo[2];
-  logCaptureF("长短信信息: 参考号=%d, 当前=%d, 总计=%d\n", refNumber, partNumber, totalParts);
+  if (totalParts > 1) {
+    logCaptureF("长短信信息: 参考号=%d, 当前=%d, 总计=%d\n", refNumber, partNumber, totalParts);
+  }
 
   if (totalParts > 1 && partNumber > 0) {
     if (totalParts > MAX_CONCAT_PARTS || partNumber > totalParts) {
@@ -369,7 +438,7 @@ static void handleDecodedPdu() {
         concatBuffer[slot].parts[partIndex].valid = true;
         concatBuffer[slot].parts[partIndex].text = String(pdu.getText());
         concatBuffer[slot].receivedParts++;
-        concatBuffer[slot].lastPartTime = millis();  // P1-5 刷新超时基准
+        concatBuffer[slot].lastPartTime = millis();  // 刷新超时基准
         if (concatBuffer[slot].receivedParts == 1) {
           concatBuffer[slot].timestamp = String(pdu.getTimeStamp());
         }
@@ -391,16 +460,62 @@ static void handleDecodedPdu() {
   }
 }
 
+static bool decodeFirstStoredPdu(const String& resp, const char* headerPrefix) {
+  int header = resp.indexOf(headerPrefix);
+  if (header < 0) return false;
+  int start = resp.indexOf('\n', header);
+  if (start < 0) return false;
+  start++;
+  int len = (int)resp.length();
+  while (start < len) {
+    int nl = resp.indexOf('\n', start);
+    if (nl < 0) nl = len;
+    String line = resp.substring(start, nl);
+    line.trim();
+    start = nl + 1;
+    if (line.length() == 0 || line == "OK" || line == "ERROR" || line.startsWith("+")) continue;
+    if (isHexString(line) && (line.length() % 2) == 0 &&
+        line.length() <= (unsigned)(MAX_PDU_LENGTH * 2)) {
+      if (pdu.decodePDU(line.c_str())) {
+        handleDecodedPdu();
+        return true;
+      }
+      return false;
+    }
+  }
+  return false;
+}
+
+static bool fetchStoredSmsByIndex(int msgIndex) {
+  if (msgIndex < 0) return false;
+  String cmd = String("AT+CMGR=") + msgIndex;
+  String resp = sendATCommand(cmd.c_str(), SMS_CMGR_TIMEOUT_MS);
+  bool decoded = decodeFirstStoredPdu(resp, "+CMGR:");
+  if (resp.indexOf("+CMGR:") >= 0) {
+    if (!decoded) {
+      logCaptureF("PDU 无法解析(索引=%d)，删除以释放 SIM 存储\n", msgIndex);
+    }
+    sendATCommand((String("AT+CMGD=") + msgIndex).c_str(), SMS_CMGD_TIMEOUT_MS);
+    return decoded;
+  }
+  if (resp.indexOf("OK") >= 0 || resp.indexOf("ERROR") >= 0) return false;
+  // 没拿到明确响应时不删除，交给后续 CMGL 兜底，避免误删刚到达但尚未读完整的短信。
+  storedSmsPending = true;
+  return false;
+}
+
 // 轮询 SIM/ME 暂存短信：列出全部 PDU、逐条解析转发、按索引逐条删除释放存储。
-// 既用于开机补收(A2 防丢)，也作为运行期的兜底接收 —— 即使 +CMT URC 失效(长时间运行后
-// 模组把 CNMI 直传重置，导致"只能发不能收"的已知 bug)，短信被存到 SIM 仍能被本轮询取回转发。
+// 既用于开机补收防丢，也作为运行期的兜底接收 —— 即使 +CMTI 通知丢失(长时间运行后
+// 模组把 CNMI 路由重置，导致"只能发不能收"的已知 bug)，短信被存到 SIM 仍能被本轮询取回转发。
 // handleDecodedPdu 内已做去重，故 URC + 轮询双路径不会重复转发。
 void backfillStoredSms(bool announce) {
   if (!modemReady) return;
   if (announce) logCaptureLn("检查 SIM 暂存短信(CMGL)...");
-  String resp = sendATCommand("AT+CMGL=4", 5000);  // PDU 模式列出全部
+  String resp = sendATCommand("AT+CMGL=4", SMS_CMGL_TIMEOUT_MS);  // PDU 模式列出全部
   int processed = 0;   // 成功解码并转发的条数(用于日志)
   int handled = 0;     // 成功 + 删除的总条数(安全上限计数)
+  bool queuedMore = false;
+  bool batchLimited = !announce;
   int start = 0;
   int len = (int)resp.length();
   while (start < len) {
@@ -423,6 +538,11 @@ void backfillStoredSms(bool announce) {
       String pduLine = resp.substring(start, nl2);
       pduLine.trim();
       start = nl2 + 1;
+      if (batchLimited && handled >= SMS_STORED_INDEX_BATCH_MAX) {
+        enqueueStoredSmsIndex(msgIndex);
+        queuedMore = true;
+        continue;
+      }
       bool decoded = false;
       if (isHexString(pduLine) && (pduLine.length() % 2) == 0 &&
           pduLine.length() <= (unsigned)(MAX_PDU_LENGTH * 2)) {
@@ -437,14 +557,31 @@ void backfillStoredSms(bool announce) {
       // (通常仅 20-50 条)导致模组无法再接收任何新短信。
       if (msgIndex >= 0) {
         if (!decoded) logCaptureF("PDU 无法解析(索引=%d)，删除以释放 SIM 存储\n", msgIndex);
-        sendATCommand((String("AT+CMGD=") + msgIndex).c_str(), 5000);
+        sendATCommand((String("AT+CMGD=") + msgIndex).c_str(), SMS_CMGD_TIMEOUT_MS);
         handled++;
       }
       if (handled >= 50) break;  // 安全上限，避免极端情况长时间阻塞(成功+删除合计)
     }
   }
+  if (queuedMore) nextStoredSmsProcessMs = millis() + SMS_STORED_BATCH_GAP_MS;
   if (processed > 0) logCaptureF("SIM 暂存短信处理并删除 %d 条\n", processed);
   else if (announce) logCaptureLn("SIM 无暂存短信");
+}
+
+static bool processStoredSmsIndexQueue() {
+  if (storedSmsIndexCount == 0) return false;
+  if ((int32_t)(millis() - nextStoredSmsProcessMs) < 0) return false;
+  int done = 0;
+  int idx = -1;
+  while (done < SMS_STORED_INDEX_BATCH_MAX && popStoredSmsIndex(idx)) {
+#if SMS_LOG_VERBOSE
+    logCaptureF("按索引读取暂存短信: %d\n", idx);
+#endif
+    fetchStoredSmsByIndex(idx);
+    done++;
+  }
+  if (storedSmsIndexCount > 0) nextStoredSmsProcessMs = millis() + SMS_STORED_BATCH_GAP_MS;
+  return done > 0;
 }
 
 // 接收看门狗(修复"运行数天后只能发不能收")：周期性兜底轮询 SIM 暂存短信；并每 N 次重申
@@ -454,16 +591,20 @@ void smsReceiveWatchdogTick() {
   static int pollCount = 0;
   if (!modemReady) return;
   if (smsRecvGuardUntil && millis() < smsRecvGuardUntil) return;  // 接收窗口内不发兜底AT，避免抢占正在直传的PDU
+  if (processStoredSmsIndexQueue()) return;
+  if (storedSmsIndexCount > 0) return;
   if (storedSmsPending) {
+    if ((int32_t)(millis() - nextStoredSmsProcessMs) < 0) return;
     storedSmsPending = false;
     backfillStoredSms(false);
+    nextStoredSmsProcessMs = millis() + SMS_STORED_BATCH_GAP_MS;
     return;
   }
   if (millis() - last < SMS_POLL_INTERVAL_MS) return;
   last = millis();
   if ((pollCount % SMS_CNMI_REASSERT_EVERY) == 0) {
     sendATandWaitOK("AT+CMGF=0", 1000);            // 重申 PDU 模式
-    sendATandWaitOK("AT+CNMI=2,2,0,0,0", 1000);    // 重申 +CMT 直传(防长时间运行后被重置)
+    sendATandWaitOK("AT+CNMI=2,1,0,0,0", 1000);    // 重申存储通知模式(+CMTI)，丢通知也可由 CMGL 兜底
   }
   pollCount++;
   backfillStoredSms(false);  // 兜底接收 + 清存储
@@ -484,6 +625,10 @@ bool smsUrcReceiving() {
   expireSmsUrcWindow();
   return serialLinePos > 0 || smsUrcState == SMS_URC_WAIT_PDU ||
          (smsRecvGuardUntil && millis() < smsRecvGuardUntil);
+}
+
+bool smsStoredWorkPending() {
+  return storedSmsIndexCount > 0 || storedSmsPending;
 }
 
 // AT 命令前短暂优先处理已到达的短信 URC；如果只到了 +CMT 头，会等待 PDU 行到达。
@@ -508,7 +653,7 @@ void drainPendingSmsUrc(unsigned long maxWaitMs) {
 // 避免"网页查信号/USSD/UDP诊断 时刚好来短信"导致 URC 被当作普通响应吞掉。
 int processSmsUrcText(const String& text) {
   int processed = 0;
-  bool waitPdu = false;
+  bool waitPdu = (smsUrcState == SMS_URC_WAIT_PDU);
   int start = 0;
   int len = (int)text.length();
   while (start < len) {
@@ -520,17 +665,32 @@ int processSmsUrcText(const String& text) {
 
     if (waitPdu) {
       if (line.length() == 0) continue;
+      if (line == "OK" || line == "ERROR" || line.startsWith("AT")) continue;
+      if (line.startsWith("+CMT:")) continue;  // 重复/嵌套头，继续等真正的 PDU 行
+      if (line.startsWith("+CMTI:")) {
+        int idx = parseCmtiIndex(line);
+#if SMS_LOG_VERBOSE
+        logCaptureF("AT响应中等待PDU时发现+CMTI，索引=%d\n", idx);
+#endif
+        enqueueStoredSmsIndex(idx);
+        continue;
+      }
       if (isHexString(line) && (line.length() % 2) == 0 &&
           line.length() <= (unsigned)(MAX_PDU_LENGTH * 2)) {
         if (pdu.decodePDU(line.c_str())) {
+#if SMS_LOG_VERBOSE
           logCaptureLn("从AT响应中提取到短信URC");
+#endif
           handleDecodedPdu();
           processed++;
+          leavePduWaitWindow();
         } else {
           logCaptureLn("AT响应内PDU解析失败");
+          leavePduWaitWindow();
         }
       } else {
         logCaptureLn("AT响应内+CMT后未找到合法PDU");
+        leavePduWaitWindow();
       }
       waitPdu = false;
       continue;
@@ -539,9 +699,15 @@ int processSmsUrcText(const String& text) {
     if (line.startsWith("+CMT:")) {
       waitPdu = true;
     } else if (line.startsWith("+CMTI:")) {
-      logCaptureLn("AT响应中发现+CMTI，标记补收存储短信");
-      storedSmsPending = true;
+      int idx = parseCmtiIndex(line);
+#if SMS_LOG_VERBOSE
+      logCaptureF("AT响应中发现+CMTI，索引=%d\n", idx);
+#endif
+      enqueueStoredSmsIndex(idx);
     }
+  }
+  if (waitPdu) {
+    enterPduWaitWindow("AT响应中发现+CMT但PDU尚未到达，继续等待PDU行");
   }
   return processed;
 }
@@ -553,18 +719,21 @@ void checkSerial1URC() {
 
   lastModemOkMs = millis();  // 收到任何串口行即证明模组存活，抑制不必要的主动健康探测
 
+#if SMS_LOG_VERBOSE
   // 打印到调试串口
   logCaptureLn(String("Debug> " + line));
+#endif
 
   if (smsUrcState == SMS_URC_IDLE) {
     // 检测到短信上报URC头
     if (line.startsWith("+CMT:")) {
-      logCaptureLn("检测到+CMT，等待PDU数据...");
-      smsUrcState = SMS_URC_WAIT_PDU;
-      smsRecvGuardUntil = millis() + 3000;  // 开接收窗口：暂停信号采样AT，防其清空缓冲冲掉随后到达的PDU行
+      enterPduWaitWindow("检测到+CMT，等待PDU数据...");  // 开接收窗口：暂停信号采样AT，防其清空缓冲冲掉随后到达的PDU行
     } else if (line.startsWith("+CMTI:")) {
-      logCaptureLn("检测到+CMTI，标记补收存储短信");
-      storedSmsPending = true;
+      int idx = parseCmtiIndex(line);
+#if SMS_LOG_VERBOSE
+      logCaptureF("检测到+CMTI，索引=%d\n", idx);
+#endif
+      enqueueStoredSmsIndex(idx);
     }
   } else if (smsUrcState == SMS_URC_WAIT_PDU) {
     // 跳过空行
@@ -574,14 +743,16 @@ void checkSerial1URC() {
     
     // 如果是十六进制字符串，认为是PDU数据
     if (isHexString(line)) {
+#if SMS_LOG_VERBOSE
       logCaptureLn(String("收到PDU数据: " + line));
       logCaptureLn(String("PDU长度: " + String(line.length()) + " 字符"));
+#endif
 
-      // P0-4 输入校验：长度须为偶数(每字节2个hex)且不超过缓冲上限，
+      // 输入校验：长度须为偶数(每字节2个hex)且不超过缓冲上限，
       // 防止畸形/截断 PDU 触发 pdulib 越界访问。
       if ((line.length() % 2) != 0 || line.length() > (unsigned)(MAX_PDU_LENGTH * 2)) {
         logCaptureLn("PDU长度非法(奇数或超限)，丢弃");
-        smsUrcState = SMS_URC_IDLE; smsRecvGuardUntil = 0;
+        leavePduWaitWindow();
         return;
       }
 
@@ -593,12 +764,12 @@ void checkSerial1URC() {
       }
 
       // 返回IDLE状态
-      smsUrcState = SMS_URC_IDLE; smsRecvGuardUntil = 0;
+      leavePduWaitWindow();
     } 
     // 如果是其他内容（OK、ERROR等），也返回IDLE
     else {
       logCaptureLn("收到非PDU数据，返回IDLE状态");
-      smsUrcState = SMS_URC_IDLE; smsRecvGuardUntil = 0;
+      leavePduWaitWindow();
     }
   }
 }

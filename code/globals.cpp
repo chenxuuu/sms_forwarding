@@ -18,9 +18,15 @@ unsigned long lastModemOkMs = 0;
 unsigned long smsTotalCount = 0;
 time_t lastSmsEpoch = 0;
 int modemCsq = 99;
+int modemBer = 99;   // AT+CSQ 误码率(0-7，99=未知；LTE 通常恒为 99)
 int modemRsrp = 255;
 String modemOperator = "";
 String modemImei = "";
+String modemImsi = "";   // SIM IMSI(AT+CIMI，开机采样一次)
+String modemApn = "";    // SIM 默认/已配置 APN(AT+CGDCONT? 读取)
+String modemMfr = "";    // 模组制造商(ATI 解析)
+String modemModel = "";  // 模组型号(ATI 解析)
+String modemFwVer = "";  // 模组固件版本(ATI 解析)
 String modemIccid = "";
 String modemPhone = "";
 String modemCellIp = "";

@@ -10,7 +10,6 @@
 #include <Preferences.h>
 #include <pdulib.h>
 #define ENABLE_SMTP
-#define ENABLE_DEBUG
 #include <ReadyMail.h>
 #include "config_types.h"
 #include "sms_logic.h"  // 纯逻辑工具（json/url/html转义、脱敏、黑名单、去重、退避、模板扫描器）
@@ -44,12 +43,18 @@ extern volatile unsigned long smsRecvGuardUntil;  // >0且未到期=正在接收
 extern unsigned long lastWebRequestMs; // 最近一次进入HTTP handler的时间；慢任务据此避让，保持网页可响应
 extern unsigned long lastPrintTime;
 extern unsigned long lastModemOkMs;   // 最近一次模组健康探测/AT成功的时间
-extern unsigned long smsTotalCount;   // D4 累计已处理短信数
-extern time_t lastSmsEpoch;           // D4 最近一条短信的时间(Unix秒)
+extern unsigned long smsTotalCount;   // 累计已处理短信数
+extern time_t lastSmsEpoch;           // 最近一条短信的时间(Unix秒)
 extern int modemCsq;                  // 缓存的 4G 信号 CSQ(0-31，99=未知)，周期采样(AT+CSQ)
+extern int modemBer;                  // AT+CSQ 误码率(0-7，99=未知)
 extern int modemRsrp;                 // LTE RSRP(实际 dBm，如 -92；>=0 视为未知)，AT+MUESTATS 采样
 extern String modemOperator;          // 缓存的运营商名(开机采样一次)
 extern String modemImei;              // IMEI(开机采样一次)
+extern String modemImsi;              // SIM IMSI(AT+CIMI，开机采样一次)
+extern String modemApn;               // SIM 默认/已配置 APN(AT+CGDCONT?)
+extern String modemMfr;               // 模组制造商(ATI)
+extern String modemModel;             // 模组型号(ATI)
+extern String modemFwVer;             // 模组固件版本(ATI)
 extern String modemIccid;             // SIM ICCID(开机采样一次)
 extern String modemPhone;             // 本机号码(AT+CNUM，常为空)
 extern String modemCellIp;            // 蜂窝 PDP IP(仅 dataEnabled 时有效，否则空)

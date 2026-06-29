@@ -56,10 +56,10 @@ struct Config {
   String webPass;      // Web管理密码
   String numberBlackList;  // 号码黑名单（换行符分隔）
   String forwardRules;     // 转发规则链(换行分隔，每行 type\tpattern\taction\tenabled；见 sms_logic.h::evalForwardRules)
-  // ---- E0 保号定时任务（绝对日期，断电不忘）----
+  // ---- 保号定时任务（绝对日期，断电不忘）----
   bool kaEnabled;          // 是否启用保号
   int kaIntervalDays;      // 触发周期(天)，如 175(giffgaff 180 天前留余量)
-  uint8_t kaAction;        // 动作: 1=HTTP GET流量保号(访问baidu;历史名Ping/UDP) 2=发短信 3=USSD查询
+  uint8_t kaAction;        // 动作: 1=蜂窝UDP流量保号 2=发短信 3=USSD查询
   String kaTarget;         // SMS 目标号码 或 USSD 码(UDP保号时忽略)
   uint32_t kaLastTime;     // 上次保号动作的绝对 Unix 时间戳(持久化于 NVS)
   // ---- 时间/NTP ----
@@ -99,10 +99,16 @@ struct Config {
 
 // ---- 可调运行参数（低配保守默认；集中于此便于按硬件调整） ----
 #define MODEM_HEALTH_INTERVAL_MS 60000UL  // 模组健康探测周期(ms)
-#define SMS_POLL_INTERVAL_MS     60000UL  // 轮询 SIM 暂存短信周期(ms)：URC(+CMT)失效时的兜底接收
+#define SMS_POLL_INTERVAL_MS     60000UL  // 轮询 SIM 暂存短信周期(ms)：URC(+CMTI)失效时的兜底接收
 #define SMS_CNMI_REASSERT_EVERY  5        // 每 N 次轮询重申一次 CNMI/CMGF(防长时间运行后 URC 直传被重置)
-#define SIGNAL_FAST_INTERVAL_MS   10000UL // 4G 信号条(CSQ)采样周期：首页可见性优先，同时仍避让短信接收窗口
-#define SIGNAL_DETAIL_INTERVAL_MS 30000UL // 详细信号(RSRP/RSRQ/SINR/PCI/TAC)采样周期：比CSQ低频，避免频繁抢串口
+#define SMS_STORED_INDEX_QUEUE_MAX 8      // +CMTI 索引队列容量；满时退回 CMGL 全量兜底
+#define SMS_STORED_INDEX_BATCH_MAX 1      // 每帧最多按索引读取/删除几条短信，降低网页无响应窗口
+#define SMS_STORED_BATCH_GAP_MS  120UL    // 连续处理多条暂存短信之间给 WebServer 的喘息间隔
+#define SMS_CMGR_TIMEOUT_MS      2500UL   // 按索引读取单条短信超时
+#define SMS_CMGL_TIMEOUT_MS      3000UL   // 全量兜底扫描超时
+#define SMS_CMGD_TIMEOUT_MS      1500UL   // 删除单条暂存短信超时
+#define SIGNAL_FAST_INTERVAL_MS  30000UL  // 4G 信号条(CSQ)采样周期；避免频繁抢模组串口
+#define SIGNAL_DETAIL_INTERVAL_MS 120000UL // 详细信号(RSRP/RSRQ/SINR/PCI/TAC)低频采样，降低后台 AT 占用
 #define MODEM_HEALTH_FAIL_LIMIT  3        // 连续探测失败多少次触发自动断电恢复
 #define WIFI_CHECK_INTERVAL_MS   15000UL  // WiFi 掉线兜底检查周期(ms)
 #define REBOOT_MIN_UPTIME_MS     7200000UL // 每日定时重启所需的最小运行时长(2h>重启窗口1h)：防止重启后在同一小时内反复重启
@@ -111,16 +117,12 @@ struct Config {
 #define MODEM_POWERUP_MIN_MS     1500     // 上电最小安定延时；之后轮询 AT 探活，应答即提前结束(省 3-4s/开机)
 #define MODEM_INIT_AT_RETRIES    10       // modemInit AT 握手单轮重试次数
 #define MODEM_INIT_CMD_RETRIES   5        // modemInit 其它配置命令重试次数
-#define CELLULAR_BURN_BYTES      (45UL * 1024UL)  // 保号/诊断 UDP 上行目标：约 45KB
-#define CELLULAR_BURN_MAX_BYTES  (45UL * 1024UL)  // 硬上限：避免误把流量打得更大
-#define CELLULAR_BURN_MIPSEND_BYTES (45UL * 1024UL)  // 单次 MIPSEND 发送大小：按用户要求一次发完 45KB
+#define CELLULAR_BURN_BYTES      (48UL * 1024UL)  // giffgaff 中国约 20p/MB，48KiB≈0.98p；小于50KB仍能建立计费数据连接
+#define CELLULAR_BURN_MAX_BYTES  (48UL * 1024UL)  // 硬上限：避免误把流量打得更大
+#define CELLULAR_BURN_MIPSEND_BYTES (48UL * 1024UL)  // 单次 MIPSEND 发送大小，低于 UDP 65535 字节上限
 #define CELLULAR_BURN_DEFAULT_HOST "223.5.5.5"    // 默认 UDP 目标：阿里公共 DNS
-#define KEEPALIVE_HTTP_HOST      "www.baidu.com"   // 保号 HTTP GET 目标(产生真实下行流量/动账)
-#define KEEPALIVE_HTTP_DRAIN_MS  5000              // 保号 HTTP GET 读取响应(消耗下行)的硬上限时长(ms)
-#define KEEPALIVE_HTTP_IDLE_MS   800               // 收到响应后连续静默此时长即提前结束读取(省 loop 占用，收窄吞短信窗口)
-#define KEEPALIVE_HTTP_MIN_RX    100               // 视为"真实数据会话成功"的最小下行字节数：排除 RST/URC 封装等噪声(按模组/网络可调)
-#define HTTP_CONNECT_TIMEOUT_MS  3000     // 推送 HTTP 连接超时：坏通道更快释放 WebServer
-#define HTTP_READ_TIMEOUT_MS     5000     // 推送 HTTP 读超时，避免慢 Webhook 长时间拖住网页
+#define HTTP_CONNECT_TIMEOUT_MS  1500     // 推送 HTTP 连接超时：坏通道快速释放 worker，降低网页卡顿
+#define HTTP_READ_TIMEOUT_MS     2500     // 推送 HTTP 读超时，避免慢 Webhook 长时间占住 worker
 // 推送/邮件/测试三类慢任务已移到后台 worker(见 push.cpp::pushWorkerTask)，loop 不再被其阻塞，
 // 故原 FORWARD_WEB_GRACE_MS / PUSH_JOB_GAP_MS 人为节流已删除(worker 单任务串行天然限速)。
 // SLOW_WORK_WEB_GRACE_MS 仍保留：供 loop 线程上的保号/网页发短信/诊断UDP 在网页活跃后短暂避让模组AT。
@@ -133,9 +135,9 @@ struct Config {
 #define LOW_HEAP_RESTART_BYTES   20000UL  // 空闲堆低于此值且空闲时有序自重启
 #define PUSH_QUEUE_MAX           10        // 离线/失败推送重试队列容量上限(有界，控 RAM)
 #define EMAIL_QUEUE_MAX          3         // 短信转发邮件队列容量(有界，避免SMTP阻塞接收/网页)
-#define PUSH_RETRY_MAX           5         // 单条消息最大重试次数
-#define PUSH_RETRY_BASE_SEC      10        // 重试退避基数(秒)
-#define PUSH_RETRY_MAX_SEC       1800      // 重试退避封顶(秒)
+#define PUSH_RETRY_MAX           4         // 单条消息最大重试次数
+#define PUSH_RETRY_BASE_SEC      20        // 重试退避基数(秒)，失败通道少打扰系统
+#define PUSH_RETRY_MAX_SEC       3600      // 重试退避封顶(秒)
 #define DEDUP_WINDOW             16        // 短信去重最近哈希环大小
 #define FWD_QUEUE_MAX            8         // 接收/转发解耦队列容量(有界)
 #define OUT_SMS_QUEUE_MAX        3         // 网页端待发短信队列容量(有界，避免HTTP请求阻塞等待模组)
@@ -158,7 +160,7 @@ struct ConcatSms {
   int totalParts;                       // 总分段数
   int receivedParts;                    // 已收到的分段数
   unsigned long firstPartTime;          // 收到第一个分段的时间
-  unsigned long lastPartTime;           // 收到最近一个分段的时间(P1-5 超时基准，防负载抖动误超时)
+  unsigned long lastPartTime;           // 收到最近一个分段的时间，按最近分段计算超时
   SmsPart parts[MAX_CONCAT_PARTS];      // 各分段内容
 };
 

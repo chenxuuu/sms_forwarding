@@ -277,7 +277,7 @@ HMAC-SHA256(timestamp + "\n" + secret, secret) → Base64 → URLEncode
 ### `void checkSerial1URC()`
 **状态机**: `IDLE` ↔ `WAIT_PDU`
 
-IDLE 状态检测 `+CMT:` 行 → 转入 WAIT_PDU。
+IDLE 状态检测 `+CMTI:` 行 → 标记尽快 `CMGL` 补收存储短信；检测 `+CMT:` 行 → 转入 WAIT_PDU（兼容直推模式）。
 WAIT_PDU 状态读取 PDU hex 数据 → `pdu.decodePDU()` 解析 → 根据 `concatInfo` 判断长短信/普通短信 → 恢复 IDLE。
 
 ---
@@ -356,19 +356,6 @@ HTTP Basic Authentication，账号密码来自 `config.webUser` / `config.webPas
 
 ---
 
-### `void handleQuery()`
-根据 `?type=` 参数执行不同查询：
-
-| type | AT 指令 | 返回内容 |
-|---|---|---|
-| `ati` | `ATI` | 制造商/型号/固件版本 |
-| `signal` | `AT+CESQ` | RSRP/RSRQ 信号强度 |
-| `siminfo` | `AT+CIMI` `AT+ICCID` `AT+CNUM` | IMSI/ICCID/本机号码 |
-| `network` | `AT+CEREG?` `AT+COPS?` `AT+CGACT?` `AT+CGDCONT?` | 注册/运营商/数据/APN |
-| `wifi` | (WiFi 对象) | SSID/RSSI/IP/网关/DNS/MAC/BSSID/信道 |
-
----
-
 ### `void handleFlightMode()`
 根据 `?action=` 控制飞行模式：
 
@@ -392,12 +379,12 @@ HTTP Basic Authentication，账号密码来自 `config.webUser` / `config.webPas
 ---
 
 ### `void handlePing()` / `processPingJob()`
-网页“蜂窝 UDP 流量”诊断（与保号不同）。`handlePing()` 只启动/查询后台任务并立即返回；真正流量在 loop 的 `processPingJob()` 执行：
+网页“蜂窝 UDP 流量”诊断。`handlePing()` 只启动/查询后台任务并立即返回；真正流量在 loop 的 `processPingJob()` 执行：
 1. `AT+CGACT=1,1` 激活数据连接
-2. `consumeCellularDataBytes()`：`AT+MIPOPEN` UDP socket → `AT+MIPSEND` 发送约 45KB 上行 → `AT+MIPCLOSE`
+2. `consumeCellularDataBytes()`：`AT+MIPOPEN` UDP socket → `AT+MIPSEND` 发送约 48KB 上行 → `AT+MIPCLOSE`
 3. `AT+CGACT=0,1` 关闭数据连接
 
-`?action=status` 轮询进度。注意：**保号**动作（默认 HTTP GET baidu）在 `/keepalive`，不是这里。
+`?action=status` 轮询进度。流量保号复用同一固定字节 UDP 路径，便于按运营商每 MB 资费估算扣费。
 
 ---
 
@@ -410,7 +397,7 @@ HTTP Basic Authentication，账号密码来自 `config.webUser` / `config.webPas
 | `GET /status` | `handleStatus()` | 健康状态 JSON（版本/信号/堆水位/各队列深度/统计/复位原因/时间） |
 | `GET /messages` | `handleMessages()` | 收件箱/已发送 JSON（`?box=sent`），流式分块输出 |
 | `POST /resend` `POST /delete` | `handleResend()` / `handleDeleteMsg()` | 重发/删除收件箱某条（`?id=`） |
-| `GET /keepalive` | `handleKeepAlive()` | 保号：`?action=status\|run\|reset`；`run` 入队由 loop 执行（默认动作 = HTTP GET baidu 消耗流量） |
+| `GET /keepalive` | `handleKeepAlive()` | 保号：`?action=status\|run\|reset`；`run` 入队由 loop 执行（默认动作 = 约 48KB UDP 上行流量） |
 | `GET /testpush` | `handleTestPush()` | 通道测试：`?ch=` 入队，`?action=status` 轮询；真实发送在 worker |
 | `GET /ussd` | `handleUssd()` | USSD 查询（`AT+CUSD`，同步最长 ~20s） |
 | `GET /modem` `GET /wifi` `GET /wifiscan` `POST /wificonfig` | — | 模组信息 / WiFi 状态 / 扫描 / 保存并重启接入 |

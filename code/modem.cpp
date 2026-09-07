@@ -1,6 +1,19 @@
 #include "modem.h"
 #include "web_handlers.h"
 
+static bool configureOperator() {
+  if (config.operatorMode == 0) {
+    logCaptureLn(String("选网模式：自动选择"));
+    return sendATandWaitOK("AT+COPS=0", 60000);
+  }
+
+  char command[32];
+  snprintf(command, sizeof(command), "AT+COPS=1,2,\"%s\",7",
+           config.operatorCode.c_str());
+  logCaptureLn(String("按配置执行手动选网"));
+  return sendATandWaitOK(command, 60000);
+}
+
 // 发送AT命令并获取响应
 String sendATCommand(const char* cmd, unsigned long timeout) {
   while (Serial1.available()) Serial1.read();
@@ -88,6 +101,9 @@ void modemInit() {
     if(model == "ML307Y") need_set_CGACT = false;
   }
 
+  bool operatorReady = configureOperator();
+  if (!operatorReady) logCaptureLn(String("⚠️ 选网命令未成功完成"));
+
   if(need_set_CGACT) {
     while (!sendATandWaitOK("AT+CGACT=0,1", 5000)) {
       logCaptureLn(String("设置CGACT失败，重试..."));
@@ -115,7 +131,7 @@ void modemInit() {
   }
   if (ceregRetry < 30) {
     logCaptureLn(String("网络已注册"));
-    modemReady = true;
+    modemReady = operatorReady;
   } else {
     logCaptureLn(String("⚠️ 网络注册超时（无SIM卡或信号差），模组功能不可用"));
     modemReady = false;

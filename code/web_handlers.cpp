@@ -92,6 +92,9 @@ void handleRoot() {
   html.replace("%SMTP_SEND_TO%", config.smtpSendTo);
   html.replace("%ADMIN_PHONE%", config.adminPhone);
   html.replace("%NUMBER_BLACK_LIST%", config.numberBlackList);
+  html.replace("%OP_MODE_AUTO%", config.operatorMode == 0 ? " selected" : "");
+  html.replace("%OP_MODE_MANUAL%", config.operatorMode == 1 ? " selected" : "");
+  html.replace("%OPERATOR_CODE%", config.operatorCode);
 
   // 概览页面的配置状态
   bool emailOk = config.smtpServer.length() > 0 && config.smtpUser.length() > 0 &&
@@ -852,6 +855,8 @@ void handlePing() {
 void handleSave() {
   if (!checkAuth()) return;
 
+  bool operatorConfigChanged = false;
+
   // 账号管理表单：只在字段存在时更新
   if (server.hasArg("webUser")) {
     String newWebUser = server.arg("webUser");
@@ -890,6 +895,27 @@ void handleSave() {
     config.numberBlackList = server.arg("numberBlackList");
   }
 
+  if (server.hasArg("operatorMode")) {
+    uint8_t newMode = (uint8_t)server.arg("operatorMode").toInt();
+    if (newMode > 1) newMode = 0;
+    String newCode = server.arg("operatorCode");
+    newCode.trim();
+
+    bool validPlmn = newCode.length() == 5 || newCode.length() == 6;
+    for (unsigned int i = 0; validPlmn && i < newCode.length(); i++) {
+      validPlmn = isDigit(newCode.charAt(i));
+    }
+    if (newMode == 1 && !validPlmn) {
+      server.send(400, "text/plain; charset=utf-8", "手动选网需要填写 5 或 6 位数字 PLMN");
+      return;
+    }
+
+    operatorConfigChanged = config.operatorMode != newMode ||
+                            config.operatorCode != newCode;
+    config.operatorMode = newMode;
+    config.operatorCode = newCode;
+  }
+
   // 推送通道配置：只在对应通道的字段存在时更新
   for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
     String idx = String(i);
@@ -919,6 +945,7 @@ void handleSave() {
   
   saveConfig();
   configValid = isConfigValid();
+  String saveMessage = operatorConfigChanged ? "正在重启并应用选网配置..." : "3秒后返回配置页面...";
   
   String html = R"rawliteral(
 <!DOCTYPE html>
@@ -935,13 +962,20 @@ void handleSave() {
 <body>
   <div class="success">
     <h2>✅ 配置保存成功！</h2>
-    <p>3秒后返回配置页面...</p>
+    <p>%SAVE_MESSAGE%</p>
     <p>如果修改了账号密码，请使用新的账号密码登录</p>
   </div>
 </body>
 </html>
 )rawliteral";
+  html.replace("%SAVE_MESSAGE%", saveMessage);
   server.send(200, "text/html", html);
+
+  if (operatorConfigChanged) {
+    delay(800);
+    ESP.restart();
+    return;
+  }
   
   // 如果配置有效，发送启动通知
   if (configValid) {

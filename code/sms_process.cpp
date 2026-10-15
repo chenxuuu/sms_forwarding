@@ -235,18 +235,19 @@ void processAdminCommand(const char* sender, const char* text) {
       body += "短信内容: " + smsContent + "\n";
       body += "执行结果: " + String(success ? "成功" : "失败");
       
-      sendEmailNotification(subject.c_str(), body.c_str());
+      queueEmailNotification(subject.c_str(), body.c_str());
     } else {
       logCaptureLn(String("SMS命令格式错误"));
-      sendEmailNotification("命令执行失败", "SMS命令格式错误，正确格式: SMS:号码:内容");
+      queueEmailNotification("命令执行失败", "SMS命令格式错误，正确格式: SMS:号码:内容");
     }
   }
   // 处理 RESET 命令
   else if (cmd.equals("RESET")) {
     logCaptureLn(String("执行RESET命令"));
     
-    // 先发送邮件通知（因为重启后就发不了了）
-    sendEmailNotification("重启命令已执行", "收到RESET命令，即将重启模组和ESP32...");
+    // 先发送邮件通知（因为重启后就发不了了），入队后等推送任务发完再重启
+    queueEmailNotification("重启命令已执行", "收到RESET命令，即将重启模组和ESP32...");
+    waitNotifyQueueEmpty(15000);
     
     // 重启模组
     resetModule();
@@ -289,12 +290,12 @@ void processSmsContent(const char* sender, const char* text, const char* timesta
     }
   }
 
-  // 发送通知http（推送到所有启用的通道）
-  sendSMSToServer(sender, text, timestamp);
-  // 发送通知邮件
+  // 发送通知http（推送到所有启用的通道，异步执行不阻塞主循环）
+  queueSmsPush(sender, text, timestamp);
+  // 发送通知邮件（异步）
   String subject = ""; subject+="短信";subject+=sender;subject+=",";subject+=text;
   String body = ""; body+="来自：";body+=sender;body+="，时间：";body+=timestamp;body+="，内容：";body+=text;
-  sendEmailNotification(subject.c_str(), body.c_str());
+  queueEmailNotification(subject.c_str(), body.c_str());
 }
 
 // 处理URC和PDU

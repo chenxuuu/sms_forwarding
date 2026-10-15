@@ -54,7 +54,7 @@ dev_doc/                  # 架构/API/模块详细文档（改代码前先读�
 - **配置持久化走 NVS**（Preferences，namespace `"sms_config"`）：新增配置字段需同步修改 config_types.h、saveConfig/loadConfig、handleSave 和 web_html.cpp 表单。
 - **新增推送通道**：在 PushType 枚举加类型 → push.cpp 的 sendToChannel() 加 case → config.cpp 的 isPushChannelValid() 加校验 → web_html.cpp 加 UI 选项。
 - 短信用 **PDU 模式**（中文短信必需），解析用 pdulib。
-- 主循环是单线程 Arduino 模型，HTTP 与 URC 处理均为非阻塞；避免在 loop 路径中引入长阻塞（模组初始化等慢操作已有异步化结构，见 task_types.h）。
+- 主循环是单线程 Arduino 模型，HTTP 与 URC 处理均为非阻塞；避免在 loop 路径中引入长阻塞。**推送/邮件是异步的**：loop 只把 NotifyJob 入队，由 push.cpp 中的 `notifyTask`（FreeRTOS 任务，core 0）执行 `sendSMSToServer`/`sendEmailNotification`；入队接口为 `queueSmsPush`/`queueEmailNotification`，重启前可用 `waitNotifyQueueEmpty` 等待发完。日志函数 `logCapture*` 已加互斥锁，可在任意任务中调用。
 - 启动时主动 `AT+CGACT=0,1` 禁用 4G 数据连接以省流量，勿移除。
 - Web UI 是单页应用（web_html.cpp 中字符串常量 + `%KEY%` 占位符），修改界面只动 web_html.cpp。
 

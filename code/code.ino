@@ -24,6 +24,7 @@ void setup() {
   initConcatBuffer();
   loadConfig();
   configValid = isConfigValid();
+  initNotifyTask();
 
   // ---- WiFi 连接优化 ----
   WiFi.mode(WIFI_STA);
@@ -93,12 +94,12 @@ void setup() {
   ssl_client.setInsecure();
   digitalWrite(LED_BUILTIN, LOW);
 
-  // ---- 启动通知（网页已可用，发邮件不会影响用户访问） ----
+  // ---- 启动通知（网页已可用，邮件走异步推送任务，不影响访问） ----
   if (configValid) {
     logCaptureLn(String("配置有效，发送启动通知..."));
     String subject = "短信转发器已启动";
     String body = "设备已启动\n设备地址: " + getDeviceUrl();
-    sendEmailNotification(subject.c_str(), body.c_str());
+    queueEmailNotification(subject.c_str(), body.c_str());
   }
 
   // ---- 模组初始化（较慢，但网页已可访问） ----

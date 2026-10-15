@@ -11,6 +11,14 @@ int logBufIdx = 0;
 int logBufCount = 0;
 static String _logLine;  // 行缓冲：logCapture 写入这里，logCaptureLn 提交整行
 
+// 推送任务与主循环都会写日志，行缓冲不是线程安全的，需要互斥保护
+static SemaphoreHandle_t _getLogMutex() {
+  static SemaphoreHandle_t m = xSemaphoreCreateMutex();
+  return m;
+}
+#define LOG_LOCK()   xSemaphoreTake(_getLogMutex(), portMAX_DELAY)
+#define LOG_UNLOCK() xSemaphoreGive(_getLogMutex())
+
 static void _logAppend(const String& line) {
   logBuffer[logBufIdx] = line;
   logBufIdx = (logBufIdx + 1) % LOG_BUF_SIZE;
@@ -25,13 +33,17 @@ static void _logCommit() {
 }
 
 void logCapture(const String& msg) {
+  LOG_LOCK();
   Serial.print(msg);
   _logLine += msg;
+  LOG_UNLOCK();
 }
 
 void logCapture(const char* msg) {
+  LOG_LOCK();
   Serial.print(msg);
   _logLine += msg;
+  LOG_UNLOCK();
 }
 
 void logCaptureF(const char* fmt, ...) {
@@ -40,6 +52,7 @@ void logCaptureF(const char* fmt, ...) {
   va_start(args, fmt);
   vsnprintf(buf, sizeof(buf), fmt, args);
   va_end(args);
+  LOG_LOCK();
   Serial.print(buf);
   _logLine += buf;
   // 如果格式化字符串以 \n 结尾，则提交此行
@@ -48,18 +61,23 @@ void logCaptureF(const char* fmt, ...) {
     _logLine.trim();  // 去掉尾部空格和可能多余的 \n
     _logCommit();
   }
+  LOG_UNLOCK();
 }
 
 void logCaptureLn(const String& msg) {
+  LOG_LOCK();
   Serial.println(msg);
   _logLine += msg;
   _logCommit();
+  LOG_UNLOCK();
 }
 
 void logCaptureLn(const char* msg) {
+  LOG_LOCK();
   Serial.println(msg);
   _logLine += msg;
   _logCommit();
+  LOG_UNLOCK();
 }
 
 // 检查HTTP Basic认证
@@ -948,7 +966,7 @@ void handleSave() {
     logCaptureLn(String("配置有效，发送启动通知..."));
     String subject = "短信转发器配置已更新";
     String body = "设备配置已更新\n设备地址: " + getDeviceUrl();
-    sendEmailNotification(subject.c_str(), body.c_str());
+    queueEmailNotification(subject.c_str(), body.c_str());
   }
 }
 
@@ -956,6 +974,7 @@ void handleSave() {
 void handleLog() {
   if (!checkAuth()) return;
 
+  LOG_LOCK();
   String json = "[";
   int total = logBufCount;
   int start = total < LOG_BUF_SIZE ? 0 : logBufIdx;
@@ -965,6 +984,7 @@ void handleLog() {
     json += "\"" + jsonEscape(logBuffer[pos]) + "\"";
   }
   json += "]";
+  LOG_UNLOCK();
   server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   server.send(200, "application/json", json);
 }

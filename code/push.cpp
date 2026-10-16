@@ -2,6 +2,7 @@
 #include "web_handlers.h"
 #include "config.h"
 #include "web_handlers.h"
+#include "task_types.h"
 #include <HTTPClient.h>
 #include <mbedtls/md.h>
 #include <base64.h>
@@ -437,4 +438,69 @@ void sendSMSToServer(const char* sender, const char* message, const char* timest
     }
   }
   logCaptureLn(String("=== 多通道推送完成 ===\n"));
+}
+
+// ==================== 异步推送任务 ====================
+// 推送/邮件是慢速阻塞操作（TLS握手+重试可能数十秒），
+// 放进独立任务执行，主循环只负责入队，Web 界面不再被卡住。
+
+#define NOTIFY_QUEUE_LEN 8
+
+static QueueHandle_t notifyQueue = nullptr;
+
+static void notifyTask(void* param) {
+  NotifyJob job;
+  for (;;) {
+    if (xQueueReceive(notifyQueue, &job, portMAX_DELAY) != pdTRUE) continue;
+    if (job.type == NOTIFY_JOB_SMS_PUSH) {
+      sendSMSToServer(job.sender, job.body, job.timestamp);
+    } else {
+      sendEmailNotification(job.subject, job.body);
+    }
+  }
+}
+
+void initNotifyTask() {
+  notifyQueue = xQueueCreate(NOTIFY_QUEUE_LEN, sizeof(NotifyJob));
+  xTaskCreatePinnedToCore(notifyTask, "notify", 12288, nullptr, 1, nullptr, 0);
+}
+
+// 入队，队列满时丢弃并记录（推送可丢失，主循环不能阻塞）
+static bool enqueueNotify(const NotifyJob& job) {
+  if (notifyQueue == nullptr) return false;
+  if (xQueueSend(notifyQueue, &job, 0) == pdTRUE) return true;
+  logCaptureLn(String("⚠️ 推送队列已满，丢弃一条通知"));
+  return false;
+}
+
+void queueSmsPush(const char* sender, const char* message, const char* timestamp) {
+  NotifyJob job;
+  job.type = NOTIFY_JOB_SMS_PUSH;
+  strlcpy(job.sender, sender, sizeof(job.sender));
+  strlcpy(job.timestamp, timestamp, sizeof(job.timestamp));
+  strlcpy(job.body, message, sizeof(job.body));
+  job.subject[0] = '\0';
+  enqueueNotify(job);
+}
+
+void queueEmailNotification(const char* subject, const char* body) {
+  NotifyJob job;
+  job.type = NOTIFY_JOB_EMAIL;
+  strlcpy(job.subject, subject, sizeof(job.subject));
+  strlcpy(job.body, body, sizeof(job.body));
+  job.sender[0] = '\0';
+  job.timestamp[0] = '\0';
+  enqueueNotify(job);
+}
+
+bool waitNotifyQueueEmpty(uint32_t timeoutMs) {
+  if (notifyQueue == nullptr) return true;
+  unsigned long start = millis();
+  while (uxQueueMessagesWaiting(notifyQueue) > 0) {
+    if (millis() - start >= timeoutMs) return false;
+    delay(100);
+  }
+  // 队列空不代表最后一条已发完，再等一拍让进行中的请求收尾
+  delay(500);
+  return true;
 }

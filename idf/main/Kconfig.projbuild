@@ -1,0 +1,20 @@
+menu "短信转发器配置"
+
+    config WIFI_SSID
+        string "WiFi SSID"
+        default ""
+        help
+            设备启动时连接的 2.4G 路由器 SSID（不支持 5G）。
+
+            注意：为了不把家里的 WiFi 密码提交到仓库，这里的默认值是空的。
+            实际使用的值保存在 sdkconfig 中（已被 .gitignore 忽略），
+            请用 idf.py menuconfig 填写，或在 sdkconfig 里直接设置
+            CONFIG_WIFI_SSID / CONFIG_WIFI_PASSWORD。
+
+    config WIFI_PASSWORD
+        string "WiFi 密码"
+        default ""
+        help
+            设备启动时连接的路由器密码。留空表示开放网络。
+
+endmenu

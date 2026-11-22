@@ -1,0 +1,63 @@
+#include <stdio.h>
+
+#include "core/config.h"
+#include "core/log.h"
+#include "esp_heap_caps.h"
+#include "esp_system.h"
+#include "forwarder/forwarder.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "modem/modem.h"
+#include "net/time_sync.h"
+#include "net/wifi.h"
+#include "notify/notify.h"
+#include "web/web_server.h"
+
+/**
+ * 启动顺序（与旧 Arduino 固件保持一致，但 Web 更早可用）：
+ *  1. 日志 + 配置（NVS）
+ *  2. 通知任务 / 转发策略（先建好队列，短信不会丢）
+ *  3. WiFi（20s 超时，失败重启重试）
+ *  4. Web 服务（此时即可访问配置页面）
+ *  5. NTP 时间同步（异步）
+ *  6. 4G 模组初始化（慢，异步任务中执行）
+ *  7. 启动通知邮件
+ */
+void app_main(void)
+{
+    log_init();
+    log_line("=== 短信转发器启动（ESP-IDF）===");
+    log_line("复位原因: %d，可用内存: %u KB", (int)esp_reset_reason(),
+             (unsigned)(esp_get_free_heap_size() / 1024));
+
+    config_init();
+    notify_init();
+    forwarder_init();
+
+    esp_err_t err = wifi_start(20000);
+    if (err != ESP_OK) {
+        if (!wifi_configured()) {
+            /* 没配 WiFi：不重启，保持控制台可读，方便 menuconfig 后重新烧录 */
+            while (1) {
+                log_line("设备未配置 WiFi，无法联网。请 menuconfig 填写后重新烧录（60s 后再次提示）");
+                vTaskDelay(pdMS_TO_TICKS(60000));
+            }
+        }
+        log_line("WiFi 连接超时，10 秒后重启重试...");
+        vTaskDelay(pdMS_TO_TICKS(10000));
+        esp_restart();
+    }
+
+    web_server_start();
+    time_sync_start();
+    modem_start();
+
+    if (config_any_valid()) {
+        char url[48];
+        snprintf(url, sizeof(url), "http://%s/", wifi_ip());
+        log_line("配置有效，发送启动通知，设备地址 %s", url);
+        forwarder_notify_device("短信转发器已启动", "设备已启动", url);
+    } else {
+        log_line("尚未配置通知方式，请访问 http://%s/ 完成配置", wifi_ip());
+    }
+}

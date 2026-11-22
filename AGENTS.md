@@ -2,6 +2,28 @@
 
 低成本短信转发器：ESP32-C3 + ML307R 4G 模组（AT 固件），通过 WiFi 将收到的短信推送到邮件和多种平台。Arduino 框架，代码与文档均为中文。
 
+## 两套实现
+
+本仓库有两个可独立编译的实现：
+
+- `code/` —— Arduino 框架版本（历史实现，下文流程均针对它）
+- `idf/` —— ESP-IDF v6.1.1 版本（开发主线，架构/接口/烧录文档在 `idf/docs/`）
+
+### ESP-IDF 版本速查
+
+```powershell
+cd idf
+idf.py build                            # 目标 esp32c3，默认配置见 sdkconfig.defaults
+idf.py -p COM3 flash
+python tools/serial_capture.py COM3 60  # 抓日志（直接 monitor/开串口会让芯片复位）
+```
+
+- 环境变量与常见坑（`ESP_IDF_VERSION`、`esp-clangd` 缺失、COM 口复位）见 `idf/docs/build-flash.md`。
+- 关键约定：日志必须走 `log_write()` / `log_line()`（否则 Web 日志页看不到）；
+  配置读写必须 `config_lock()` / `config_unlock()`，改完调用 `config_save_locked()`。
+- 新增推送通道：`push_type_t` → `push.c` 的 `build_request()` → `config_push_channel_valid()` → Web 表单选项。
+- NVS 命名空间与键名和 Arduino 版本完全一致，可从 Arduino 固件原地升级。
+
 ## 构建与烧录
 
 使用 `arduino-cli`（路径随机器不同，需自行确认），板型 FQBN: `esp32:esp32:makergo_c3_supermini`，串口按真实情况来。

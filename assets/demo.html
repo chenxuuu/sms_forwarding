@@ -1594,13 +1594,14 @@ body.chan-dirty main{padding-bottom:150px}
     $('logCopy').addEventListener('click', function(){
       copyText(S.logs.join(String.fromCharCode(10)), function(){ toast('已复制 ' + S.logs.length + ' 行日志', 'ok'); });
     });
-    $('logSearch').addEventListener('input', function(){ S.search = this.value.trim().toLowerCase(); renderLogsFull(); });
+    $('logSearch').addEventListener('input', function(){ S.search = this.value.trim().toLowerCase(); renderLogsFull(); jumpToLogBottom(); });
     document.querySelectorAll('#fChips .fchip').forEach(function(c){
       c.addEventListener('click', function(){
         document.querySelectorAll('#fChips .fchip').forEach(function(x){ x.classList.remove('on'); });
         c.classList.add('on');
         S.filter = c.getAttribute('data-f');
         renderLogsFull();
+        jumpToLogBottom(); /* 重新渲染会回到顶部，这里贴回最新一行 */
       });
     });
     $('logAuto').addEventListener('change', function(){ $('autoState').textContent = this.checked ? '开' : '关'; });

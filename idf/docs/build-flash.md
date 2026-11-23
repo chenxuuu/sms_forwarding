@@ -160,3 +160,27 @@ idf.py build flash
 | 路由数量 | 注册了 24 个 URI，max_uri_handlers 曾为 20，导致 /wifi、/system 404；现为 32 且注册失败会打日志 |
 | 界面交互 | agent-browser 实测：查询信号结果落面板、飞行模式开关回显 已开启/已关闭、主题三态切换正确 |
 | 保存表单 | 50 个通道的表单可能超过 16KB，请求体上限已放宽到 40KB |
+
+## 10. 调试期关掉掉电检测（Brownout）
+
+现象：串口反复打印 `Brownout detector was triggered` 然后重启，调试被打断。
+
+4G 模组发射瞬间电流能冲到 2 A，USB 供电被拉低到 2.5 V 附近就会触发。
+C3 默认阈值是 level 7（2.51 V，已是最低档），再往下没有可选项，只能在调试时关掉数字 BOD：
+
+```
+CONFIG_ESP_BROWNOUT_DET=n
+```
+
+已加在 `sdkconfig.defaults` 里（**发布固件前删掉**）。注意已有的 `sdkconfig` 不会自动跟随
+defaults 变化，要么删掉 `sdkconfig` 重新生成，要么直接把里面的
+`CONFIG_ESP_BROWNOUT_DET` 改成 `# CONFIG_ESP_BROWNOUT_DET is not set`。
+
+两点限制：
+
+- bootloader 还会打开**模拟 BOD**（`brownout_ll_ana_reset_enable(true)`，C3 ECO2 及以上固定行为），
+  这个关不掉。真掉到 2.5 V 以下仍会**静默复位**，只是不再打印那条日志。
+- 关掉后写 flash / OTA 期间掉压没有保护，可能写坏分区。调试完记得恢复。
+
+顺带一提，频繁触发说明供电确实不够：换短一点的 USB 线、插到能给 1 A 以上的口，
+或在模组供电脚并 1000 µF 以上的电容，比关检测更治本。

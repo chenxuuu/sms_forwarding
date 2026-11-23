@@ -689,10 +689,10 @@ esp_err_t handler_status(httpd_req_t *req)
 
     sbuf_printf(&out,
                 "\"email_ok\":%s,\"mail_enabled\":%s,\"push_count\":%d,\"self_phone\":\"%s\","
-                "\"version\":\"%s\",\"ota_state\":%d,\"has_update\":%s,"
+                "\"version\":\"%s\",\"ota_state\":%d,"
                 "\"device_name\":\"%s\",\"model\":\"%s\"}",
                 email_ok ? "true" : "false", mail_enabled ? "true" : "false", push_count,
-                self_phone, ota.current, (int)ota.state, ota.has_update ? "true" : "false",
+                self_phone, ota.current, (int)ota.state,
                 host, modem_model());
     httpd_resp_set_type(req, "application/json; charset=utf-8");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
@@ -820,7 +820,6 @@ esp_err_t web_server_start(void)
     register_uri(s_server, "/system", HTTP_POST, handler_system);
     register_uri(s_server, "/ota", HTTP_GET, handler_ota);
     register_uri(s_server, "/ota", HTTP_POST, handler_ota_upload);
-    register_uri(s_server, "/ota_check", HTTP_POST, handler_ota_check);
 
     log_line("HTTP 服务器已启动: http://%s/", wifi_ip());
     return ESP_OK;

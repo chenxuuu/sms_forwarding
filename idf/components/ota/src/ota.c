@@ -3,34 +3,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #include "core/log.h"
 #include "esp_app_format.h"
-#include "esp_crt_bundle.h"
-#include "esp_heap_caps.h"
-#include "esp_http_client.h"
 #include "esp_ota_ops.h"
 #include "esp_system.h"
-#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "net/wifi.h"
 #include "net/wifi_portal.h"
 #include "notify/notify.h"
-#include "nvs.h"
 
-#define OTA_NVS_NS "sms_ota"
-#define OTA_HEAD_MAX 4096        /* 首块缓存：够放 image header + app desc */
-#define OTA_MIN_IMAGE 0x10000    /* 小于 64KB 肯定不是有效固件 */
-#define OTA_MANIFEST_MAX 4096
-#define OTA_HEAP_MIN (6 * 1024) /* 最大连续块低于这个值不做 TLS 握手（IN 缓冲已降到 4 KB） */
-#define OTA_FIRST_CHECK_S 180 /* 等开机通知的 TLS 结束再查，否则抢不到连续内存 */
-#define OTA_PERIOD_S (24 * 3600)
-#define OTA_REFRESH_MIN_S (20 * 3600)
-#define OTA_RETRY_S 3600
-#define OTA_RETRY_MAX 3
+#define OTA_HEAD_MAX 4096     /* 首块缓存：够放 image header + app desc */
+#define OTA_MIN_IMAGE 0x10000 /* 小于 64KB 肯定不是有效固件 */
 #define OTA_CONFIRM_WAIT_MS 45000
 #define OTA_CONFIRM_LIMIT_MS 120000
 
@@ -46,14 +32,6 @@ static uint8_t *s_head;
 static bool s_started;
 static char s_new_version[32];
 
-static esp_timer_handle_t s_daily;
-static esp_timer_handle_t s_retry;
-static int s_retry_count;
-
-static TaskHandle_t s_worker;
-static SemaphoreHandle_t s_wake;
-static volatile bool s_checking;
-
 /* ---------- 小工具 ---------- */
 
 static void lock(void)
@@ -68,23 +46,6 @@ static void unlock(void)
     if (s_lock) {
         xSemaphoreGive(s_lock);
     }
-}
-
-bool ota_version_is_release(const char *version)
-{
-    if (!version || strlen(version) != 13) {
-        return false;
-    }
-    for (int i = 0; i < 13; i++) {
-        if (i == 8) {
-            if (version[i] != '.') {
-                return false;
-            }
-        } else if (version[i] < '0' || version[i] > '9') {
-            return false;
-        }
-    }
-    return true;
 }
 
 const char *ota_version(void)
@@ -114,295 +75,6 @@ void ota_get_info(ota_info_t *out)
 static void set_message(const char *text)
 {
     snprintf(s_info.message, sizeof(s_info.message), "%s", text ? text : "");
-}
-
-/* ---------- NVS 缓存 ---------- */
-
-static void cache_save(void)
-{
-    nvs_handle_t h;
-    if (nvs_open(OTA_NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
-        return;
-    }
-    nvs_set_i64(h, "last", s_info.checked_at);
-    nvs_set_str(h, "latest", s_info.latest);
-    nvs_set_str(h, "url", s_info.url);
-    nvs_set_str(h, "notes", s_info.notes);
-    nvs_commit(h);
-    nvs_close(h);
-}
-
-static void cache_load(void)
-{
-    nvs_handle_t h;
-    if (nvs_open(OTA_NVS_NS, NVS_READONLY, &h) != ESP_OK) {
-        return;
-    }
-    int64_t last = 0;
-    if (nvs_get_i64(h, "last", &last) == ESP_OK) {
-        s_info.checked_at = last;
-    }
-    size_t len = sizeof(s_info.latest);
-    nvs_get_str(h, "latest", s_info.latest, &len);
-    len = sizeof(s_info.url);
-    nvs_get_str(h, "url", s_info.url, &len);
-    len = sizeof(s_info.notes);
-    nvs_get_str(h, "notes", s_info.notes, &len);
-    nvs_close(h);
-
-    if (ota_version_is_release(s_info.current) && ota_version_is_release(s_info.latest)) {
-        s_info.has_update = strcmp(s_info.latest, s_info.current) > 0;
-    }
-}
-
-/* ---------- manifest ---------- */
-
-typedef struct {
-    char *buf;
-    size_t cap;
-    size_t len;
-} fetch_ctx_t;
-
-static esp_err_t http_event(esp_http_client_event_t *ev)
-{
-    fetch_ctx_t *ctx = (fetch_ctx_t *)ev->user_data;
-    if (ev->event_id == HTTP_EVENT_ON_DATA && ctx && ctx->len + (size_t)ev->data_len < ctx->cap) {
-        memcpy(ctx->buf + ctx->len, ev->data, (size_t)ev->data_len);
-        ctx->len += (size_t)ev->data_len;
-        ctx->buf[ctx->len] = '\0';
-    }
-    return ESP_OK;
-}
-
-static bool fetch_manifest(char *buf, size_t cap)
-{
-    fetch_ctx_t ctx = {.buf = buf, .cap = cap, .len = 0};
-    buf[0] = '\0';
-
-    esp_http_client_config_t cfg = {
-        .url = OTA_MANIFEST_URL,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 15000,
-        .buffer_size = 1024,
-        .buffer_size_tx = 1024,
-        .event_handler = http_event,
-        .user_data = &ctx,
-        .keep_alive_enable = false,
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client) {
-        log_line("版本检查：HTTP 客户端创建失败");
-        return false;
-    }
-    esp_err_t err = esp_http_client_perform(client);
-    int status = esp_http_client_get_status_code(client);
-    int sock_errno = esp_http_client_get_errno(client);
-    esp_http_client_cleanup(client);
-
-    if (err != ESP_OK) {
-        log_line("版本检查请求失败: %s（errno=%d，可用内存 %u KB）", esp_err_to_name(err),
-                 sock_errno, (unsigned)(esp_get_free_heap_size() / 1024));
-        return false;
-    }
-    if (status != 200) {
-        log_line("版本检查返回 HTTP %d", status);
-        return false;
-    }
-    return ctx.len > 0;
-}
-
-/** 从扁平 JSON 里取一个字符串字段（值里只处理 \\ 和 \\" 两种转义）。 */
-static bool json_str(const char *json, const char *key, char *out, size_t cap)
-{
-    char pattern[32];
-    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
-    const char *p = strstr(json, pattern);
-    if (!p) {
-        return false;
-    }
-    p += strlen(pattern);
-    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') {
-        p++;
-    }
-    if (*p != ':') {
-        return false;
-    }
-    p++;
-    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') {
-        p++;
-    }
-    if (*p != '"') {
-        return false;
-    }
-    p++;
-
-    size_t o = 0;
-    while (*p && *p != '"' && o + 1 < cap) {
-        if (*p == '\\' && p[1]) {
-            p++;
-        }
-        out[o++] = *p++;
-    }
-    out[o] = '\0';
-    return o > 0;
-}
-
-/* ---------- 每日检查 ---------- */
-
-static void retry_cb(void *arg);
-
-static void schedule_retry(void)
-{
-    if (!s_retry || s_retry_count >= OTA_RETRY_MAX) {
-        if (s_retry_count >= OTA_RETRY_MAX) {
-            log_line("版本检查今日重试已达 %d 次，明天再试", OTA_RETRY_MAX);
-        }
-        return;
-    }
-    s_retry_count++;
-    esp_timer_stop(s_retry);
-    esp_timer_start_once(s_retry, (uint64_t)OTA_RETRY_S * 1000000ULL);
-    log_line("版本检查将在 %d 分钟后重试（第 %d 次）", OTA_RETRY_S / 60, s_retry_count);
-}
-
-static esp_err_t check_latest(bool allow_retry)
-{
-    if (!wifi_connected()) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    time_t now = time(NULL);
-    if (now < 1600000000) {
-        log_line("系统时间未同步，跳过版本检查（证书校验需要正确时间）");
-        return ESP_ERR_INVALID_STATE;
-    }
-    /* TLS 握手要 20 KB 以上的连续内存；开机通知的邮件/推送可能正在握手，
-     * 这时等几秒让它释放，而不是直接报"内存不足"让用户重试。 */
-    unsigned free_kb = 0;
-    unsigned block_kb = 0;
-    for (int i = 0; i < 15; i++) {
-        free_kb = (unsigned)(esp_get_free_heap_size() / 1024);
-        block_kb = (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) / 1024);
-        if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) >= OTA_HEAP_MIN) {
-            break;
-        }
-        if (i == 0) {
-            log_line("版本检查等待内存释放（空闲 %u KB，最大连续 %u KB）", free_kb, block_kb);
-        }
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-    if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < OTA_HEAP_MIN) {
-        log_line("可用内存不足（空闲 %u KB，最大连续 %u KB），跳过版本检查", free_kb, block_kb);
-        return ESP_ERR_NO_MEM;
-    }
-    log_line("版本检查：空闲 %u KB，最大连续 %u KB", free_kb, block_kb);
-
-    char *buf = malloc(OTA_MANIFEST_MAX);
-    if (!buf) {
-        return ESP_ERR_NO_MEM;
-    }
-
-    esp_err_t result = ESP_FAIL;
-    char version[32] = {0};
-    char url[192] = {0};
-    char notes[160] = {0};
-
-    if (!fetch_manifest(buf, OTA_MANIFEST_MAX)) {
-        goto done;
-    }
-    if (!json_str(buf, "version", version, sizeof(version))) {
-        log_line("版本检查：响应里没有 version 字段");
-        goto done;
-    }
-    if (!ota_version_is_release(version)) {
-        log_line("版本检查：远端版本号 %s 格式非法，忽略", version);
-        goto done;
-    }
-    json_str(buf, "url", url, sizeof(url));
-    json_str(buf, "notes", notes, sizeof(notes));
-
-    lock();
-    snprintf(s_info.latest, sizeof(s_info.latest), "%s", version);
-    snprintf(s_info.url, sizeof(s_info.url), "%s", url);
-    snprintf(s_info.notes, sizeof(s_info.notes), "%s", notes);
-    s_info.checked_at = now;
-    s_info.has_update = ota_version_is_release(s_info.current) &&
-                        strcmp(version, s_info.current) > 0;
-    cache_save();
-    unlock();
-
-    log_line("版本检查完成：当前 %s，最新 %s%s", s_info.current, version,
-             s_info.has_update ? "（有新版本，可在升级页上传）" : "");
-    s_retry_count = 0;
-    result = ESP_OK;
-
-done:
-    free(buf);
-    if (result != ESP_OK && allow_retry) {
-        schedule_retry();
-    }
-    return result;
-}
-
-esp_err_t ota_request_check(void)
-{
-    if (ota_busy()) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    if (s_checking) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    if (!s_wake) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    if (xSemaphoreGive(s_wake) != pdTRUE) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    return ESP_OK;
-}
-
-/** 检查专用工作任务：esp_timer / httpd 的栈都不够跑 TLS 握手。 */
-static void worker_task(void *arg)
-{
-    (void)arg;
-    while (1) {
-        if (xSemaphoreTake(s_wake, portMAX_DELAY) != pdTRUE) {
-            continue;
-        }
-        s_checking = true;
-        lock();
-        s_info.checking = true;
-        unlock();
-
-        check_latest(true);
-
-        lock();
-        s_info.checking = false;
-        unlock();
-        s_checking = false;
-    }
-}
-
-static void daily_cb(void *arg)
-{
-    (void)arg;
-    if (ota_busy()) {
-        return;
-    }
-    time_t now = time(NULL);
-    if (s_info.checked_at && now - s_info.checked_at < OTA_REFRESH_MIN_S) {
-        return;
-    }
-    s_retry_count = 0; /* 新的一天，重试次数重新计数 */
-    ota_request_check();
-}
-
-static void retry_cb(void *arg)
-{
-    (void)arg;
-    if (ota_busy() || !wifi_connected()) {
-        return;
-    }
-    ota_request_check();
 }
 
 /* ---------- 写入 ---------- */
@@ -709,8 +381,6 @@ void ota_init(void)
     snprintf(s_info.current, sizeof(s_info.current), "%s", esp_app_get_description()->version);
     s_info.state = OTA_STATE_IDLE;
 
-    cache_load();
-
     const esp_partition_t *running = esp_ota_get_running_partition();
     esp_ota_img_states_t state;
     bool pending = running && esp_ota_get_state_partition(running, &state) == ESP_OK &&
@@ -720,32 +390,5 @@ void ota_init(void)
         xTaskCreate(confirm_task, "ota_confirm", 3072, NULL, 3, NULL);
     } else {
         log_line("固件版本 %s（分区 %s）", s_info.current, running ? running->label : "?");
-    }
-
-    const esp_timer_create_args_t daily_args = {
-        .callback = daily_cb,
-        .name = "ota_daily",
-    };
-    if (esp_timer_create(&daily_args, &s_daily) == ESP_OK) {
-        esp_timer_start_periodic(s_daily, (uint64_t)OTA_PERIOD_S * 1000000ULL);
-    }
-    const esp_timer_create_args_t retry_args = {
-        .callback = retry_cb,
-        .name = "ota_retry",
-    };
-    esp_timer_create(&retry_args, &s_retry);
-
-    s_wake = xSemaphoreCreateBinary();
-    if (s_wake) {
-        xTaskCreate(worker_task, "ota_check", 8192, NULL, 3, &s_worker);
-    }
-
-    const esp_timer_create_args_t boot_args = {
-        .callback = daily_cb,
-        .name = "ota_boot",
-    };
-    esp_timer_handle_t boot_check = NULL;
-    if (esp_timer_create(&boot_args, &boot_check) == ESP_OK) {
-        esp_timer_start_once(boot_check, (uint64_t)OTA_FIRST_CHECK_S * 1000000ULL);
     }
 }

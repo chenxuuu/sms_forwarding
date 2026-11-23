@@ -66,5 +66,4 @@ esp_err_t handler_wifi(httpd_req_t *req);
 esp_err_t handler_system(httpd_req_t *req);
 esp_err_t handler_ota(httpd_req_t *req);
 esp_err_t handler_ota_upload(httpd_req_t *req);
-esp_err_t handler_ota_check(httpd_req_t *req);
 

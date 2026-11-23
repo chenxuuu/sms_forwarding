@@ -55,8 +55,8 @@ HTTP 服务本身不受影响，页面还能正常打开和刷新。
 ### GET /status
 
 前端轮询用的轻量状态（不碰 AT，毫秒级）：`ip/ssid/rssi/heap_kb/uptime_s/modem_ready/email_ok/mail_enabled/self_phone/push_count/device_name/model`，
-外加固件相关的 `version`（当前版本，`YYYYMMDD.HHMM`）、`ota_state`（0 空闲/1 接收中/2 校验中/3 等待重启/4 失败）、
-`has_update`（远端有更新，侧边栏红点用）。
+外加固件相关的 `version`（当前版本，`YYYYMMDD.HHMM`）、`ota_state`（0 空闲/1 接收中/2 校验中/3 等待重启/4 失败）。
+有没有新版本由浏览器比对（见「固件升级」），设备端不再保存远端版本。
 `mail_enabled` 是邮件通道开关；`email_ok` 表示「开关打开且 SMTP 四项配置齐全」（即 config_mail_active），
 关闭后即便 SMTP 填好也不再发邮件。
 
@@ -197,14 +197,16 @@ Bark 的 body 与钉钉/飞书/PushPlus/Server酱/Gotify/Telegram 的正文末�
 返回升级状态，前端进入「固件升级」页时拉一次：
 
 ```json
-{"success":true,"current":"20261123.0906","target":"","latest":"20261124.1200",
- "url":"https://…/sms_forwarder-ota.bin","notes":"…","checked_at":1795424033,
- "has_update":true,"checking":false,"state":0,"progress":0,"message":""}
+{"success":true,"current":"20261123.1033","target":"","state":0,"progress":0,"message":""}
 ```
 
+- `current`：当前运行版本，浏览器用它和 GitHub 上的最新版本比较
 - `target`：已写入、等待重启后生效的版本
-- `checked_at`：最近一次检查成功的 epoch，0 表示从未成功
-- `checking`：正在检查远端版本（前端轮询它判断结果是否回来）
+- `state` / `progress` / `message`：升级进度与最近一次结果（失败原因给页面直接显示）
+
+远端版本信息**不在设备端**：页面直接请求
+`https://api.github.com/repos/chenxuuu/sms_forwarding/releases/latest`，读 `name`（Release 标题就是版本号）
+和 `assets` 里的下载地址，结果缓存在浏览器 `localStorage`（12 小时）。
 
 ### POST /ota
 
@@ -222,17 +224,17 @@ Bark 的 body 与钉钉/飞书/PushPlus/Server酱/Gotify/Telegram 的正文末�
 
 写入的是非活动分区，失败不影响当前固件；写完后 `esp_ota_set_boot_partition` 并等待重启。
 
-### POST /ota_check
+### 版本检查（不在设备端）
 
-请求检查远端版本，**立即返回**（TLS 在设备内部的 8 KB 工作任务里跑，不阻塞 httpd）：
+设备**不联网检查版本**，也没有 `/ota_check` 接口（旧固件有，现已删除，请求返回 404）。
+页面打开「固件升级」页时直接 fetch GitHub API，用 `name` 和 `GET /ota` 的 `current` 比新旧：
 
-```json
-{"success":true,"message":"正在检查版本，请稍候…"}
-```
+- 有新版本：显示最新版本、下载链接、侧边栏红点
+- 12 小时内不重复请求（避开 GitHub API 的 60 次/小时/IP 限流）
+- 请求失败（离线、被墙、限流）只在页面提示，不影响上传升级
 
-前端随后轮询 `GET /ota`，看到 `checking` 由 true 变回 false 即取结果。
-设备每天自动检查一次（启动 180 秒后 + 每 24 小时，距上次成功不足 20 小时则跳过），
-只拉几百字节的 `latest.json`，**不会自动下载或安装**。
+好处是设备端省掉一次 TLS 握手：`ota` 组件的 8 KB 工作任务和 HTTP 客户端都已删除，
+实测空闲堆从 24 KB 回到 40 KB。
 
 ## 定时任务
 

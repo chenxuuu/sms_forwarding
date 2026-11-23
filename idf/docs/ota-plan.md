@@ -1,7 +1,7 @@
 # 固件升级（OTA）开发计划【待实现】
 
 > 状态：**已实现并实机验证**（2026-11-23，commit `fd2cb25`）。本文保留为实现依据与坑位记录。
-> 实现与原计划的差异见文末「实现记录」。
+> 实现与原计划的差异见文末「实现记录」；**版本检查后续改到浏览器侧**，设备不再联网检查，见 §14。
 
 ## 0. 决策记录
 
@@ -472,3 +472,19 @@ GET https://github.com/chenxuuu/sms_forwarding/releases/latest/download/latest.j
    服务端只读 `Content-Length`，不解析 multipart。
 5. 首次检查从 60 秒推迟到 **180 秒**，避开开机通知的邮件/推送 TLS。
 6. 页面独立成导航项「固件升级」，有新版本时侧边栏显示红点。
+
+## 14. 后续变更（2026-11-23）：版本检查下放浏览器
+
+设备侧的版本检查已**全部删除**：`CONFIG_OTA_MANIFEST_URL`、`POST /ota_check`、8 KB 检查任务、
+NVS 里的远端版本缓存。原因很直接：C3 空闲堆只有 24 KB、最大连续块 7 KB，跑不动 GitHub 的 TLS，
+而这份信息浏览器本来就能拿到。
+
+- 页面直接 `fetch('https://api.github.com/repos/chenxuuu/sms_forwarding/releases/latest')`，
+  用 `.name`（CI 现在把 Release 标题写成 `YYYYMMDD.HHMM`）和 `GET /ota` 的 `current` 比新旧；
+- 结果存 `localStorage`，12 小时内不重复请求（GitHub API 限 60 次/小时/IP）；
+- 侧边栏红点、最新版本、「去下载」链接全由前端算，设备不再感知；
+- 设备侧只剩 `POST /ota` 上传和回滚确认，两者都跟网络无关；
+- `latest.json` 资产继续保留，给需要自己写脚本或镜像的人用。
+
+收益：`sms_forwarder.bin` 小 2.7 KB，空闲堆 **24 KB → 40 KB**（8 KB 任务栈 + HTTP 客户端/TLS 缓冲）。
+代价：只有打开页面才知道有没有新版本，并且浏览器要能访问 `api.github.com`（被墙时只影响提示，不影响上传升级）。

@@ -538,7 +538,7 @@ body.chan-dirty main{padding-bottom:150px}
         <div class="tip" id="otaChecked" style="margin-top:6px">尚未检查</div>
         <div class="row" style="margin-top:10px">
           <button class="btn sm" id="otaCheckBtn">立即检查更新</button>
-          <span class="tip">每天自动检查一次，只提示不下载</span>
+          <span class="tip">浏览器直接查 GitHub，12 小时内不重复；只提示不下载</span>
         </div>
         <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
           <div class="field"><label>上传固件（*-ota.bin）</label>
@@ -750,7 +750,7 @@ body.chan-dirty main{padding-bottom:150px}
       b.textContent = p.nav || p.name;
       if (p.id === 'ota') {
         var dot = document.createElement('i');
-        dot.className = 'nav-dot' + (S.status && S.status.has_update ? ' on' : '');
+        dot.className = 'nav-dot' + (otaHasUpdate() ? ' on' : '');
         dot.id = 'otaDot';
         b.appendChild(dot);
       }
@@ -819,8 +819,7 @@ body.chan-dirty main{padding-bottom:150px}
   function applyStatus(s){
     if (!s || s.success === false) return;
     S.status = s;
-    var otaDot = $('otaDot');
-    if (otaDot) otaDot.classList.toggle('on', !!s.has_update);
+    syncOtaDot();
     $('vIp').textContent = s.ip || '--';
     $('subIp').textContent = (s.device_name || '') + '.local';
     $('devName').textContent = s.device_name || 'ESP32-C3';
@@ -1391,30 +1390,76 @@ body.chan-dirty main{padding-bottom:150px}
     if (d < 86400) return Math.floor(d / 3600) + ' 小时前检查';
     return Math.floor(d / 86400) + ' 天前检查';
   }
+  /* 版本检查走浏览器：设备不联网，接口换地址也不会再受堆内存限制。
+     GitHub 的 release 资产地址没有 CORS 头，只能走 api.github.com。 */
+  var OTA_API = 'https://api.github.com/repos/chenxuuu/sms_forwarding/releases/latest';
+  var OTA_TTL = 12 * 3600 * 1000;   /* 12 小时内不重复请求，避开 API 限流 */
+  function otaRemoteRead(){
+    try { return JSON.parse(LS.getItem('otaRemote') || 'null'); } catch(e){ return null; }
+  }
+  function otaRemoteSave(r){ try { LS.setItem('otaRemote', JSON.stringify(r)); } catch(e){} }
+  function otaCurrent(){ return (S.ota && S.ota.current) || (S.status && S.status.version) || ''; }
+  function otaHasUpdate(){
+    var r = otaRemoteRead(), cur = otaCurrent();
+    return !!(r && r.version && cur && r.version > cur);
+  }
+  function syncOtaDot(){
+    var dot = $('otaDot');
+    if (dot) dot.classList.toggle('on', otaHasUpdate());
+  }
+  function applyOtaRemote(r){
+    var cur = otaCurrent();
+    var has = !!(r && r.version && cur && r.version > cur);
+    $('otaLatest').textContent = (r && r.version) || '尚未检查';
+    $('otaLatest').style.color = has ? 'var(--warn)' : 'var(--muted)';
+    var link = $('otaLink');
+    if (has && r.url) { link.href = r.url; link.style.display = ''; }
+    else { link.style.display = 'none'; }
+    if (has) {
+      $('otaChecked').innerHTML = '<span class="l-warn">发现新版本 ' + esc(r.version) + '，下载 ota 包后在这里上传</span>';
+    } else if (r && r.at) {
+      $('otaChecked').textContent = fmtAgo(Math.floor(r.at / 1000)) + ' · 已是最新';
+    } else {
+      $('otaChecked').textContent = '尚未检查';
+    }
+    syncOtaDot();
+  }
+  function otaFetch(){
+    return fetch(OTA_API, { cache:'no-store', headers:{ 'Accept':'application/vnd.github+json' } })
+      .then(function(r){
+        if (!r.ok) throw new Error('GitHub 返回 HTTP ' + r.status + (r.status === 403 ? '（请求过于频繁）' : ''));
+        return r.json();
+      })
+      .then(function(j){
+        var ver = ((j && j.name) || '').trim();
+        if (!/^\d{8}\.\d{4}$/.test(ver)) throw new Error('Release 标题不是版本号');
+        var url = j.html_url || '', assets = j.assets || [];
+        for (var i = 0; i < assets.length; i++) {
+          if (/sms_forwarder-ota\.bin$/.test(assets[i].name || '')) { url = assets[i].browser_download_url || url; break; }
+        }
+        var out = { version: ver, url: url, notes: j.body || '', at: Date.now() };
+        otaRemoteSave(out);
+        return out;
+      });
+  }
   function renderOta(o){
     S.ota = o;
-    var dot = $('otaDot');
-    if (dot) dot.classList.toggle('on', !!o.has_update);
     $('otaCurrent').textContent = o.current || '--';
-    $('otaLatest').textContent = o.latest || '尚未获取';
-    $('otaLatest').style.color = o.has_update ? 'var(--warn)' : 'var(--muted)';
-    var link = $('otaLink');
-    if (o.has_update && o.url) { link.href = o.url; link.style.display = ''; }
-    else { link.style.display = 'none'; }
-    if (o.has_update) {
-      $('otaChecked').innerHTML = '<span class="l-warn">发现新版本 ' + esc(o.latest) + '，下载 ota 包后在这里上传</span>';
-    } else {
-      $('otaChecked').textContent = fmtAgo(o.checked_at) + (o.latest ? ' · 已是最新' : '');
-    }
     if (o.state === 3) {
       $('otaMsg').innerHTML = '<span class="l-ok">固件 ' + esc(o.target || '') + ' 已写入，正在等待重启…</span>';
     } else if (o.state === 4 && o.message) {
       $('otaMsg').innerHTML = '<span class="l-err">' + esc(o.message) + '</span>';
     }
+    applyOtaRemote(otaRemoteRead());
   }
   function loadOta(){
     return api('/ota').then(function(r){
       if (r && r.success) renderOta(r);
+    }).then(function(){
+      var r = otaRemoteRead();
+      if (!r || Date.now() - (r.at || 0) > OTA_TTL) {
+        otaFetch().then(applyOtaRemote).catch(function(){});
+      }
     }).catch(function(){});
   }
   function setOtaProgress(p){
@@ -1487,35 +1532,21 @@ body.chan-dirty main{padding-bottom:150px}
   }
   function otaCheck(btn){
     busy(btn, true);
-    $('otaMsg').textContent = '正在检查版本…';
-    var before = (S.ota && S.ota.checked_at) || 0;
-    var saw = false, n = 0, timer = null;
-    function finish(text, cls){
-      if (timer) clearInterval(timer);
+    $('otaMsg').textContent = '正在向 GitHub 查询最新版本…';
+    otaFetch().then(function(r){
       busy(btn, false);
-      $('otaMsg').innerHTML = '<span class="' + cls + '">' + esc(text) + '</span>';
-      loadOta();
-    }
-    /* 设备侧在独立任务里跑 TLS，这里轮询 /ota 等结果，不占用它的内存 */
-    api('/ota_check', { method: 'POST' }).then(function(r){
-      if (!r || !r.success) { finish((r && r.message) || '检查失败', 'l-err'); return; }
-      timer = setInterval(function(){
-        n++;
-        api('/ota').then(function(o){
-          if (!o || !o.success) {
-            if (n > 20) finish('检查超时，请稍后重试', 'l-err');
-            return;
-          }
-          if (o.checking) { saw = true; return; }
-          if (!saw && n < 3) return;      /* 刚点下还没开始，再看两轮 */
-          if (o.has_update) finish('发现新版本 ' + o.latest + '，下载 ota 包后在这里上传', 'l-ok');
-          else if (o.checked_at !== before) finish('已是最新版本（' + o.current + '）', 'l-ok');
-          else finish('检查失败：设备访问不到清单地址（可用 menuconfig 换成镜像，日志里有原因）', 'l-err');
-        }).catch(function(){
-          if (n > 20) finish('检查超时，请稍后重试', 'l-err');
-        });
-      }, 1200);
-    }).catch(function(){ finish('请求失败', 'l-err'); });
+      applyOtaRemote(r);
+      var cur = otaCurrent();
+      if (r.version > cur) {
+        $('otaMsg').innerHTML = '<span class="l-warn">发现新版本 ' + esc(r.version) + '，下载 ota 包后在这里上传</span>';
+      } else {
+        $('otaMsg').innerHTML = '<span class="l-ok">已是最新版本（' + esc(cur) + '）</span>';
+      }
+    }).catch(function(e){
+      busy(btn, false);
+      $('otaMsg').innerHTML = '<span class="l-err">检查失败：' + esc((e && e.message) || '网络错误') +
+        '。浏览器需要能访问 api.github.com，设备本身不再联网检查。</span>';
+    });
   }
 
   /* ---------- 日志 ---------- */

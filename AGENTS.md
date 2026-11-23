@@ -28,7 +28,8 @@ python tools/serial_capture.py COM3 60  # 抓日志（直接 monitor/开串口�
 - OTA：版本号来自 `PROJECT_VER`（`YYYYMMDD.HHMM`，CI 注入）；上传的镜像必须校验
   `esp_app_desc_t.project_name == "sms_forwarder"`，否则用户会把 merged 包写进 app 槽；
   新固件联网稳定 45 秒后才 `esp_ota_mark_app_valid_cancel_rollback()`，别提前确认。
-  版本检查的 TLS 只能跑在 `ota` 组件的 8 KB 工作任务里（esp_timer/httpd 的栈不够）。
+  版本检查在**浏览器侧**做（页面 fetch `api.github.com` 的 Release `name`），设备不联网、不跑 TLS，
+  因此没有 `CONFIG_OTA_MANIFEST_URL` 和 `/ota_check`；CI 必须把 Release 标题写成版本号，否则页面判不了新旧。
 - NVS 命名空间与键名和 Arduino 版本完全一致，可从 Arduino 固件原地升级。
 - WiFi 账号优先级：NVS `sms_wifi`（`ssid`/`pass`，热点配网写入）> menuconfig 的 `CONFIG_WIFI_*`；
   没有账号或连续 3 次连不上时进配网模式（`net/wifi_portal.c`，热点 `SMS-Forwarder-XXXX`，192.168.4.1）。

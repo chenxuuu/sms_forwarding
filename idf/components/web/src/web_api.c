@@ -1267,7 +1267,7 @@ esp_err_t handler_tasks(httpd_req_t *req)
     return ESP_OK;
 }
 
-/* ---- 固件升级：状态 / 上传 / 检查 ---- */
+/* ---- 固件升级：状态 / 上传 ---- */
 
 static void ota_to_json(sbuf_t *out)
 {
@@ -1278,17 +1278,7 @@ static void ota_to_json(sbuf_t *out)
     util_json_escape(out, info.current);
     sbuf_append(out, "\",\"target\":\"");
     util_json_escape(out, info.next_version);
-    sbuf_append(out, "\",\"latest\":\"");
-    util_json_escape(out, info.latest);
-    sbuf_append(out, "\",\"url\":\"");
-    util_json_escape(out, info.url);
-    sbuf_append(out, "\",\"notes\":\"");
-    util_json_escape(out, info.notes);
-    sbuf_printf(out,
-                "\",\"checked_at\":%lld,\"has_update\":%s,\"checking\":%s,"
-                "\"state\":%d,\"progress\":%d,\"message\":\"",
-                (long long)info.checked_at, info.has_update ? "true" : "false",
-                info.checking ? "true" : "false", (int)info.state, info.progress);
+    sbuf_printf(out, "\",\"state\":%d,\"progress\":%d,\"message\":\"", (int)info.state, info.progress);
     util_json_escape(out, info.message);
     sbuf_append(out, "\"}");
 }
@@ -1410,29 +1400,6 @@ esp_err_t handler_ota_upload(httpd_req_t *req)
     sbuf_append(&out, "{\"success\":true,\"version\":\"");
     util_json_escape(&out, info.next_version);
     sbuf_append(&out, "\",\"message\":\"固件已写入，设备即将重启\"}");
-    httpd_resp_set_type(req, "application/json; charset=utf-8");
-    httpd_resp_send(req, sbuf_cstr(&out), out.len);
-    sbuf_free(&out);
-    return ESP_OK;
-}
-
-esp_err_t handler_ota_check(httpd_req_t *req)
-{
-    if (!web_require_auth(req)) {
-        return ESP_OK;
-    }
-    esp_err_t err = ota_request_check();
-    if (err == ESP_ERR_INVALID_STATE) {
-        ota_error_json(req, "409 Conflict", "正在检查或升级，请稍候");
-        return ESP_OK;
-    }
-    if (err != ESP_OK) {
-        ota_error_json(req, "503 Service Unavailable", "设备忙，请稍后重试");
-        return ESP_OK;
-    }
-    sbuf_t out;
-    sbuf_init(&out);
-    json_ok(&out, "正在检查版本，请稍候…");
     httpd_resp_set_type(req, "application/json; charset=utf-8");
     httpd_resp_send(req, sbuf_cstr(&out), out.len);
     sbuf_free(&out);

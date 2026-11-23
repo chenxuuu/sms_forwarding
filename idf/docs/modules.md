@@ -205,11 +205,11 @@ POST JSON 多一个 `self_phone` 字段，GET 多一个 `self_phone` 查询参�
 - 回滚：开启 `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`，`ota_init()` 发现
   `ESP_OTA_IMG_PENDING_VERIFY` 就起确认任务，联网（含配网热点）稳定 45 秒后
   `esp_ota_mark_app_valid_cancel_rollback()`；一直连不上则下次复位自动回退；
-- 版本检查：启动 180 秒后 + 每 24 小时，拉 `latest.json`（几百字节，地址见
-  `CONFIG_OTA_MANIFEST_URL`，可在 menuconfig 换成镜像），只更新页面提示和侧边栏红点；
-  **TLS 固定跑在组件自己的 8 KB 工作任务里**（esp_timer 3.5 KB、httpd 8 KB 的栈都不够，会栈溢出重启）；
-- 内存：`CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=4096`，检查前用
-  `heap_caps_get_largest_free_block()` 判断（≥6 KB 才发起），不够时等待重试。
+- 版本检查**不在设备端**：页面直接 fetch `api.github.com/.../releases/latest`，读 Release 标题
+  （CI 把标题写成 `YYYYMMDD.HHMM`）与 `assets` 里的下载地址，结果缓存进 `localStorage` 12 小时；
+  设备不联网、不跑 TLS，`/ota_check` 接口与 8 KB 检查任务已删除（空闲堆 24 KB → 40 KB）；
+- 组件只依赖 `core` / `app_update` / `bootloader_support` / `esp_app_format` / `net` / `notify`，
+  不再需要 `esp_http_client` 与 `mbedtls`。
 
 ## web
 

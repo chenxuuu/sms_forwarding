@@ -160,3 +160,31 @@ void log_append_json(sbuf_t *out)
     sbuf_append_char(out, ']');
     xSemaphoreGive(s_mutex);
 }
+
+int log_line_count(void)
+{
+    if (!s_mutex) {
+        return 0;
+    }
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    int n = s_count;
+    xSemaphoreGive(s_mutex);
+    return n;
+}
+
+bool log_copy_line(int index, char *out, size_t cap)
+{
+    if (!s_mutex || !out || cap == 0) {
+        return false;
+    }
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    bool ok = false;
+    if (index >= 0 && index < s_count) {
+        int start = (s_count < LOG_RING_LINES) ? 0 : s_head;
+        int pos = (start + index) % LOG_RING_LINES;
+        snprintf(out, cap, "%s", s_ring[pos]);
+        ok = true;
+    }
+    xSemaphoreGive(s_mutex);
+    return ok;
+}

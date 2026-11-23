@@ -15,10 +15,10 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "sdkconfig.h"
 
-/** 版本清单地址；fork 的人改这里即可。 */
-#define OTA_MANIFEST_URL \
-    "https://github.com/chenxuuu/sms_forwarding/releases/latest/download/latest.json"
+/** 版本清单地址（menuconfig → 短信转发器配置 → 固件版本清单地址）。 */
+#define OTA_MANIFEST_URL CONFIG_OTA_MANIFEST_URL
 
 typedef enum {
     OTA_STATE_IDLE = 0,   /**< 空闲，可以上传 */

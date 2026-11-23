@@ -1844,14 +1844,11 @@ body.chan-dirty main{padding-bottom:150px}
             if (n > 20) finish('检查超时，请稍后重试', 'l-err');
             return;
           }
-          if (o.checking) saw = true;
-          if (saw && !o.checking) {
-            if (o.has_update) finish('发现新版本 ' + o.latest + '，下载 ota 包后在这里上传', 'l-ok');
-            else if (o.checked_at !== before) finish('已是最新版本（' + o.current + '）', 'l-ok');
-            else finish('检查失败：请确认网络能访问 GitHub（日志里有原因）', 'l-err');
-          } else if (n > 20) {
-            finish('检查超时，请稍后重试', 'l-err');
-          }
+          if (o.checking) { saw = true; return; }
+          if (!saw && n < 3) return;      /* 刚点下还没开始，再看两轮 */
+          if (o.has_update) finish('发现新版本 ' + o.latest + '，下载 ota 包后在这里上传', 'l-ok');
+          else if (o.checked_at !== before) finish('已是最新版本（' + o.current + '）', 'l-ok');
+          else finish('检查失败：设备访问不到清单地址（可用 menuconfig 换成镜像，日志里有原因）', 'l-err');
         }).catch(function(){
           if (n > 20) finish('检查超时，请稍后重试', 'l-err');
         });

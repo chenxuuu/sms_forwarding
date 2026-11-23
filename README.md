@@ -122,6 +122,7 @@ idf.py -p COM3 flash    # 串口按实际改：Windows 是 COMx，Linux 是 /dev
 | 换了路由器 / 改了 WiFi 密码 | 设备连续 3 次启动连不上会自动开热点 `SMS-Forwarder-XXXX`，连上去重新填一次即可；也可以提前在 `menuconfig` 里改好再烧录 |
 | 想换运营商 / 锁网 | 「设备 → 选网配置」选手动，填 PLMN（移动 `46000`、联通 `46001`、电信 `46011`），保存后重启 |
 | 推送失败但网页正常 | 先点该通道的「测试」看具体报错；多数是 token / webhook 填错或平台侧限制 |
+| 固件升级页「检查失败」 | 设备访问不到清单地址（默认 GitHub，国内常被墙）。日志里有 `ESP_ERR_HTTP_CONNECT`；`idf.py menuconfig → 固件版本清单地址` 换成自己的镜像后重新烧录 |
 
 更多踩坑记录见 [idf/docs/build-flash.md](idf/docs/build-flash.md)。
 

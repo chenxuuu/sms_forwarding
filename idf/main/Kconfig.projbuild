@@ -44,4 +44,13 @@ menu "短信转发器配置"
         help
             连续 3 次失败会主动重连 WiFi，连续 6 次失败会重启设备。
 
+    config OTA_MANIFEST_URL
+        string "固件版本清单地址"
+        default "https://github.com/chenxuuu/sms_forwarding/releases/latest/download/latest.json"
+        help
+            设备每天 GET 这个地址检查新版本，只读取几百字节 JSON，不会下载固件。
+
+            国内访问 GitHub 不稳定时，把它换成自己的镜像地址即可，例如
+            https://your-domain/sms/latest.json，JSON 格式见 docs/ota-plan.md。
+
 endmenu

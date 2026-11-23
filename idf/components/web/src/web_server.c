@@ -551,18 +551,96 @@ esp_err_t handler_save(httpd_req_t *req)
     return ESP_OK;
 }
 
+/**
+ * 日志量大会超过最大连续堆块（C3 碎片严重时只有 7-8KB），
+ * 所以不再一次性拼 JSON，而是按 2KB 分块流式发送。
+ */
+typedef struct {
+    httpd_req_t *req;
+    char buf[2048];
+    size_t len;
+    bool first;
+    bool failed;
+} log_chunk_t;
+
+static void log_flush(log_chunk_t *c)
+{
+    if (!c->failed && c->len > 0) {
+        if (httpd_resp_send_chunk(c->req, c->buf, c->len) != ESP_OK) {
+            c->failed = true;
+        }
+    }
+    c->len = 0;
+}
+
+static void log_putc(log_chunk_t *c, char ch)
+{
+    if (c->failed) {
+        return;
+    }
+    if (c->len + 1 >= sizeof(c->buf)) {
+        log_flush(c);
+    }
+    if (!c->failed) {
+        c->buf[c->len++] = ch;
+    }
+}
+
+static void log_puts(log_chunk_t *c, const char *s)
+{
+    while (*s) {
+        log_putc(c, *s++);
+    }
+}
+
 esp_err_t handler_log(httpd_req_t *req)
 {
     if (!web_require_auth(req)) {
         return ESP_OK;
     }
-    sbuf_t out;
-    sbuf_init(&out);
-    log_append_json(&out);
     httpd_resp_set_type(req, "application/json; charset=utf-8");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
-    httpd_resp_send(req, sbuf_cstr(&out), out.len);
-    sbuf_free(&out);
+
+    log_chunk_t c = {.req = req, .first = true};
+    log_putc(&c, '[');
+
+    int n = log_line_count();
+    for (int i = 0; i < n && !c.failed; i++) {
+        char line[LOG_LINE_MAX];
+        if (!log_copy_line(i, line, sizeof(line))) {
+            break;
+        }
+        if (!c.first) {
+            log_putc(&c, ',');
+        }
+        log_putc(&c, '"');
+        for (const char *p = line; *p; p++) {
+            unsigned char ch = (unsigned char)*p;
+            switch (ch) {
+            case '"': log_puts(&c, "\\\""); break;
+            case '\\': log_puts(&c, "\\\\"); break;
+            case '\n': log_puts(&c, "\\n"); break;
+            case '\r': log_puts(&c, "\\r"); break;
+            case '\t': log_puts(&c, "\\t"); break;
+            default:
+                if (ch < 0x20) {
+                    char tmp[8];
+                    snprintf(tmp, sizeof(tmp), "\\u%04x", ch);
+                    log_puts(&c, tmp);
+                } else {
+                    log_putc(&c, (char)ch);
+                }
+            }
+        }
+        log_putc(&c, '"');
+        c.first = false;
+    }
+    log_putc(&c, ']');
+    if (c.failed) {
+        return ESP_OK; /* 客户端提前断开，响应已作废 */
+    }
+    log_flush(&c);
+    httpd_resp_send_chunk(req, NULL, 0);
     return ESP_OK;
 }
 

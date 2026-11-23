@@ -23,3 +23,9 @@ void log_line(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
 /** 把环形缓冲区导出为 JSON 字符串数组（自动转义）。 */
 void log_append_json(sbuf_t *out);
+
+/** 当前缓存的行数（最多 LOG_RING_LINES 行）。 */
+int log_line_count(void);
+
+/** 按时间顺序取第 index 行（0 = 最旧）；行可能被覆盖，属于尽力而为的读取。 */
+bool log_copy_line(int index, char *out, size_t cap);

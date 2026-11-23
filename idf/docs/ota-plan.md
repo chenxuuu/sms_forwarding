@@ -340,7 +340,8 @@ GET https://github.com/chenxuuu/sms_forwarding/releases/latest/download/latest.j
 
 - `esp_http_client` + `crt_bundle_attach = esp_crt_bundle_attach`（**不允许**跳过证书校验）
 - 允许 302 跳转（GitHub Releases 会跳到 objects.githubusercontent.com），超时 15 秒，响应上限 4 KB
-- 地址写死在 `ota.h` 的宏里；fork 的人改宏即可，不做成可配置项（少一个字段少一堆坑）
+- 地址来自 Kconfig `CONFIG_OTA_MANIFEST_URL`（menuconfig → 短信转发器配置 → 固件版本清单地址），
+  默认指向本仓库的 Release；国内访问 GitHub 不稳定时换成自己的镜像即可
 
 ### 6.4 manifest 格式
 

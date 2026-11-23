@@ -205,7 +205,8 @@ POST JSON 多一个 `self_phone` 字段，GET 多一个 `self_phone` 查询参�
 - 回滚：开启 `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`，`ota_init()` 发现
   `ESP_OTA_IMG_PENDING_VERIFY` 就起确认任务，联网（含配网热点）稳定 45 秒后
   `esp_ota_mark_app_valid_cancel_rollback()`；一直连不上则下次复位自动回退；
-- 版本检查：启动 180 秒后 + 每 24 小时，拉 `latest.json`（几百字节），只更新页面提示和侧边栏红点；
+- 版本检查：启动 180 秒后 + 每 24 小时，拉 `latest.json`（几百字节，地址见
+  `CONFIG_OTA_MANIFEST_URL`，可在 menuconfig 换成镜像），只更新页面提示和侧边栏红点；
   **TLS 固定跑在组件自己的 8 KB 工作任务里**（esp_timer 3.5 KB、httpd 8 KB 的栈都不够，会栈溢出重启）；
 - 内存：`CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=4096`，检查前用
   `heap_caps_get_largest_free_block()` 判断（≥6 KB 才发起），不够时等待重试。

@@ -18,6 +18,7 @@
 #include "net/mdns.h"
 #include "net/wifi.h"
 #include "notify/notify.h"
+#include "ota/ota.h"
 #include "web/web_ui.h"
 #include "web_internal.h"
 
@@ -605,11 +606,16 @@ esp_err_t handler_status(httpd_req_t *req)
     }
     config_unlock();
 
+    ota_info_t ota;
+    ota_get_info(&ota);
+
     sbuf_printf(&out,
                 "\"email_ok\":%s,\"mail_enabled\":%s,\"push_count\":%d,\"self_phone\":\"%s\","
+                "\"version\":\"%s\",\"ota_state\":%d,\"has_update\":%s,"
                 "\"device_name\":\"%s\",\"model\":\"%s\"}",
                 email_ok ? "true" : "false", mail_enabled ? "true" : "false", push_count,
-                self_phone, host, modem_model());
+                self_phone, ota.current, (int)ota.state, ota.has_update ? "true" : "false",
+                host, modem_model());
     httpd_resp_set_type(req, "application/json; charset=utf-8");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_send(req, sbuf_cstr(&out), out.len);
@@ -697,7 +703,7 @@ esp_err_t web_server_start(void)
     cfg.lru_purge_enable = true;
     cfg.recv_wait_timeout = 10;
     cfg.send_wait_timeout = 10;
-    cfg.max_uri_handlers = 32;
+    cfg.max_uri_handlers = 40;
 
     esp_err_t err = httpd_start(&s_server, &cfg);
     if (err != ESP_OK) {
@@ -734,6 +740,9 @@ esp_err_t web_server_start(void)
     register_uri(s_server, "/wifi", HTTP_POST, handler_wifi);
     register_uri(s_server, "/system", HTTP_GET, handler_system);
     register_uri(s_server, "/system", HTTP_POST, handler_system);
+    register_uri(s_server, "/ota", HTTP_GET, handler_ota);
+    register_uri(s_server, "/ota", HTTP_POST, handler_ota_upload);
+    register_uri(s_server, "/ota_check", HTTP_POST, handler_ota_check);
 
     log_line("HTTP 服务器已启动: http://%s/", wifi_ip());
     return ESP_OK;

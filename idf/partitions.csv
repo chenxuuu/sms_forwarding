@@ -1,4 +1,7 @@
 ﻿# Name,     Type, SubType, Offset,   Size
+# nvs 的偏移与大小必须保持不变：老设备（含 Arduino 版）的配置都在这里，改了就丢配置
 nvs,        data, nvs,     0x9000,   0x6000
 phy_init,   data, phy,     0xf000,   0x1000
-factory,    app,  factory, 0x10000,  0x300000
+otadata,    data, ota,     0x10000,  0x2000
+app0,       app,  ota_0,   0x20000,  0x1F0000
+app1,       app,  ota_1,   0x210000, 0x1F0000

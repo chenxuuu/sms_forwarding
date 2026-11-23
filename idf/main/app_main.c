@@ -15,6 +15,7 @@
 #include "net/wifi.h"
 #include "net/wifi_portal.h"
 #include "notify/notify.h"
+#include "ota/ota.h"
 #include "sched/sched.h"
 #include "web/web_server.h"
 
@@ -66,6 +67,7 @@ void app_main(void)
     notify_init();
     forwarder_init();
     sched_init();
+    ota_init(); /* 版本号、回滚确认、每日版本检查都在这里起步 */
 
     esp_err_t err = wifi_start(20000);
     if (err != ESP_OK) {

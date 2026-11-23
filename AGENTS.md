@@ -23,6 +23,9 @@ python tools/serial_capture.py COM3 60  # 抓日志（直接 monitor/开串口�
   配置读写必须 `config_lock()` / `config_unlock()`，改完调用 `config_save_locked()`。
 - 新增推送通道：`push_type_t` → `push.c` 的 `build_request()` → `config_push_channel_valid()` → Web 表单选项。
 - NVS 命名空间与键名和 Arduino 版本完全一致，可从 Arduino 固件原地升级。
+- WiFi 账号优先级：NVS `sms_wifi`（`ssid`/`pass`，热点配网写入）> menuconfig 的 `CONFIG_WIFI_*`；
+  没有账号或连续 3 次连不上时进配网模式（`net/wifi_portal.c`，热点 `SMS-Forwarder-XXXX`，192.168.4.1）。
+  配网 httpd 与主 Web 不会同时占用 80 端口。
 
 ## 构建与烧录
 

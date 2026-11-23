@@ -110,7 +110,11 @@ EN 引脚（GPIO5，低电平断电）与板载 LED（GPIO8，低电平点亮）
 
 ## net
 
-- `wifi_start()`：STA 连接，20s 超时；断线后 3s 退避重连；
+- `wifi_start()`：STA 连接，20s 超时；断线后 3s 退避重连；账号 NVS 优先、Kconfig 兜底；
+- `wifi_portal_start()`：没有任何账号、或连续 3 次连不上已保存的账号时，开热点
+  `SMS-Forwarder-XXXX`（开放）+ 配网页 `http://192.168.4.1/`：扫描附近 2.4G 列表，
+  保存后写 NVS `sms_wifi`（`ssid`/`pass`）并重启；`/*` 通配把手机探测请求 302 回首页；
+  实现见 `net/wifi_portal.c`；
 - `wifi_get_info()`：SSID/IP/网关/掩码/DNS/MAC/BSSID/信道/RSSI；
 - `wifi_reconnect()`：供 Web “重启 WiFi” 使用；
 - `wifi_kick()`：非阻塞踢一次重连，供心跳使用；

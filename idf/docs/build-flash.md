@@ -68,8 +68,21 @@ python tools/serial_capture.py COM3 60
 
 ## 5. WiFi 配置（配网）
 
-**没有运行时配网**：设备必须先联网才能提供 Web 配置页面，所以 WiFi 账号是编译期常量，
-沿用旧固件的做法（旧版在 `code/wifi_config.h`）。
+设备不可能在没网的时候打开 Web 页面，所以有两种给账号的方式，**优先用热点配网**：
+
+### 5.1 热点配网（推荐，不需要编译环境）
+
+| 步骤 | 说明 |
+|---|---|
+| 触发条件 | 启动时没有任何账号，或连续 3 次连不上已保存的账号（路由器改密码） |
+| 热点 | `SMS-Forwarder-XXXX`，XXXX = MAC 后两字节，开放网络（无密码） |
+| 页面 | <http://192.168.4.1/>，扫描附近 2.4G 网络并列出（按信号排序），也可手输 SSID |
+| 保存后 | 写入 NVS namespace `sms_wifi`（键 `ssid` / `pass`），1.5 秒后自动重启入网 |
+| 手机探测 | `/*` 通配把 `/generate_204`、`/hotspot-detect.html` 等 302 回首页，多数手机会自动弹出页面 |
+
+实现：`components/net/src/wifi_portal.c`（`wifi_portal_start()`），AP+STA 模式，DHCP 服务由 esp_netif 提供。
+
+### 5.2 编译期预置（适合批量烧录）
 
 ```powershell
 idf.py menuconfig      # 短信转发器配置 → WiFi SSID / WiFi 密码
@@ -78,15 +91,13 @@ idf.py build flash
 
 | 项 | 说明 |
 |---|---|
-| 配置符号 | `CONFIG_WIFI_SSID` / `CONFIG_WIFI_PASSWORD` |
-| 定义位置 | `main/Kconfig.projbuild`（默认值为空） |
-| 生效位置 | `components/net/src/wifi.c` 的 `load_credentials()`，仅在启动连接时读取 |
-| 持久化 | 值存在 `sdkconfig`（gitignore），NVS 不参与 |
-| 修改方式 | 只能重新 menuconfig + 编译 + 烧录；Web 的「重启 WiFi」仅重连 |
-| 未配置时 | 串口提示「设备未配置 WiFi…」，不进入重启循环，便于重新烧录 |
+| 配置符号 | `CONFIG_WIFI_SSID` / `CONFIG_WIFI_PASSWORD`（`main/Kconfig.projbuild`，默认空） |
+| 读取优先级 | `wifi.c: load_credentials()` 先读 NVS，读不到才用 Kconfig |
+| 持久化 | Kconfig 值在 `sdkconfig`（gitignore）；配网写入的值在 NVS，重启不丢 |
+| 未配置时 | 不重启循环，直接进配网热点；串口同时打印热点名与 192.168.4.1 |
 
-> 之所以把 Kconfig 默认值留空：真实 WiFi 密码不应该跟着仓库走。当前这台机器的
-> `sdkconfig` 里已经有可用值，直接 `idf.py build` 仍然正常；**删掉 sdkconfig 后要重新填**。
+> 之所以把 Kconfig 默认值留空：真实 WiFi 密码不应该跟着仓库走。**删掉 sdkconfig 后要重新填**
+> （或者干脆走热点配网，完全不用碰 sdkconfig）。
 
 ## 6. 内存与 TLS 调优（sdkconfig.defaults）
 
@@ -128,6 +139,7 @@ idf.py build flash
 | mDNS | 发布 `http://sms-9e3c.local/`；跨网段（本机在 192.168.31.x，设备在 192.168.1.x）无法解析，属链路本地限制 |
 | HTTPS 自检 | `https://www.baidu.com` 200、`https://p.papapoi.com` 200、`https://api.telegram.org` 连接被重置（该网络不可达） |
 | 配置保存 / 重启 | `/save` 落盘并回显；`/system?action=restart` 重启后自动重连、模组重新就绪 |
+| 热点配网 | 清空 WiFi 账号后启动 → 热点 `SMS-Forwarder-9E3C` 起来、192.168.4.1 出页面、扫到 6 个邻居网络；POST `/save` 后重启，用 NVS 里的账号（含 `#` 的 SSID）连上并拿到原 IP |
 
 ## 8. 一个容易踩的 TLS 坑
 

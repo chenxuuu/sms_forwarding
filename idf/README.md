@@ -19,7 +19,8 @@ idf.py -C idf -p COM3 flash
 python idf/tools/serial_capture.py COM3 60
 ```
 
-首次启动后访问 `http://<设备IP>/`（默认账号 `admin` / `admin123`）配置邮件与推送通道。
+首次开机先进配网模式（见下文「配网（WiFi）」），连热点填好 WiFi 后，再访问 `http://<设备IP>/`
+（默认账号 `admin` / `admin123`）配置邮件与推送通道。
 
 ## 找不到设备 / 长期运行
 
@@ -154,21 +155,26 @@ http://sms-9e3c.local/     # 本机 MAC 9c:cc:01:c4:9e:3c → 后缀 9e3c
 
 ## 配网（WiFi）
 
-WiFi 账号是**编译期配置**，没有运行时配网页面——设备要先联网才能打开 Web 页面，是个鸡生蛋问题，
-所以沿用旧固件的做法（旧版在 `code/wifi_config.h`）。
+设备没法在没网的时候打开 Web 页面，所以配网走**热点 + 表单**，不需要编译环境：
+
+1. 烧录后开机，设备发现没有 WiFi 账号，会开热点 `SMS-Forwarder-XXXX`（XXXX 是 MAC 后两字节，**无密码**）；
+2. 手机或电脑连上该热点，浏览器打开 <http://192.168.4.1/>（手机连上后通常会自动弹出来）；
+3. 页面里选一个扫到的 2.4G 网络（也可以手动输入），填密码，点「保存并重启」；
+4. 设备把账号写进 NVS 并重启，之后直接入网，热点自动消失。
+
+账号优先级：**NVS（配网写入）> menuconfig（编译期常量）**。
 
 ```powershell
 cd idf
-idf.py menuconfig      # 短信转发器配置 → WiFi SSID / WiFi 密码
+idf.py menuconfig      # 可选：短信转发器配置 → WiFi SSID / WiFi 密码，预置后跳过配网
 idf.py build flash
 ```
 
-- 配置项：`CONFIG_WIFI_SSID` / `CONFIG_WIFI_PASSWORD`（定义在 `main/Kconfig.projbuild`）。
-- 实际值保存在 `sdkconfig` 里，该文件已被 `.gitignore` 忽略，**不会把家里的 WiFi 密码提交到仓库**；
-  Kconfig 的默认值是空的，换机器或删掉 sdkconfig 后必须重新填写。
-- 只支持 2.4G；注意 `SSID` 里含 `#`、空格等字符时要在 sdkconfig 里用引号包起来（Kconfig 生成的格式已带引号）。
-- Web 页面上的「重启 WiFi」只是断开重连，**不能改账号**；改账号只能重新编译烧录。
-- 忘了配置时不会反复重启：串口会打印「设备未配置 WiFi…」，方便你 menuconfig 后重新烧录。
+- Kconfig 的默认值是空的，实际值保存在 `sdkconfig`（已 `.gitignore`），**不会把家里的 WiFi 密码提交到仓库**。
+- 只支持 2.4G；SSID 含 `#`、空格等字符时，Kconfig 生成的 sdkconfig 已自动加引号，配网页面则原样填写即可。
+- **路由器改了密码**？设备连续 3 次启动连不上会自动重新开热点，连上去重填一次即可，不用重新烧录。
+- 换路由器、搬家同理，都走热点；Web 页面上的「重启 WiFi」只是断开重连，不改账号。
+- 配网页面只在没有账号 / 连不上时才出现，正常运行时监听 80 端口的是主界面。
 
 ## 目录结构
 

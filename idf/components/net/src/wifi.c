@@ -12,6 +12,7 @@
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
+#include "nvs.h"
 #include "freertos/event_groups.h"
 
 #define WIFI_CONNECTED_BIT BIT0
@@ -21,6 +22,17 @@ static esp_netif_t *s_netif;
 static esp_timer_handle_t s_reconnect_timer;
 static volatile bool s_connected;
 static char s_ip[16] = "0.0.0.0";
+
+/* 账号优先级：NVS（网页配网 / 运行时修改） > menuconfig 编译期常量 */
+#define WIFI_NVS_NS "sms_wifi"
+#define WIFI_KEY_SSID "ssid"
+#define WIFI_KEY_PASS "pass"
+#define WIFI_KEY_FAILS "fails"
+static char s_ssid[33];
+static char s_pass[65];
+static bool s_loaded;
+static int s_fails;
+static bool s_fails_loaded;
 
 static void reconnect_timer_cb(void *arg)
 {
@@ -68,15 +80,106 @@ static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *da
     }
 }
 
-static void load_credentials(char *ssid, size_t ssid_cap, char *pass, size_t pass_cap)
+static void fails_load(void)
 {
-    snprintf(ssid, ssid_cap, "%s", CONFIG_WIFI_SSID);
-    snprintf(pass, pass_cap, "%s", CONFIG_WIFI_PASSWORD);
+    if (s_fails_loaded) {
+        return;
+    }
+    s_fails_loaded = true;
+    nvs_handle_t h;
+    if (nvs_open(WIFI_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        int32_t v = 0;
+        if (nvs_get_i32(h, WIFI_KEY_FAILS, &v) == ESP_OK && v > 0) {
+            s_fails = (int)v;
+        }
+        nvs_close(h);
+    }
+}
+
+static void fails_store(int value)
+{
+    s_fails = value;
+    s_fails_loaded = true;
+    nvs_handle_t h;
+    if (nvs_open(WIFI_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_i32(h, WIFI_KEY_FAILS, value);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
+
+static void load_credentials(void)
+{
+    if (s_loaded) {
+        return;
+    }
+    s_loaded = true;
+    bool from_nvs = false;
+    nvs_handle_t h;
+    if (nvs_open(WIFI_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        size_t len = sizeof(s_ssid);
+        if (nvs_get_str(h, WIFI_KEY_SSID, s_ssid, &len) == ESP_OK && s_ssid[0] != '\0') {
+            from_nvs = true;
+            len = sizeof(s_pass);
+            if (nvs_get_str(h, WIFI_KEY_PASS, s_pass, &len) != ESP_OK) {
+                s_pass[0] = '\0';
+            }
+        }
+        nvs_close(h);
+    }
+    if (!from_nvs) {
+        snprintf(s_ssid, sizeof(s_ssid), "%s", CONFIG_WIFI_SSID);
+        snprintf(s_pass, sizeof(s_pass), "%s", CONFIG_WIFI_PASSWORD);
+    }
 }
 
 bool wifi_configured(void)
 {
-    return CONFIG_WIFI_SSID[0] != '\0';
+    load_credentials();
+    return s_ssid[0] != '\0';
+}
+
+const char *wifi_ssid(void)
+{
+    load_credentials();
+    return s_ssid;
+}
+
+int wifi_boot_fails(void)
+{
+    fails_load();
+    return s_fails;
+}
+
+esp_err_t wifi_save_credentials(const char *ssid, const char *pass)
+{
+    if (!ssid || ssid[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(WIFI_NVS_NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_str(h, WIFI_KEY_SSID, ssid);
+    if (err == ESP_OK) {
+        err = nvs_set_str(h, WIFI_KEY_PASS, pass ? pass : "");
+    }
+    if (err == ESP_OK) {
+        err = nvs_set_i32(h, WIFI_KEY_FAILS, 0);
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(h);
+    }
+    nvs_close(h);
+    if (err == ESP_OK) {
+        snprintf(s_ssid, sizeof(s_ssid), "%s", ssid);
+        snprintf(s_pass, sizeof(s_pass), "%s", pass ? pass : "");
+        s_loaded = true;
+        s_fails = 0;
+        s_fails_loaded = true;
+    }
+    return err;
 }
 
 esp_err_t wifi_start(uint32_t timeout_ms)
@@ -126,13 +229,11 @@ esp_err_t wifi_start(uint32_t timeout_ms)
     ESP_RETURN_ON_ERROR(esp_timer_create(&timer_args, &s_reconnect_timer), "wifi", "timer");
 
     wifi_config_t wifi_cfg = {0};
-    char ssid[33];
-    char pass[65];
-    load_credentials(ssid, sizeof(ssid), pass, sizeof(pass));
-    strlcpy((char *)wifi_cfg.sta.ssid, ssid, sizeof(wifi_cfg.sta.ssid));
-    strlcpy((char *)wifi_cfg.sta.password, pass, sizeof(wifi_cfg.sta.password));
+    load_credentials();
+    strlcpy((char *)wifi_cfg.sta.ssid, s_ssid, sizeof(wifi_cfg.sta.ssid));
+    strlcpy((char *)wifi_cfg.sta.password, s_pass, sizeof(wifi_cfg.sta.password));
     wifi_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
-    if (strlen(pass) == 0) {
+    if (strlen(s_pass) == 0) {
         wifi_cfg.sta.threshold.authmode = WIFI_AUTH_OPEN;
     }
 
@@ -141,12 +242,18 @@ esp_err_t wifi_start(uint32_t timeout_ms)
     ESP_RETURN_ON_ERROR(esp_wifi_set_ps(WIFI_PS_NONE), "wifi", "disable power save");
     ESP_RETURN_ON_ERROR(esp_wifi_start(), "wifi", "wifi start");
 
-    log_line("连接 WiFi: %s", ssid);
+    log_line("连接 WiFi: %s", s_ssid);
     EventBits_t bits = xEventGroupWaitBits(s_events, WIFI_CONNECTED_BIT, pdFALSE, pdTRUE,
                                            pdMS_TO_TICKS(timeout_ms));
     if (bits & WIFI_CONNECTED_BIT) {
+        if (wifi_boot_fails() != 0) {
+            fails_store(0);
+        }
         return ESP_OK;
     }
+    fails_load();
+    fails_store(s_fails + 1);
+    log_line("WiFi 连接超时（连续第 %d 次）", s_fails);
     return ESP_ERR_TIMEOUT;
 }
 
@@ -173,7 +280,7 @@ void wifi_get_info(wifi_info_t *out)
         out->rssi = ap.rssi;
         out->channel = ap.primary;
     } else {
-        snprintf(out->ssid, sizeof(out->ssid), "%s", CONFIG_WIFI_SSID);
+        snprintf(out->ssid, sizeof(out->ssid), "%s", s_ssid);
     }
 
     esp_netif_ip_info_t ip = {0};

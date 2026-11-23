@@ -59,7 +59,7 @@ jobs:
             - 镜像：`${{ steps.idf.outputs.image }}`
             - 目标：ESP32-C3，4MB Flash
 
-            注意：WiFi 账号是编译期配置，这个固件里没有。正常使用请按 README 自行
-            `idf.py menuconfig` 填写 WiFi 后编译烧录。
+            烧好后首次开机会自动开热点 `SMS-Forwarder-XXXX`（无密码），
+            手机或电脑连上它，打开 http://192.168.4.1/ 选 WiFi 输密码即可，不需要编译环境。
           files: idf/build/sms_forwarder-merged.bin
           fail_on_unmatched_files: true

@@ -22,8 +22,17 @@ typedef struct {
     int channel;
 } wifi_info_t;
 
-/** 是否已在编译期配置了 WiFi 账号（menuconfig / sdkconfig）。 */
+/** 是否有可用账号：网页配网写入的 NVS 优先，其次 menuconfig。 */
 bool wifi_configured(void);
+
+/** 当前生效的 SSID（未配置时为空串）。 */
+const char *wifi_ssid(void);
+
+/** 写入新账号到 NVS（配网页面 / 网页修改 WiFi 用），下次启动生效。 */
+esp_err_t wifi_save_credentials(const char *ssid, const char *pass);
+
+/** 连续启动连接失败次数：达到阈值就转入配网模式，避免永远连不上。 */
+int wifi_boot_fails(void);
 
 /** 初始化并连接 WiFi（阻塞等待，超时返回 ESP_ERR_TIMEOUT）。 */
 esp_err_t wifi_start(uint32_t timeout_ms);

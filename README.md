@@ -42,9 +42,10 @@
 固件内置完整网页（不到 100 KB，直接嵌在 Flash 里），手机上也能用。
 主题支持深色 / 浅色 / 跟随系统。
 
-<p align="center"><img src="assets/web-overview.png" width="680" alt="概览页：设备地址、运行时长、空闲内存、4G 模组状态、最近动态与通知链路"></p>
-
-<p align="center"><img src="assets/web-push.png" width="680" alt="推送通道页：邮件开关与 SMTP 配置、多个推送通道（可逐个测试）"></p>
+<p align="center">
+  <img src="assets/web-overview.png" width="425" alt="概览页：设备地址、运行时长、空闲内存、4G 模组状态、最近动态与通知链路" style="vertical-align:top">
+  <img src="assets/web-push.png" width="425" alt="推送通道页：邮件开关与 SMTP 配置、多个推送通道（可逐个测试）" style="vertical-align:top">
+</p>
 
 ## 功能一览
 
@@ -79,34 +80,32 @@
 
 ## 🚀 环境与烧录
 
-只需要三样东西：**一台电脑**（Windows / macOS / Linux）、**一根 USB-C 数据线**、**ESP-IDF v6.1.1**。
-按[官方安装器](https://docs.espressif.com/projects/esp-idf/zh_CN/latest/esp32c3/get-started/index.html)装好后，在 ESP-IDF 终端里：
+不想装编译环境？直接下 [Release 里的固件](../../releases/latest) 烧进去，一样能用（见下）。
+
+自己编译只需要三样东西：**一台电脑**（Windows / macOS / Linux）、**一根 USB-C 数据线**、**ESP-IDF v6.1.1**。
+按[官方安装器](https://docs.espressif.com/projects/esp-idf/zh_CN/latest/esp32c3/get-started/index.html)装好后：
 
 ```bash
 git clone https://github.com/chenxuuu/sms_forwarding.git
 cd sms_forwarding/idf
 
-idf.py menuconfig       # 短信转发器配置 → 填 WiFi SSID / 密码（必填，只支持 2.4G）
 idf.py build            # 首次约 3~5 分钟
 idf.py -p COM3 flash    # 串口按实际改：Windows 是 COMx，Linux 是 /dev/ttyACM0
 ```
 
-烧好后设备自动连接 WiFi，串口和日志里会打印设备地址。
-用 Arduino 框架的版本（`code/`）也可以，见 [code/README.md](code/README.md)。
+**WiFi 不用在编译时填**：烧好后设备会开一个热点 `SMS-Forwarder-XXXX`（无密码），
+手机或电脑连上它，浏览器打开 <http://192.168.4.1/>，选 WiFi、输密码，保存后设备自动重启入网。
+想一次烧多台，也可以 `idf.py menuconfig → 短信转发器配置` 预置 WiFi，省掉配网这一步。
 
-> **为什么 WiFi 要在编译时填？** 设备得先联网才能打开配置网页，这是个鸡生蛋的问题。
-> 所以 WiFi 走 Kconfig 编译期常量，改网络只能重新 menuconfig + 烧录；密码不会进仓库。
+用 Arduino 框架的版本（`code/`）也可以，见 [code/README.md](code/README.md)。
 
 ### 用 CI 构建的固件
 
 每次推送到 master，GitHub Actions 都会用官方 ESP-IDF 镜像把 [`idf/`](idf/) 编译一遍，
-并把合并好的单文件固件挂到 [Releases](../../releases/latest)。它既是"最新代码确实能编译"的证明，
-也可以直接烧进设备把硬件链路（串口 / SIM / 模组）验证一遍。
+并把合并好的单文件固件挂到 [Releases](../../releases/latest)——**下载就能烧，功能和自己编译的完全一样**，
+首次开机会自己开热点引导配网。
 
-不过 WiFi 账号是编译期写入的，这个固件里是空的，直接烧进去只会提示"未配置 WiFi"。
-要真正使用，还得按上面的步骤自己编译一次——区别只有 menuconfig 填 WiFi 那一步。
-
-下载后在浏览器打开 [ESP Launchpad](https://espressif.github.io/esp-launchpad/)（Chrome / Edge），
+在浏览器打开 [ESP Launchpad](https://espressif.github.io/esp-launchpad/)（Chrome / Edge），
 选 ESP32-C3、地址填 `0x0` 即可一键烧录；也可以命令行：
 
 ```bash
@@ -115,10 +114,11 @@ esptool.py --chip esp32c3 -p COM3 write_flash 0x0 sms_forwarder-merged.bin
 
 ### 首次配置
 
-1. 浏览器打开 `http://<设备IP>/`，或 mDNS 域名 `http://sms-xxxx.local/`（后缀见串口日志）
-2. 默认账号 `admin` / `admin123`，**登录后立刻到「后台管理」改掉**
-3. 到「推送通道」填邮箱或任一通道，点「测试」确认能收到
-4. 在「后台管理」填上管理员手机号，之后就能用短信远程操作；顺便填一下本机号码，推送里会带上
+1. 按上面的热点配网流程把设备接入 WiFi（热点名 `SMS-Forwarder-XXXX`，页面 <http://192.168.4.1/>）
+2. 浏览器打开 `http://<设备IP>/`，或 mDNS 域名 `http://sms-xxxx.local/`（后缀见串口日志）
+3. 默认账号 `admin` / `admin123`，**登录后立刻到「后台管理」改掉**
+4. 到「推送通道」填邮箱或任一通道，点「测试」确认能收到
+5. 在「后台管理」填上管理员手机号，之后就能用短信远程操作；顺便填一下本机号码，推送里会带上
 
 ## 常见问题
 
@@ -126,7 +126,7 @@ esptool.py --chip esp32c3 -p COM3 write_flash 0x0 sms_forwarder-merged.bin
 |---|---|
 | 一直显示"重连中"、收不到短信 | 4G 模组没注册上。先看日志里的 `+CEREG`，模组偶发假死时**断一次电**最快；长期挂机建议用独立 5V 电源，别用电脑 USB |
 | 设备 IP 老在变 | 路由器 DHCP 分配的。设备地址变化时会推通知；想固定就在路由器给它的 MAC 做静态绑定，或直接用 mDNS 域名 |
-| 改了 WiFi 密码连不上 | WiFi 是编译期配置，重新 `idf.py menuconfig` 后烧录 |
+| 换了路由器 / 改了 WiFi 密码 | 设备连续 3 次启动连不上会自动开热点 `SMS-Forwarder-XXXX`，连上去重新填一次即可；也可以提前在 `menuconfig` 里改好再烧录 |
 | 想换运营商 / 锁网 | 「设备 → 选网配置」选手动，填 PLMN（移动 `46000`、联通 `46001`、电信 `46011`），保存后重启 |
 | 推送失败但网页正常 | 先点该通道的「测试」看具体报错；多数是 token / webhook 填错或平台侧限制 |
 

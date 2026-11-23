@@ -193,9 +193,26 @@ POST JSON 多一个 `self_phone` 字段，GET 多一个 `self_phone` 查询参�
 - 单次任务执行完把 `next` 清零并停用，UI 显示「已结束」
 - 每次执行结果都会调用 `notify_system()`：任务号、类型、详情、执行时间、下次执行时间
 
+## ota（固件升级）
+
+- 独立组件，分区为 `otadata` + 两个 app 槽（各 `0x1F0000`），nvs 位置/大小不变；
+- **只支持网页手动上传**，不做自动下载/自动安装；
+- 上传：`ota_begin(size)` 预检 → 首块 4 KB 校验 `esp_app_desc_t`
+  （magic + `project_name == "sms_forwarder"`）→ `esp_ota_begin` 擦非活动槽 →
+  流式 `esp_ota_write` → `esp_ota_end` → `esp_ota_set_boot_partition`；
+- 失败、断电、连接中断都只影响非活动槽，当前固件照常启动；
+- 版本号 = `PROJECT_VER`（构建时间 `YYYYMMDD.HHMM`，CI 注入），定宽可字典序比较；
+- 回滚：开启 `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`，`ota_init()` 发现
+  `ESP_OTA_IMG_PENDING_VERIFY` 就起确认任务，联网（含配网热点）稳定 45 秒后
+  `esp_ota_mark_app_valid_cancel_rollback()`；一直连不上则下次复位自动回退；
+- 版本检查：启动 180 秒后 + 每 24 小时，拉 `latest.json`（几百字节），只更新页面提示和侧边栏红点；
+  **TLS 固定跑在组件自己的 8 KB 工作任务里**（esp_timer 3.5 KB、httpd 8 KB 的栈都不够，会栈溢出重启）；
+- 内存：`CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=4096`，检查前用
+  `heap_caps_get_largest_free_block()` 判断（≥6 KB 才发起），不够时等待重试。
+
 ## web
 
-- `web_server_start()`：80 端口，Basic 认证，5 个 socket，LRU 清理；
+- `web_server_start()`：80 端口，Basic 认证，5 个 socket，LRU 清理，`max_uri_handlers = 40`；
 - 首页：读取 `EMBED_TXTFILES` 内嵌的 `web/index.html`，替换 17 个 `%KEY%` 占位符，
   推送通道表单片段动态生成，按 2KB 分块发送；
 - 长耗时接口用 `httpd_req_async_handler_begin()` 转独立任务，响应完成后

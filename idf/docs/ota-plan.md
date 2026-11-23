@@ -1,7 +1,7 @@
 # 固件升级（OTA）开发计划【待实现】
 
-> 状态：**设计已定，尚未实现**。本文是动工前的唯一依据，实现过程中若有偏差，先改这里再改代码。
-> 最后更新：2026-11-23
+> 状态：**已实现并实机验证**（2026-11-23，commit `fd2cb25`）。本文保留为实现依据与坑位记录。
+> 实现与原计划的差异见文末「实现记录」。
 
 ## 0. 决策记录
 
@@ -454,3 +454,20 @@ GET https://github.com/chenxuuu/sms_forwarding/releases/latest/download/latest.j
 - 时间有效性判断：`sched.c` 里 `now < 1600000000` 的守卫
 - ESP-IDF：`esp_ota_ops.h`、`esp_app_format.h`（`esp_app_desc_t`）、`esp_https_ota`（本次只用
   `esp_http_client` 拉 manifest，不用它下载固件）
+
+## 13. 实现记录（2026-11-23）
+
+与原计划的差异，都是实机踩出来的：
+
+1. **版本检查不能跑在 esp_timer / httpd 任务里**。`esp_timer` 任务栈只有 3.5 KB、httpd 8 KB，
+   TLS 握手直接栈溢出重启。现在检查固定在 `ota` 组件自己的 8 KB 工作任务里，
+   `POST /ota_check` 只是投递请求后立即返回，前端轮询 `/ota` 拿结果。
+2. **C3 的堆碎片比预想严重**：空闲 30 KB 时最大连续块只有 7–8 KB。
+   `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` 从 8192 降到 **4096**，并用
+   `heap_caps_get_largest_free_block()`（≥6 KB 才检查）代替总空闲量判断。
+3. **回滚确认放在组件内部**：`ota_init()` 检测到 `PENDING_VERIFY` 才起确认任务，
+   45 秒稳定窗口 + 联网（含配网热点）即确认，`app_main` 不需要额外代码。
+4. **上传协议**：前端 `xhr.send(File)` + `application/octet-stream`，
+   服务端只读 `Content-Length`，不解析 multipart。
+5. 首次检查从 60 秒推迟到 **180 秒**，避开开机通知的邮件/推送 TLS。
+6. 页面独立成导航项「固件升级」，有新版本时侧边栏显示红点。

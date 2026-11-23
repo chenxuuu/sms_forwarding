@@ -22,6 +22,13 @@ python tools/serial_capture.py COM3 60  # 抓日志（直接 monitor/开串口�
 - 关键约定：日志必须走 `log_write()` / `log_line()`（否则 Web 日志页看不到）；
   配置读写必须 `config_lock()` / `config_unlock()`，改完调用 `config_save_locked()`。
 - 新增推送通道：`push_type_t` → `push.c` 的 `build_request()` → `config_push_channel_valid()` → Web 表单选项。
+- **分区表红线**：`partitions.csv` 里 nvs 的 `0x9000/0x6000` 不能动（老设备配置都在这），
+  两个 app 槽各 `0x1F0000`。老设备迁移必须 `idf.py flash` 或分段写 `0x0/0x8000/0x20000`；
+  **禁止用 merged bin 覆盖 `0x0`**——它会用 0xFF 填满空隙，把 NVS 抹掉。
+- OTA：版本号来自 `PROJECT_VER`（`YYYYMMDD.HHMM`，CI 注入）；上传的镜像必须校验
+  `esp_app_desc_t.project_name == "sms_forwarder"`，否则用户会把 merged 包写进 app 槽；
+  新固件联网稳定 45 秒后才 `esp_ota_mark_app_valid_cancel_rollback()`，别提前确认。
+  版本检查的 TLS 只能跑在 `ota` 组件的 8 KB 工作任务里（esp_timer/httpd 的栈不够）。
 - NVS 命名空间与键名和 Arduino 版本完全一致，可从 Arduino 固件原地升级。
 - WiFi 账号优先级：NVS `sms_wifi`（`ssid`/`pass`，热点配网写入）> menuconfig 的 `CONFIG_WIFI_*`；
   没有账号或连续 3 次连不上时进配网模式（`net/wifi_portal.c`，热点 `SMS-Forwarder-XXXX`，192.168.4.1）。

@@ -25,7 +25,7 @@ HTTP 服务本身不受影响，页面还能正常打开和刷新。
 | GET | `/`、`/tools`、`/sms` | 管理界面（单页，标签页切换） |
 | GET | `/favicon.ico` | 空响应，避免日志噪声 |
 
-单页内含 7 个标签页：概览、推送通道、设备、保号发送（发短信 + Ping + HTTP 访问）、
+单页内含 8 个标签页：概览、推送通道、设备、固件升级、保号发送（发短信 + Ping + HTTP 访问）、
 后台管理、日志（含 AT 指令）、关于项目。关于页为纯前端页面，
 展示项目开源地址（https://github.com/chenxuuu/sms_forwarding）、固件版本、设备型号与设备名，
 不新增后端接口。
@@ -54,7 +54,9 @@ HTTP 服务本身不受影响，页面还能正常打开和刷新。
 
 ### GET /status
 
-前端轮询用的轻量状态（不碰 AT，毫秒级）：`ip/ssid/rssi/heap_kb/uptime_s/modem_ready/email_ok/mail_enabled/self_phone/push_count/device_name/model`。
+前端轮询用的轻量状态（不碰 AT，毫秒级）：`ip/ssid/rssi/heap_kb/uptime_s/modem_ready/email_ok/mail_enabled/self_phone/push_count/device_name/model`，
+外加固件相关的 `version`（当前版本，`YYYYMMDD.HHMM`）、`ota_state`（0 空闲/1 接收中/2 校验中/3 等待重启/4 失败）、
+`has_update`（远端有更新，侧边栏红点用）。
 `mail_enabled` 是邮件通道开关；`email_ok` 表示「开关打开且 SMTP 四项配置齐全」（即 config_mail_active），
 关闭后即便 SMTP 填好也不再发邮件。
 
@@ -187,6 +189,50 @@ Bark 的 body 与钉钉/飞书/PushPlus/Server酱/Gotify/Telegram 的正文末�
 用请求体里的 SMTP 参数直接发一封测试邮件，同样不需要先保存（字段名与 /save 一致：
 `smtpServer` / `smtpPort` / `smtpUser` / `smtpPass` / `smtpTo`），端口缺省按 465（SSL）处理。
 四项任一为空返回「邮件配置不完整」；发送失败时日志里能看到具体阶段（连接 / 认证 / DATA / 服务端拒收）。
+
+## 固件升级
+
+### GET /ota
+
+返回升级状态，前端进入「固件升级」页时拉一次：
+
+```json
+{"success":true,"current":"20261123.0906","target":"","latest":"20261124.1200",
+ "url":"https://…/sms_forwarder-ota.bin","notes":"…","checked_at":1795424033,
+ "has_update":true,"checking":false,"state":0,"progress":0,"message":""}
+```
+
+- `target`：已写入、等待重启后生效的版本
+- `checked_at`：最近一次检查成功的 epoch，0 表示从未成功
+- `checking`：正在检查远端版本（前端轮询它判断结果是否回来）
+
+### POST /ota
+
+上传固件。**必须**带 `Content-Length`，请求体是 `sms_forwarder-ota.bin` 的原始字节，
+`Content-Type` 建议 `application/octet-stream`（不接受 multipart 表单）。
+
+| 情况 | 响应 |
+|---|---|
+| 成功 | 200 `{"success":true,"version":"20261124.1200","message":"固件已写入，设备即将重启"}`，约 2 秒后重启 |
+| 缺 Content-Length | 411 |
+| 超过分区容量 | 413，且不会擦写 flash |
+| 不是 app 镜像（如 merged 包） | 400 `这不是可用的 ota 固件…`，当前固件不受影响 |
+| 传输中断 / 校验失败 | 400，另一个分区仍保留原固件 |
+| 正在升级 | 409 |
+
+写入的是非活动分区，失败不影响当前固件；写完后 `esp_ota_set_boot_partition` 并等待重启。
+
+### POST /ota_check
+
+请求检查远端版本，**立即返回**（TLS 在设备内部的 8 KB 工作任务里跑，不阻塞 httpd）：
+
+```json
+{"success":true,"message":"正在检查版本，请稍候…"}
+```
+
+前端随后轮询 `GET /ota`，看到 `checking` 由 true 变回 false 即取结果。
+设备每天自动检查一次（启动 180 秒后 + 每 24 小时，距上次成功不足 20 小时则跳过），
+只拉几百字节的 `latest.json`，**不会自动下载或安装**。
 
 ## 定时任务
 

@@ -56,6 +56,7 @@
 | **远程命令** | 管理员号码发 `SMS:号码:内容` 远程发短信、`RESET` 重启、`RESETPASS` 重置后台密码并推送新密码 |
 | **保号** | 模组 Ping / 访问指定网址（默认只下 10 字节），按需消耗余额 |
 | **定时任务** | 指定时间自动发短信 / Ping / 访问网址；错过时间会补执行，失败只重试 1 次；可设「每 N 天」循环 |
+| **固件升级** | 网页上传 `*-ota.bin` 即可升级，写备用分区、断电不砖；每天检查一次新版本，侧边栏红点提示，起不来自动回滚 |
 | **自动恢复** | WiFi 掉线重连；4G 掉网按「飞行模式（10 秒起，翻倍至 5 分钟）→ 软重启 → 断电重启」分级自愈，连续 5 轮失败才提醒 |
 | **配置兼容** | NVS 命名空间与键名和 Arduino 版一致，可从老固件直接升级，配置不丢 |
 
@@ -84,8 +85,10 @@
 ### 方式一：烧现成固件（不用装编译环境）
 
 1. 从 [Releases](../../releases/latest) 下载 `sms_forwarder-merged.bin`
-2. 用 [ESP Launchpad](https://espressif.github.io/esp-launchpad/)（Chrome / Edge）选 ESP32-C3、烧录地址填 `0x0`；
+2. 全新芯片用 [ESP Launchpad](https://espressif.github.io/esp-launchpad/)（Chrome / Edge）选 ESP32-C3、地址填 `0x0`；
    或命令行：`esptool.py --chip esp32c3 -p COM3 write_flash 0x0 sms_forwarder-merged.bin`
+   **已有设备升级不要用整包**：整包会用 0xFF 覆盖 NVS，配置全丢。用 `idf.py flash`，或只写
+   `0x0/0x8000/0x20000` 三段。之后就能直接在后台「固件升级」页面上传 ota 包了
 3. 配网：连热点 `SMS-Forwarder-XXXX`（无密码）→ 打开 <http://192.168.4.1/> → 选 WiFi、输密码 → 设备自动重启入网
 
 固件在每次推送后由 GitHub Actions 自动构建，功能和源码编译的完全一致。

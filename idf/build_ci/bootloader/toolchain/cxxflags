@@ -1,0 +1,5 @@
+"-specs=C:/Users/chenx/Desktop/git-repos/sms_forwarding/idf/build_ci/bootloader/specs/picolibc.specs"
+-D__PICOLIBC_ERRNO_FUNCTION=__errno
+-march=rv32imc_zicsr_zifencei
+-mtune=esp-base
+-fno-rtti

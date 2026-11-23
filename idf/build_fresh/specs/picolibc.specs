@@ -1,0 +1,30 @@
+%rename link	picolibc_link
+%rename link_libgcc	picolibc_link_libgcc
+%rename cpp	picolibc_cpp
+%rename cc1	picolibc_cc1
+%rename cc1plus	picolibc_cc1plus
+
+*cpp:
+-isystem %{-picolibc-prefix=*:%*/picolibc/include/; -picolibc-buildtype=*:%R/../picolibc/include/%*; :%R/../picolibc/include} -isystem %{-picolibc-prefix=*:%*/picolibc/include/../riscv32-esp-elf/include/c++/%(version)/riscv32-esp-elf/%M; -picolibc-buildtype=*:%R/../picolibc/include/%*/../riscv32-esp-elf/include/c++/%(version)/riscv32-esp-elf/%M; :%R/../picolibc/include/../riscv32-esp-elf/include/c++/%(version)/riscv32-esp-elf/%M} %{-printf=*: -D_PICOLIBC_PRINTF='%*'} %{-scanf=*: -D_PICOLIBC_SCANF='%*'} %(picolibc_cpp)
+
+*cc1:
+%{!ftls-model:-ftls-model=local-exec} %{!mstack-protector-guard:-mstack-protector-guard=global} %(picolibc_cc1) 
+
+*cc1plus:
+-isystem %{-picolibc-prefix=*:%*/picolibc/include/; -picolibc-buildtype=*:%R/../picolibc/include/%*; :%R/../picolibc/include} -isystem %{-picolibc-prefix=*:%*/picolibc/include/../riscv32-esp-elf/include/c++/%(version)/riscv32-esp-elf/%M; -picolibc-buildtype=*:%R/../picolibc/include/%*/../riscv32-esp-elf/include/c++/%(version)/riscv32-esp-elf/%M; :%R/../picolibc/include/../riscv32-esp-elf/include/c++/%(version)/riscv32-esp-elf/%M} %{!ftls-model:-ftls-model=local-exec} %{!mstack-protector-guard:-mstack-protector-guard=global} %(picolibc_cc1plus)  
+
+*link_libgcc:
+-L%{-picolibc-prefix=*:%*/picolibc/lib/gcc/riscv32-esp-elf/%(version)/%M; -picolibc-buildtype=*:%R/../picolibc/lib/gcc/riscv32-esp-elf/%(version)/%*/%M; :%R/../picolibc/lib/gcc/riscv32-esp-elf/%(version)/%M} -L%{-picolibc-prefix=*:%*/picolibc/lib/gcc/riscv32-esp-elf/%(version); -picolibc-buildtype=*:%R/../picolibc/lib/gcc/riscv32-esp-elf/%(version)/%*; :%R/../picolibc/lib/gcc/riscv32-esp-elf/%(version)} %(picolibc_link_libgcc)
+
+*link:
+%{DPICOLIBC_DOUBLE_PRINTF_SCANF:--defsym=vfprintf=__d_vfprintf} %{DPICOLIBC_DOUBLE_PRINTF_SCANF:--defsym=vfscanf=__d_vfscanf} %{DPICOLIBC_FLOAT_PRINTF_SCANF:--defsym=vfprintf=__f_vfprintf} %{DPICOLIBC_FLOAT_PRINTF_SCANF:--defsym=vfscanf=__f_vfscanf} %{DPICOLIBC_LONG_LONG_PRINTF_SCANF:--defsym=vfprintf=__l_vfprintf} %{DPICOLIBC_LONG_LONG_PRINTF_SCANF:--defsym=vfscanf=__l_vfscanf} %{DPICOLIBC_INTEGER_PRINTF_SCANF:--defsym=vfprintf=__i_vfprintf} %{DPICOLIBC_INTEGER_PRINTF_SCANF:--defsym=vfscanf=__i_vfscanf} %{DPICOLIBC_MINIMAL_PRINTF_SCANF:--defsym=vfprintf=__m_vfprintf} %{DPICOLIBC_MINIMAL_PRINTF_SCANF:--defsym=vfscanf=__m_vfscanf} -L%{-picolibc-prefix=*:%*/picolibc/riscv32-esp-elf/lib/%M; -picolibc-buildtype=*:%R/../picolibc/riscv32-esp-elf/lib/%*/%M; :%R/../picolibc/riscv32-esp-elf/lib/%M} -L%{-picolibc-prefix=*:%*/picolibc/riscv32-esp-elf/lib; -picolibc-buildtype=*:%R/../picolibc/riscv32-esp-elf/lib/%*; :%R/../picolibc/riscv32-esp-elf/lib} %{-printf=*:--defsym=vfprintf=__%*_vfprintf} %{-scanf=*:--defsym=vfscanf=__%*_vfscanf} %{!T:-Tpicolibc.ld} %(picolibc_link)  
+
+*lib:
+--start-group %(libgcc)  -lc %{-oslib=*:-l%*} --end-group
+
+*endfile:
+
+
+*startfile:
+%{-picolibc-prefix=*:%*/picolibc/riscv32-esp-elf/lib/%M/%{-crt0=*:crt0-%*%O%s; :crt0%O%s}; -picolibc-buildtype=*:%R/../picolibc/riscv32-esp-elf/lib/%*/%M/%{-crt0=*:crt0-%*%O%s; :crt0%O%s}; :%R/../picolibc/riscv32-esp-elf/lib/%M/%{-crt0=*:crt0-%*%O%s; :crt0%O%s}} 
+

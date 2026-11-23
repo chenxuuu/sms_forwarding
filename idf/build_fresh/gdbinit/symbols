@@ -1,0 +1,9 @@
+
+
+# Load bootloader symbols
+set confirm off
+    add-symbol-file C:/Users/chenx/Desktop/git-repos/sms_forwarding/idf/build_fresh/bootloader/bootloader.elf
+set confirm on
+
+# Load application symbols
+file C:/Users/chenx/Desktop/git-repos/sms_forwarding/idf/build_fresh/sms_forwarder.elf

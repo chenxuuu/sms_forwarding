@@ -1,0 +1,2 @@
+--flash-mode dio --flash-freq 80m --flash-size 4MB
+0x10000 ota_data_initial.bin

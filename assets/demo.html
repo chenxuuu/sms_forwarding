@@ -52,6 +52,8 @@ nav{position:relative;display:flex;flex-direction:column;gap:2px}
   background:transparent;color:var(--muted);font:inherit;text-align:left;cursor:pointer;transition:color .25s,transform .2s}
 .nav-btn svg{width:17px;height:17px;flex:0 0 17px}
 .nav-btn:hover{color:var(--text)}
+.nav-dot{position:absolute;right:9px;top:9px;width:7px;height:7px;border-radius:50%;background:var(--err);display:none}
+.nav-dot.on{display:block;animation:breathe 2.6s infinite}
 .nav-btn.on{color:#fff}
 .nav-btn .kbd{margin-left:auto;font-size:10px;opacity:.6}
 .side-foot{margin-top:auto;display:flex;flex-direction:column;gap:8px;font-size:12px;color:var(--muted)}
@@ -501,7 +503,6 @@ body.chan-dirty main{padding-bottom:150px}
         <div class="outbox" id="infoOut"><span class="empty">查询结果会显示在这里</span></div>
       </div>
 
-
       <div class="card" style="margin-top:14px">
         <div class="head">维护</div>
         <div class="row" style="margin-top:10px;gap:14px">
@@ -516,6 +517,41 @@ body.chan-dirty main{padding-bottom:150px}
           <button class="btn sm" data-act="modem_restart">软重启模组</button>
           <button class="btn sm" data-act="modem_hardreset">硬重启模组</button>
           <button class="btn sm danger" data-act="system_restart">重启设备</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="p-ota">
+      <div class="card">
+        <div class="head">固件升级</div>
+        <div class="grid two" style="margin-top:10px">
+          <div class="field"><label>当前版本</label>
+            <div class="val" style="font-size:16px" id="otaCurrent">--</div>
+          </div>
+          <div class="field"><label>最新版本</label>
+            <div class="row" style="gap:10px;align-items:center;min-height:26px">
+              <span class="val" style="font-size:16px" id="otaLatest">--</span>
+              <a class="btn sm" id="otaLink" style="display:none" target="_blank" rel="noopener">去下载</a>
+            </div>
+          </div>
+        </div>
+        <div class="tip" id="otaChecked" style="margin-top:6px">尚未检查</div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn sm" id="otaCheckBtn">立即检查更新</button>
+          <span class="tip">每天自动检查一次，只提示不下载</span>
+        </div>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+          <div class="field"><label>上传固件（*-ota.bin）</label>
+            <input type="file" id="otaFile" accept=".bin,application/octet-stream">
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn pri" id="otaUploadBtn"><span class="spinner"></span>上传并升级</button>
+            <span class="tip" id="otaHint">只能上传 ota 包（约 1.3 MB）；升级中不要断电</span>
+          </div>
+          <div id="otaBarWrap" style="display:none;height:6px;border-radius:999px;background:var(--bg2);overflow:hidden;margin-top:12px">
+            <i id="otaBar" style="display:block;height:100%;width:0;background:linear-gradient(120deg,var(--pri),var(--pri2));transition:width .2s"></i>
+          </div>
+          <div class="tip" id="otaMsg" style="margin-top:8px"></div>
         </div>
       </div>
     </section>
@@ -672,7 +708,15 @@ body.chan-dirty main{padding-bottom:150px}
       uptime_s: 91234, modem_ready: true, net_stat: 1, net_csq: 22, net_sim: true,
       email_ok: true, mail_enabled: true, self_phone: "+8613800138000",
       push_count: 2, device_name: "sms-9e3c", model: "ML307Y",
-      admin_phone: "13800138000"
+      admin_phone: "13800138000",
+      version: "20261123.0906", ota_state: 0, has_update: true
+    },
+    ota: {
+      current: "20261123.0906", target: "", latest: "20261124.1200",
+      url: "https://github.com/chenxuuu/sms_forwarding/releases/latest/download/sms_forwarder-ota.bin",
+      notes: "修复若干问题，优化稳定性",
+      checked_at: Math.floor(Date.now() / 1000) - 5400,
+      has_update: true, checking: false, state: 0, progress: 0, message: ""
     },
     tasks: [
       {enabled: true, type: 2, phone: "", text: "", host: "qq.com", url: "",
@@ -822,6 +866,23 @@ body.chan-dirty main{padding-bottom:150px}
       }
       return json({success: true, tasks: state.tasks});
     }
+    if (path === "/ota") {
+      var o = {success: true};
+      for (var k in state.ota) o[k] = state.ota[k];
+      return json(o);
+    }
+    if (path === "/ota_check") {
+      if (state.ota.checking) return json({success: false, message: "正在检查或升级，请稍候"});
+      state.ota.checking = true;
+      setTimeout(function(){
+        state.ota.checking = false;
+        state.ota.checked_at = Math.floor(Date.now() / 1000);
+        state.ota.has_update = true;
+        state.status.has_update = true;
+        pushLog("版本检查完成：当前 " + state.ota.current + "，最新 " + state.ota.latest + "（有新版本，可在升级页上传）");
+      }, 2200);
+      return json({success: true, message: "正在检查版本，请稍候…"});
+    }
     if (path === "/mail_test") {
       var mt = body.smtpTo || "收件地址";
       pushLog("[邮件] 测试邮件已发送到 " + mt);
@@ -883,6 +944,44 @@ body.chan-dirty main{padding-bottom:150px}
     return later(function(){ return route(path, params, opts); }, 120 + Math.floor(Math.random() * 260));
   };
 
+  /* 上传走 XHR 原始字节流，演示页用一个假 XHR 模拟进度与重启 */
+  window.XMLHttpRequest = function(){
+    var self = this;
+    self.upload = {};
+    self.status = 0;
+    self.responseText = "";
+    self.open = function(){};
+    self.setRequestHeader = function(){};
+    self.send = function(file){
+      var total = (file && file.size) || 1363104;
+      var sent = 0;
+      var timer = setInterval(function(){
+        sent += total / 18;
+        if (sent > total) sent = total;
+        if (self.upload.onprogress) self.upload.onprogress({lengthComputable: true, loaded: sent, total: total});
+        if (sent < total) return;
+        clearInterval(timer);
+        state.ota.state = 3;
+        state.ota.target = state.ota.latest;
+        state.ota.message = "固件已写入，正在重启";
+        self.status = 200;
+        self.responseText = JSON.stringify({success: true, version: state.ota.latest, message: "固件已写入，设备即将重启"});
+        pushLog("固件升级完成：" + state.ota.current + " -> " + state.ota.latest + "，即将重启");
+        if (self.onload) self.onload();
+        setTimeout(function(){
+          state.ota.current = state.ota.latest;
+          state.ota.state = 0;
+          state.ota.target = "";
+          state.ota.has_update = false;
+          state.status.version = state.ota.current;
+          state.status.has_update = false;
+          state.status.ota_state = 0;
+        }, 6000);
+      }, 170);
+    };
+    return self;
+  };
+
   refreshDerived();
 })();
 </script>
@@ -896,6 +995,7 @@ body.chan-dirty main{padding-bottom:150px}
     { id:'overview', name:'概览', sub:'设备、网络与最近动态', hue:224 },
     { id:'push', name:'推送通道', sub:'邮件、推送通道与号码黑名单', hue:268 },
     { id:'device', name:'设备', sub:'选网、模组信息与维护', hue:186 },
+    { id:'ota', name:'固件升级', sub:'版本检查与手动上传固件', hue:24 },
     { id:'keepalive', name:'保号与发送', nav:'保号发送', sub:'发送短信、Ping 与 HTTP 访问', hue:206 },
     { id:'admin', name:'后台管理', sub:'后台账号与管理员号码', hue:280 },
     { id:'logs', name:'日志', sub:'实时日志与 AT 指令（可过滤、可暂停跟随）', hue:340 },
@@ -908,7 +1008,7 @@ body.chan-dirty main{padding-bottom:150px}
   var NEED = {1:[1,0,0,0],2:[1,0,0,0],3:[1,0,0,0],4:[1,1,0,0],5:[0,1,1,0],6:[0,1,0,0],7:[1,0,0,1],8:[1,1,0,0],9:[1,1,0,0],10:[0,1,1,0]};
   var LABEL = {4:['加签 secret',''],5:['token','渠道 wechat/app/extension'],6:['sendkey',''],7:['',''],8:['签名 secret（可空）',''],9:['token',''],10:['chat_id','bot token']};
 
-  var S = { page:'overview', status:{}, logs:[], logKey:'', logPending:0, filter:'all', search:'', hist:{}, sent:[], nums:[], ats:[], tasks:[], chanBase:'', chanDirty:false };
+  var S = { page:'overview', status:{}, logs:[], logKey:'', logPending:0, filter:'all', search:'', hist:{}, sent:[], nums:[], ats:[], tasks:[], ota:null, chanBase:'', chanDirty:false };
 
   function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function api(path, opts){
@@ -995,6 +1095,12 @@ body.chan-dirty main{padding-bottom:150px}
       b.className = 'nav-btn' + (p.id === S.page ? ' on' : '');
       b.setAttribute('data-page', p.id);
       b.textContent = p.nav || p.name;
+      if (p.id === 'ota') {
+        var dot = document.createElement('i');
+        dot.className = 'nav-dot' + (S.status && S.status.has_update ? ' on' : '');
+        dot.id = 'otaDot';
+        b.appendChild(dot);
+      }
       b.addEventListener('click', function(){ go(p.id); });
       nav.appendChild(b);
     });
@@ -1044,12 +1150,15 @@ body.chan-dirty main{padding-bottom:150px}
     if (page === 'logs') { jumpToLogBottom(); refreshLogs(true); }
     if (page === 'keepalive') { loadTasks(); }
     if (page === 'device') loadFlightState();
+    if (page === 'ota') loadOta();
   }
 
   /* ---------- 状态 ---------- */
   function applyStatus(s){
     if (!s || s.success === false) return;
     S.status = s;
+    var otaDot = $('otaDot');
+    if (otaDot) otaDot.classList.toggle('on', !!s.has_update);
     $('vIp').textContent = s.ip || '--';
     $('subIp').textContent = (s.device_name || '') + '.local';
     $('devName').textContent = s.device_name || 'ESP32-C3';
@@ -1610,6 +1719,146 @@ body.chan-dirty main{padding-bottom:150px}
     });
   }
 
+  /* ---------- 固件升级 ---------- */
+  var otaTimer = null;
+  function fmtAgo(ts){
+    if (!ts) return '尚未检查';
+    var d = Math.floor(Date.now() / 1000) - ts;
+    if (d < 60) return '刚刚检查';
+    if (d < 3600) return Math.floor(d / 60) + ' 分钟前检查';
+    if (d < 86400) return Math.floor(d / 3600) + ' 小时前检查';
+    return Math.floor(d / 86400) + ' 天前检查';
+  }
+  function renderOta(o){
+    S.ota = o;
+    var dot = $('otaDot');
+    if (dot) dot.classList.toggle('on', !!o.has_update);
+    $('otaCurrent').textContent = o.current || '--';
+    $('otaLatest').textContent = o.latest || '尚未获取';
+    $('otaLatest').style.color = o.has_update ? 'var(--warn)' : 'var(--muted)';
+    var link = $('otaLink');
+    if (o.has_update && o.url) { link.href = o.url; link.style.display = ''; }
+    else { link.style.display = 'none'; }
+    if (o.has_update) {
+      $('otaChecked').innerHTML = '<span class="l-warn">发现新版本 ' + esc(o.latest) + '，下载 ota 包后在这里上传</span>';
+    } else {
+      $('otaChecked').textContent = fmtAgo(o.checked_at) + (o.latest ? ' · 已是最新' : '');
+    }
+    if (o.state === 3) {
+      $('otaMsg').innerHTML = '<span class="l-ok">固件 ' + esc(o.target || '') + ' 已写入，正在等待重启…</span>';
+    } else if (o.state === 4 && o.message) {
+      $('otaMsg').innerHTML = '<span class="l-err">' + esc(o.message) + '</span>';
+    }
+  }
+  function loadOta(){
+    return api('/ota').then(function(r){
+      if (r && r.success) renderOta(r);
+    }).catch(function(){});
+  }
+  function setOtaProgress(p){
+    p = Math.max(0, Math.min(100, p || 0));
+    $('otaBar').style.width = p + '%';
+  }
+  function waitOtaReboot(target){
+    var tries = 0;
+    if (otaTimer) clearInterval(otaTimer);
+    otaTimer = setInterval(function(){
+      tries++;
+      api('/status').then(function(s){
+        if (s && s.version === target) {
+          clearInterval(otaTimer); otaTimer = null;
+          toast('升级成功，当前版本 ' + target, 'ok');
+          setTimeout(function(){ location.reload(); }, 1500);
+        } else if (tries > 45) {
+          clearInterval(otaTimer); otaTimer = null;
+          $('otaMsg').innerHTML = '<span class="l-warn">等待重启超时，请手动刷新页面确认版本</span>';
+        }
+      }).catch(function(){
+        if (tries > 45) { clearInterval(otaTimer); otaTimer = null; }
+      });
+    }, 2000);
+  }
+  function otaUpload(btn){
+    var f = $('otaFile').files[0];
+    if (!f) { toast('请先选择 ota 固件文件', 'err'); return; }
+    if (!/\.bin$/i.test(f.name)) { toast('请选择 .bin 固件文件', 'err'); return; }
+    if (f.size < 100000) { toast('文件太小，可能不是固件', 'err'); return; }
+    confirmDlg('确认升级固件',
+      '将写入 ' + f.name + '（' + (f.size / 1048576).toFixed(2) + ' MB）。\n' +
+      '写入期间不要断电；完成后设备会重启，约 20 秒无法访问。\n' +
+      '只能上传 *-ota.bin，不要上传整包 merged 固件。',
+      '开始升级', '取消', 'btn pri', 'btn').then(function(ok){
+      if (!ok) return;
+      busy(btn, true);
+      $('otaBarWrap').style.display = '';
+      setOtaProgress(0);
+      $('otaMsg').textContent = '正在上传并写入…';
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/ota');
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.setRequestHeader('X-File-Name', encodeURIComponent(f.name));
+      xhr.upload.onprogress = function(e){
+        if (e.lengthComputable) setOtaProgress(e.loaded / e.total * 100);
+      };
+      xhr.onload = function(){
+        busy(btn, false);
+        var r = null;
+        try { r = JSON.parse(xhr.responseText); } catch (e) {}
+        if (xhr.status === 200 && r && r.success) {
+          setOtaProgress(100);
+          $('otaMsg').innerHTML = '<span class="l-ok">固件 ' + esc(r.version || '') + ' 已写入，设备正在重启…</span>';
+          waitOtaReboot(r.version);
+        } else {
+          setOtaProgress(0);
+          $('otaMsg').innerHTML = '<span class="l-err">' +
+            esc((r && r.message) || ('上传失败（HTTP ' + xhr.status + '）')) + '</span>';
+          loadOta();
+        }
+      };
+      xhr.onerror = function(){
+        busy(btn, false);
+        $('otaMsg').innerHTML = '<span class="l-err">连接中断，设备仍在运行原固件</span>';
+        loadOta();
+      };
+      xhr.send(f);
+    });
+  }
+  function otaCheck(btn){
+    busy(btn, true);
+    $('otaMsg').textContent = '正在检查版本…';
+    var before = (S.ota && S.ota.checked_at) || 0;
+    var saw = false, n = 0, timer = null;
+    function finish(text, cls){
+      if (timer) clearInterval(timer);
+      busy(btn, false);
+      $('otaMsg').innerHTML = '<span class="' + cls + '">' + esc(text) + '</span>';
+      loadOta();
+    }
+    /* 设备侧在独立任务里跑 TLS，这里轮询 /ota 等结果，不占用它的内存 */
+    api('/ota_check', { method: 'POST' }).then(function(r){
+      if (!r || !r.success) { finish((r && r.message) || '检查失败', 'l-err'); return; }
+      timer = setInterval(function(){
+        n++;
+        api('/ota').then(function(o){
+          if (!o || !o.success) {
+            if (n > 20) finish('检查超时，请稍后重试', 'l-err');
+            return;
+          }
+          if (o.checking) saw = true;
+          if (saw && !o.checking) {
+            if (o.has_update) finish('发现新版本 ' + o.latest + '，下载 ota 包后在这里上传', 'l-ok');
+            else if (o.checked_at !== before) finish('已是最新版本（' + o.current + '）', 'l-ok');
+            else finish('检查失败：请确认网络能访问 GitHub（日志里有原因）', 'l-err');
+          } else if (n > 20) {
+            finish('检查超时，请稍后重试', 'l-err');
+          }
+        }).catch(function(){
+          if (n > 20) finish('检查超时，请稍后重试', 'l-err');
+        });
+      }, 1200);
+    }).catch(function(){ finish('请求失败', 'l-err'); });
+  }
+
   /* ---------- 日志 ---------- */
   function nearBottom(box){ return box.scrollHeight - box.scrollTop - box.clientHeight < 28; }
   function classify(line){
@@ -1799,6 +2048,12 @@ body.chan-dirty main{padding-bottom:150px}
     $('taskSaveBtn').addEventListener('click', function(){ saveTask(this); });
     $('keepPingBtn').addEventListener('click', function(){ keepPing(this); });
     $('keepHttpBtn').addEventListener('click', function(){ keepHttp(this); });
+    $('otaUploadBtn').addEventListener('click', function(){ otaUpload(this); });
+    $('otaCheckBtn').addEventListener('click', function(){ otaCheck(this); });
+    $('otaFile').addEventListener('change', function(){
+      var f = this.files[0];
+      $('otaHint').textContent = f ? (f.name + ' · ' + (f.size / 1048576).toFixed(2) + ' MB') : '只能上传 ota 包（约 1.3 MB）；升级中不要断电';
+    });
     $('logPill').addEventListener('click', scrollBottom);
     $('logCopy').addEventListener('click', function(){
       copyText(S.logs.join(String.fromCharCode(10)), function(){ toast('已复制 ' + S.logs.length + ' 行日志', 'ok'); });

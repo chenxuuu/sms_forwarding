@@ -479,7 +479,7 @@ static esp_err_t start_partition(void)
     esp_app_desc_t desc;
     memcpy(&desc, s_head + 0x20, sizeof(desc));
     if (desc.magic_word != ESP_APP_DESC_MAGIC_WORD) {
-        set_message("这不是固件文件");
+        set_message("这不是可用的 OTA 固件（可能是整包 merged.bin），请上传 *-ota.bin");
         return ESP_ERR_INVALID_RESPONSE;
     }
     if (strcmp(desc.project_name, "sms_forwarder") != 0) {

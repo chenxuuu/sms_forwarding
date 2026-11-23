@@ -44,6 +44,7 @@ jobs:
             -e PROJECT_VER="${{ steps.ver.outputs.value }}" \
             "${{ steps.idf.outputs.image }}" \
             /bin/bash -lc 'idf.py build && \
+              cp build/sms_forwarder.bin build/sms_forwarder-ota.bin && \
               python -m esptool --chip esp32c3 merge_bin \
                 -o build/sms_forwarder-merged.bin \
                 --flash_mode dio --flash_freq 80m --flash_size 4MB \
@@ -51,12 +52,14 @@ jobs:
                 0x8000 build/partition_table/partition-table.bin \
                 0x10000 build/ota_data_initial.bin \
                 0x20000 build/sms_forwarder.bin'
-          cp idf/build/sms_forwarder.bin idf/build/sms_forwarder-ota.bin
-          ls -lh idf/build/sms_forwarder-merged.bin idf/build/sms_forwarder-ota.bin
+          # build/ 是容器里 root 建的，runner 用户没有写权限，产物先复制到 dist/
+          mkdir -p dist
+          cp idf/build/sms_forwarder-merged.bin idf/build/sms_forwarder-ota.bin dist/
+          ls -lh dist/
 
       - name: 生成版本清单 latest.json
         run: |
-          cd idf/build
+          cd dist
           sha=$(sha256sum sms_forwarder-ota.bin | cut -d' ' -f1)
           size=$(stat -c%s sms_forwarder-ota.bin)
           cat > latest.json <<EOF
@@ -87,7 +90,7 @@ jobs:
             **从旧版本（单分区布局）升级**：第一次必须用 `idf.py flash` 或分段写
             `0x0/0x8000/0x20000`，**不要**用 merged 包覆盖 `0x0`——它会把 NVS 抹成 0xFF，配置全丢。
           files: |
-            idf/build/sms_forwarder-merged.bin
-            idf/build/sms_forwarder-ota.bin
-            idf/build/latest.json
+            dist/sms_forwarder-merged.bin
+            dist/sms_forwarder-ota.bin
+            dist/latest.json
           fail_on_unmatched_files: true

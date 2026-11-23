@@ -1,0 +1,12 @@
+# Add Python GDB extensions
+python
+import sys
+try:
+    import freertos_gdb
+except ModuleNotFoundError:
+    print('warning: python extension "freertos_gdb" not found.', file=sys.stderr)
+try:
+    import idf_drivers_gdb
+except ModuleNotFoundError:
+    print('warning: python extension "idf_drivers_gdb" not found.', file=sys.stderr)
+end

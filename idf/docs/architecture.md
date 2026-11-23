@@ -35,7 +35,8 @@
 - `core`：无业务依赖，最底层；
 - `net` / `notify` / `modem`：各自独立，只依赖 `core`；
 - `forwarder`：依赖 `core` + `modem` + `notify`（唯一放业务策略的地方）；
-- `web`：依赖 `core` + `modem` + `notify` + `net`；
+- `web`：依赖 `core` + `modem` + `notify` + `net` + `sched` + `ota`；
+- `ota`：依赖 `core` + `net` + `notify` + `app_update`，负责写分区与版本检查；
 - `main`：只做装配与启动顺序编排。
 
 ## 3. 任务模型
@@ -52,6 +53,7 @@
 | `heartbeat` | 4 KB | 2 | 网络/本机自检与自愈（默认 60s 一轮） |
 | `netmon` | 4 KB | 3 | 4G 基站注册检测与分级自愈（默认 60s 一轮） |
 | `sched` | 6 KB | 2 | 定时任务：短信 / Ping / HTTP，20 秒扫一次任务表 |
+| `ota_check` | 8 KB | 3 | 版本检查的 TLS 任务（按需唤醒，不能放到 esp_timer/httpd 里） |
 | `esp_timer` | 系统 | 高 | 长短信超时检查（1s 周期） |
 
 > **配网模式**（`net/wifi_portal.c`）只在两种情况下出现：启动时没有任何 WiFi 账号，
@@ -174,7 +176,8 @@ modem_send_sms() ──堆作业──▶ modem 队列 ──▶ pdu_encode_subm
 ESP32-C3 约 300KB 可用 RAM，WiFi + lwIP + 6 个任务后空闲约 55~68KB（实测）：
 
 - `CONFIG_MBEDTLS_DYNAMIC_BUFFER=y`：TLS 收发缓冲按需分配，握手后释放；
-- `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=8192`：容纳较长的证书链；
+- `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=4096`：C3 的堆碎片严重（空闲 30KB 时最大连续块只有 7~8KB），
+  8KB 的单块分配经常失败，降到 4KB 后邮件、推送、OTA 版本检查都稳定；
 - WiFi 静态/动态缓冲下调（4/16/16），省出约 15KB；
 - 首页按 **2KB 块**渲染并 `httpd_resp_send_chunk` 输出，峰值不再需要 40KB 连续内存；
 - 长短信合并（最大 5KB）与 PDU 解码结果都在堆上，避免小栈任务溢出。

@@ -203,6 +203,7 @@ idf/
 | [docs/modules.md](docs/modules.md) | 各组件职责与接口 |
 | [docs/api.md](docs/api.md) | HTTP 接口说明 |
 | [docs/build-flash.md](docs/build-flash.md) | 编译、烧录、调试与实测记录 |
+| [docs/ota-plan.md](docs/ota-plan.md) | 固件升级（OTA）开发计划 —— **待实现**，实现前先读 |
 
 ## 与 Arduino 版本的差异
 

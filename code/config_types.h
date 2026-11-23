@@ -44,6 +44,8 @@ struct Config {
   String webUser;      // Web管理账号
   String webPass;      // Web管理密码
   String numberBlackList;  // 号码黑名单（换行符分隔）
+  uint8_t operatorMode;     // 0=自动选网, 1=手动选网
+  String operatorCode;      // PLMN（MCC+MNC，例如 46000）
 };
 
 // 默认Web管理账号密码

@@ -25,6 +25,10 @@
 | GET | `/`、`/tools`、`/sms` | 管理界面（单页，标签页切换） |
 | GET | `/favicon.ico` | 空响应，避免日志噪声 |
 
+单页内含 6 个标签页：概览、发短信、通知、设备、日志、关于。关于页为纯前端页面，
+展示项目开源地址（https://github.com/chenxuuu/sms_forwarding）、固件版本、设备型号与设备名，
+不新增后端接口。
+
 ## 配置
 
 ### POST /save

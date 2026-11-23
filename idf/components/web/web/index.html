@@ -218,6 +218,27 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 .outbox{margin-top:12px;max-height:240px;overflow:auto}
+a{color:var(--pri);text-decoration:none}
+a:hover{text-decoration:underline}
+.about-text{color:var(--muted);font-size:13px;line-height:1.85;margin:10px 0 0}
+.about-text b{color:var(--text);font-weight:600}
+
+/* ---------- 推送通道未保存提醒 ---------- */
+.dirty-chip{display:none;color:var(--warn);border-color:hsl(38 92% 58% / .5);background:hsl(38 92% 58% / .1)}
+.dirty-chip.on{display:inline-flex}
+.btn.pri.dirty{outline:2px solid hsl(38 92% 58% / .85);outline-offset:2px}
+.savebar{position:fixed;left:50%;bottom:20px;z-index:75;display:flex;align-items:center;gap:12px;
+  width:min(680px,calc(100vw - 24px));padding:12px 16px;border-radius:16px;
+  background:var(--surface-solid);border:1px solid hsl(38 92% 58% / .55);box-shadow:var(--shadow);
+  transform:translateX(-50%) translateY(18px);opacity:0;pointer-events:none;
+  transition:opacity .28s,transform .34s cubic-bezier(.2,.9,.3,1.2)}
+.savebar.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
+.savebar b{font-size:13px}
+.savebar .tip{display:block;font-size:11px;color:var(--dim);margin-top:2px}
+.warn-dot{width:9px;height:9px;flex:0 0 9px;border-radius:50%;background:var(--warn);animation:warnPulse 1.8s infinite}
+@keyframes warnPulse{0%,100%{box-shadow:0 0 0 0 hsl(38 92% 58% / .45)}50%{box-shadow:0 0 0 7px hsl(38 92% 58% / 0)}}
+body.chan-dirty main{padding-bottom:150px}
+@media (max-width:900px){ .savebar{bottom:72px;padding:11px 12px;gap:8px} .savebar .btn{padding:8px 10px} body.chan-dirty main{padding-bottom:200px} }
 .outbox table.kv{font-size:13px}
 .outbox .empty{color:var(--dim);font-size:12px}
 .chan .spacer{flex:1}
@@ -335,14 +356,14 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
 
       <div class="card" style="margin-top:14px">
         <div class="row" style="justify-content:space-between">
-          <div class="head">推送通道 <span class="chip" id="pushStat">--</span></div>
+          <div class="head">推送通道 <span class="chip" id="pushStat">--</span><span class="chip dirty-chip" id="chanDirtyChip">有未保存修改</span></div>
           <div class="row">
             <span class="chip" id="chanCount">--</span>
             <button class="btn sm" id="addChan">添加通道</button>
-            <button class="btn pri sm" data-save="push"><span class="spinner"></span>保存全部通道</button>
+            <button class="btn pri" data-save="push"><span class="spinner"></span>保存全部通道</button>
           </div>
         </div>
-        <div class="tip" style="margin:6px 0 12px">启动、IP 变化、网络恢复、配置更新会发送到所有已启用通道</div>
+        <div class="tip" style="margin:6px 0 12px">启动、IP 变化、网络恢复、配置更新会发送到所有已启用通道；修改后必须点击「保存全部通道」才会生效</div>
         <div id="channels"><div class="empty">加载中…</div></div>
       </div>
     </section>
@@ -436,9 +457,46 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
         </div>
       </div>
     </section>
+
+    <section class="page" id="p-about">
+      <div class="grid two">
+        <div class="card">
+          <div class="head">项目</div>
+          <div class="val" style="font-size:20px">短信转发器</div>
+          <div class="sub">ESP32-C3 + ML307 4G 模组 · 开源固件</div>
+          <table class="kv" style="margin-top:10px">
+            <tr><td>开源地址</td><td><a href="https://github.com/chenxuuu/sms_forwarding" target="_blank" rel="noopener">github.com/chenxuuu/sms_forwarding</a></td></tr>
+            <tr><td>固件版本</td><td>ESP-IDF v6.1.1</td></tr>
+            <tr><td>设备型号</td><td id="aboutModel">--</td></tr>
+            <tr><td>设备名称</td><td id="aboutName">--</td></tr>
+          </table>
+          <div class="row" style="margin-top:12px">
+            <button class="btn pri sm" id="repoCopy">复制项目地址</button>
+            <a class="btn sm" href="https://github.com/chenxuuu/sms_forwarding" target="_blank" rel="noopener">在 GitHub 打开</a>
+          </div>
+        </div>
+        <div class="card">
+          <div class="head">关于</div>
+          <p class="about-text">
+            把收到的短信通过 WiFi 推送到邮件与多种平台（Bark、钉钉、飞书、Telegram、PushPlus、Server 酱等），
+            支持管理员短信命令、号码黑名单、长短信合并、基站掉线自动重连与 mDNS 访问。
+          </p>
+          <p class="about-text">
+            配置保存在 NVS，可从 Arduino 版本原地升级。项目完全开源，欢迎提交 Issue 与 Pull Request。
+          </p>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
 
+<div class="savebar" id="pushSaveBar">
+  <span class="warn-dot"></span>
+  <div><b>推送通道有未保存的修改</b><span class="tip">离开本页、刷新或重启都会丢失</span></div>
+  <span style="flex:1"></span>
+  <button class="btn sm ghost" id="pushDiscard">放弃修改</button>
+  <button class="btn pri" id="pushSaveNow"><span class="spinner"></span>立即保存</button>
+</div>
 <div id="modal"><div class="mcard"><h4 id="mTitle">确认</h4><p id="mText"></p>
   <div class="row" style="justify-content:flex-end"><button class="btn" id="mNo">取消</button><button class="btn danger" id="mYes">确定</button></div>
 </div></div>
@@ -454,7 +512,8 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     { id:'messages', name:'发短信', sub:'主动发送并按结果反馈', hue:206 },
     { id:'notify', name:'通知', sub:'邮件与推送通道配置', hue:268 },
     { id:'device', name:'设备', sub:'账号、模组查询与维护', hue:186 },
-    { id:'logs', name:'日志', sub:'实时日志（可过滤、可暂停跟随）', hue:340 }
+    { id:'logs', name:'日志', sub:'实时日志（可过滤、可暂停跟随）', hue:340 },
+    { id:'about', name:'关于', sub:'项目信息与开源地址', hue:300 }
   ];
   var TYPES = [
     [1,'POST JSON'], [2,'Bark'], [3,'GET 请求'], [4,'钉钉机器人'], [5,'PushPlus'],
@@ -463,7 +522,7 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
   var NEED = {1:[1,0,0,0],2:[1,0,0,0],3:[1,0,0,0],4:[1,1,0,0],5:[0,1,1,0],6:[0,1,0,0],7:[1,0,0,1],8:[1,1,0,0],9:[1,1,0,0],10:[0,1,1,0]};
   var LABEL = {4:['加签 secret',''],5:['token','渠道 wechat/app/extension'],6:['sendkey',''],7:['',''],8:['签名 secret（可空）',''],9:['token',''],10:['chat_id','bot token']};
 
-  var S = { page:'overview', status:{}, logs:[], logKey:'', logPending:0, filter:'all', search:'', hist:{}, sent:[], nums:[], ats:[] };
+  var S = { page:'overview', status:{}, logs:[], logKey:'', logPending:0, filter:'all', search:'', hist:{}, sent:[], nums:[], ats:[], chanBase:'', chanDirty:false };
 
   function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function api(path, opts){
@@ -488,9 +547,38 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     $('toasts').appendChild(el);
     setTimeout(function(){ el.classList.add('out'); setTimeout(function(){ el.remove(); }, 250); }, 3000);
   }
-  function confirmDlg(title, text){
+  /* 复制（http 页面通常可用 clipboard，失败时退回 execCommand） */
+  function copyText(text, done){
+    function fallback(){
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (ok) done(); else toast('复制失败，请手动选择文本', 'err');
+      } catch (e) { toast('复制失败', 'err'); }
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(fallback);
+    } else {
+      fallback();
+    }
+  }
+  /* yesText/noText 用具体动作命名，避免"确定"到底是保存还是丢弃 */
+  function confirmDlg(title, text, yesText, noText, yesClass, noClass){
     return new Promise(function(resolve){
-      $('mTitle').textContent = title; $('mText').textContent = text; $('modal').classList.add('show');
+      $('mTitle').textContent = title;
+      $('mText').textContent = text;
+      $('mYes').textContent = yesText || '确定';
+      $('mNo').textContent = noText || '取消';
+      $('mYes').className = yesClass || 'btn danger';
+      $('mNo').className = noClass || 'btn';
+      $('modal').classList.add('show');
       function end(ok){ $('modal').classList.remove('show'); $('mYes').onclick = null; $('mNo').onclick = null; resolve(ok); }
       $('mYes').onclick = function(){ end(true); };
       $('mNo').onclick = function(){ end(false); };
@@ -544,6 +632,18 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
   }
   function go(page){
     if (!PAGES.some(function(p){ return p.id === page; })) page = 'overview';
+    /* 有未保存的通道修改时，离开页面前必须确认，避免白改 */
+    if (S.chanDirty && page !== S.page) {
+      confirmDlg('推送通道未保存', '离开本页后，未保存的通道修改会丢失。如需保留，请点「留在此页」后点击「立即保存」。', '放弃修改并离开', '留在此页', 'btn danger', 'btn pri')
+        .then(function(ok){
+          if (!ok) { history.replaceState(null, '', '#' + S.page); return; }
+          chanSetDirty(false);
+          S.chanBase = '';
+          go(page);
+          loadConfig(false);
+        });
+      return;
+    }
     S.page = page;
     var btns = document.querySelectorAll('.nav-btn');
     for (var i = 0; i < btns.length; i++) btns[i].classList.toggle('on', btns[i].getAttribute('data-page') === page);
@@ -584,12 +684,14 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     $('pushStat').textContent = (s.push_count || 0) + ' 个启用';
     $('netDot').className = 'dot ' + (s.modem_ready ? 'ok' : '');
     $('netText').textContent = s.modem_ready ? '在线' : '离线';
+    $('aboutModel').textContent = s.model || '--';
+    $('aboutName').textContent = s.device_name ? s.device_name + '.local' : '--';
     if (s.admin_phone) $('kAdmin').textContent = s.admin_phone;
   }
   function loadStatus(){ return api('/status').then(applyStatus).catch(function(){}); }
 
   /* ---------- 配置 ---------- */
-  function loadConfig(){
+  function loadConfig(keepChannels){
     return api('/config').then(function(cfg){
       if (!cfg || cfg.success === false) return;
       $('webUser').value = cfg.web_user || '';
@@ -602,7 +704,11 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
       $('adminPhone').value = cfg.admin_phone || '';
       $('blacklist').value = cfg.blacklist || '';
       if (cfg.admin_phone) $('kAdmin').textContent = cfg.admin_phone;
-      renderChannels(cfg.channels || []);
+      /* 保存其它分区（邮件/账号等）时不能把用户正在编辑的通道冲掉 */
+      if (!(keepChannels && S.chanDirty)) {
+        renderChannels(cfg.channels || []);
+        chanResetBaseline();
+      }
     });
   }
   function renderChannels(chs){
@@ -628,9 +734,32 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     for (var i = 0; i < (S.channels || []).length; i++) list.push(readChannel(i));
     return list;
   }
+  /* ---------- 未保存修改跟踪（推送通道） ---------- */
+  function chanSignature(){
+    try { return JSON.stringify(snapshotChannels()); } catch (e) { return ''; }
+  }
+  function chanSetDirty(on){
+    S.chanDirty = !!on;
+    var bar = $('pushSaveBar');
+    if (bar) bar.classList.toggle('show', S.chanDirty);
+    var chip = $('chanDirtyChip');
+    if (chip) chip.classList.toggle('on', S.chanDirty);
+    var btn = document.querySelector('[data-save="push"]');
+    if (btn) btn.classList.toggle('dirty', S.chanDirty);
+    document.body.classList.toggle('chan-dirty', S.chanDirty);
+  }
+  function chanCheckDirty(){
+    if (!S.chanBase) return;
+    chanSetDirty(chanSignature() !== S.chanBase);
+  }
+  function chanResetBaseline(){
+    S.chanBase = chanSignature();
+    chanSetDirty(false);
+  }
   function renderList(list){
     renderChannels(list);
-    toast('通道数量已改为 ' + list.length + '，记得保存', 'info');
+    chanCheckDirty();
+    toast('通道数量已改为 ' + list.length + '，尚未保存', 'info');
   }
   function addChannel(){
     if (!S.channels || S.channels.length >= 50) { toast('最多 50 个通道', 'err'); return; }
@@ -642,7 +771,7 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     if (last) { last.classList.add('open'); last.scrollIntoView({ behavior:'smooth', block:'nearest' }); }
   }
   function delChannel(i){
-    confirmDlg('删除通道 ' + (i + 1), '删除后需要点击“保存全部通道”才会写入设备。确定删除？').then(function(ok){
+    confirmDlg('删除通道 ' + (i + 1), '删除后需要点击「保存全部通道」才会写入设备。', '删除', '取消', 'btn danger', 'btn pri').then(function(ok){
       if (!ok) return;
       var list = snapshotChannels();
       list.splice(i, 1);
@@ -727,8 +856,12 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     busy(btn, true);
     api('/save?json=1', { method:'POST', body: collect(scope) }).then(function(r){
       busy(btn, false);
-      if (r && r.success) { toast((r.message || '已保存'), 'ok'); loadConfig(); loadStatus(); }
-      else toast((r && r.message) || '保存失败', 'err');
+      if (r && r.success) {
+        toast((r.message || '已保存'), 'ok');
+        /* 保存通道：以设备回读为准并清除未保存标记；保存其它分区：保留正在编辑的通道 */
+        loadConfig(scope !== 'push');
+        loadStatus();
+      } else toast((r && r.message) || '保存失败', 'err');
     }).catch(function(){ busy(btn, false); toast('保存失败：网络错误', 'err'); });
   }
 
@@ -796,7 +929,7 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
         modem_hardreset:['硬重启模组','断电重启，约 20 秒'],
         system_restart:['重启设备','整机重启，网页会中断约 30 秒']
       }[name];
-      confirmDlg(tip[0], tip[1] + '。确定继续？').then(function(ok){
+      confirmDlg(tip[0], tip[1] + '，确定现在执行？', name === 'wifi_restart' ? '确定重连' : '确定重启', '取消', 'btn danger', 'btn pri').then(function(ok){
         if (!ok) return;
         var url = name === 'system_restart' ? '/system?action=restart'
                 : name === 'wifi_restart' ? '/wifi?action=restart'
@@ -1004,13 +1137,45 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     document.querySelectorAll('[data-act]').forEach(function(b){
       b.addEventListener('click', function(){ act(b.getAttribute('data-act'), b); });
     });
-    $('refreshBtn').addEventListener('click', function(){ loadStatus(); loadConfig(); refreshLogs(true); toast('状态已刷新', 'ok'); });
+    $('refreshBtn').addEventListener('click', function(){
+      if (S.chanDirty) {
+        confirmDlg('推送通道未保存', '刷新会重新读取设备配置，未保存的通道修改将丢失。', '放弃修改并刷新', '继续编辑', 'btn danger', 'btn pri').then(function(ok){
+          if (!ok) return;
+          S.chanBase = '';
+          chanSetDirty(false);
+          loadStatus(); loadConfig(false); refreshLogs(true); toast('状态已刷新', 'ok');
+        });
+        return;
+      }
+      loadStatus(); loadConfig(); refreshLogs(true); toast('状态已刷新', 'ok');
+    });
     $('copyBtn').addEventListener('click', function(){
       var ip = $('vIp').textContent || '';
-      if (!navigator.clipboard) { toast('浏览器不支持复制', 'err'); return; }
-      navigator.clipboard.writeText('http://' + ip + '/').then(function(){ toast('已复制 http://' + ip + '/', 'ok'); });
+      copyText('http://' + ip + '/', function(){ toast('已复制 http://' + ip + '/', 'ok'); });
+    });
+    $('repoCopy').addEventListener('click', function(){
+      copyText('https://github.com/chenxuuu/sms_forwarding', function(){
+        toast('已复制项目地址', 'ok');
+      });
     });
     $('addChan').addEventListener('click', addChannel);
+    $('channels').addEventListener('input', chanCheckDirty);
+    $('channels').addEventListener('change', chanCheckDirty);
+    $('pushSaveNow').addEventListener('click', function(){ save('push', this); });
+    $('pushDiscard').addEventListener('click', function(){
+      confirmDlg('未保存的通道修改', '将丢弃当前未保存的通道修改，恢复为设备中的配置。', '放弃修改', '取消', 'btn danger', 'btn pri').then(function(ok){
+        if (!ok) return;
+        S.chanBase = '';
+        chanSetDirty(false);
+        loadConfig(false);
+        toast('已放弃未保存的修改', 'info');
+      });
+    });
+    window.addEventListener('beforeunload', function(e){
+      if (!S.chanDirty) return;
+      e.preventDefault();
+      e.returnValue = '';
+    });
     $('mSend').addEventListener('click', sendSms);
     $('mClear').addEventListener('click', function(){ $('mText').value = ''; smsMeta(); });
     $('mText').addEventListener('input', smsMeta);
@@ -1019,8 +1184,7 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     $('flightSw').addEventListener('change', toggleFlight);
     $('logPill').addEventListener('click', scrollBottom);
     $('logCopy').addEventListener('click', function(){
-      if (!navigator.clipboard) { toast('浏览器不支持复制', 'err'); return; }
-      navigator.clipboard.writeText(S.logs.join(String.fromCharCode(10))).then(function(){ toast('已复制 ' + S.logs.length + ' 行日志', 'ok'); });
+      copyText(S.logs.join(String.fromCharCode(10)), function(){ toast('已复制 ' + S.logs.length + ' 行日志', 'ok'); });
     });
     $('logSearch').addEventListener('input', function(){ S.search = this.value.trim().toLowerCase(); renderLogsFull(); });
     document.querySelectorAll('#fChips .fchip').forEach(function(c){

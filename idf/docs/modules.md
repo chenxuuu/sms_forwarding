@@ -205,7 +205,7 @@ POST JSON 多一个 `self_phone` 字段，GET 多一个 `self_phone` 查询参�
 - 回滚：开启 `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`，`ota_init()` 发现
   `ESP_OTA_IMG_PENDING_VERIFY` 就起确认任务，联网（含配网热点）稳定 45 秒后
   `esp_ota_mark_app_valid_cancel_rollback()`；一直连不上则下次复位自动回退；
-- 版本检查**不在设备端**：页面直接 fetch `api.github.com/.../releases/latest`，读 Release 标题
+- 版本检查**不在设备端**：打开后台即由浏览器 fetch `api.github.com/.../releases/latest`，读 Release 标题
   （CI 把标题写成 `YYYYMMDD.HHMM`）与 `assets` 里的下载地址，结果缓存进 `localStorage` 12 小时；
   设备不联网、不跑 TLS，`/ota_check` 接口与 8 KB 检查任务已删除（空闲堆 24 KB → 40 KB）；
 - 组件只依赖 `core` / `app_update` / `bootloader_support` / `esp_app_format` / `net` / `notify`，

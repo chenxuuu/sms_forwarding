@@ -538,7 +538,7 @@ body.chan-dirty main{padding-bottom:150px}
         <div class="tip" id="otaChecked" style="margin-top:6px">尚未检查</div>
         <div class="row" style="margin-top:10px">
           <button class="btn sm" id="otaCheckBtn">立即检查更新</button>
-          <span class="tip">浏览器直接查 GitHub，12 小时内不重复；只提示不下载</span>
+          <span class="tip">打开页面自动检查，12 小时内不重复；只提示不下载</span>
         </div>
         <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
           <div class="field"><label>上传固件（*-ota.bin）</label>
@@ -1802,6 +1802,12 @@ body.chan-dirty main{padding-bottom:150px}
       }
     }).catch(function(){});
   }
+  /* 打开页面就查一次：缓存还新鲜就直接用，不重复请求 GitHub */
+  function otaAutoCheck(){
+    var r = otaRemoteRead();
+    if (r && Date.now() - (r.at || 0) < OTA_TTL) { applyOtaRemote(r); return; }
+    otaFetch().then(applyOtaRemote).catch(function(){});
+  }
   function setOtaProgress(p){
     p = Math.max(0, Math.min(100, p || 0));
     $('otaBar').style.width = p + '%';
@@ -2117,7 +2123,7 @@ body.chan-dirty main{padding-bottom:150px}
     renderHistory();
     smsMeta();
     go((location.hash || '').replace('#', '') || 'overview');
-    loadStatus(); loadConfig(); loadTasks(); refreshLogs(true);
+    loadStatus().then(otaAutoCheck); loadConfig(); loadTasks(); refreshLogs(true);
     setInterval(function(){ if (!document.hidden) loadStatus(); }, 8000);
     setInterval(function(){ refreshLogs(false); }, 3000);
     setInterval(function(){

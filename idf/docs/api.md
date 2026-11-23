@@ -227,7 +227,7 @@ Bark 的 body 与钉钉/飞书/PushPlus/Server酱/Gotify/Telegram 的正文末�
 ### 版本检查（不在设备端）
 
 设备**不联网检查版本**，也没有 `/ota_check` 接口（旧固件有，现已删除，请求返回 404）。
-页面打开「固件升级」页时直接 fetch GitHub API，用 `name` 和 `GET /ota` 的 `current` 比新旧：
+后台页面一打开就 fetch GitHub API（不等用户点「立即检查」），用 `name` 和 `GET /ota` 的 `current` 比新旧：
 
 - 有新版本：显示最新版本、下载链接、侧边栏红点
 - 12 小时内不重复请求（避开 GitHub API 的 60 次/小时/IP 限流）

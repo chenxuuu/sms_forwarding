@@ -377,7 +377,12 @@ body.chan-dirty main{padding-bottom:150px}
           <div class="field" id="taskUrlRow"><label>访问网址</label><input id="taskUrl" value="https://speed.cloudflare.com/__down?bytes=10"></div>
           <div class="grid two">
             <div class="field"><label>循环（天，0 = 只执行一次）</label><input id="taskRepeat" inputmode="numeric" value="0"></div>
-            <div class="field"><label>启用</label><label class="sw" style="margin-top:10px"><input type="checkbox" id="taskEnabled" checked><i></i></label></div>
+            <div class="field"><label>启用</label>
+              <span class="row" style="gap:8px;height:32px;align-items:center">
+                <label class="sw" style="flex:none"><input type="checkbox" id="taskEnabled" checked><i></i></label>
+                <span class="tip">保存后生效</span>
+              </span>
+            </div>
           </div>
           <div class="row"><button class="btn pri" id="taskSaveBtn"><span class="spinner"></span>保存任务</button><button class="btn sm" id="taskCancelBtn">取消</button></div>
         </div>

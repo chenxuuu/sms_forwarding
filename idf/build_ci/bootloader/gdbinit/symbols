@@ -1,9 +1,0 @@
-
-
-# Load bootloader symbols
-set confirm off
-    # Bootloader elf was not found
-set confirm on
-
-# Load application symbols
-file C:/Users/chenx/Desktop/git-repos/sms_forwarding/idf/build_ci/bootloader/bootloader.elf

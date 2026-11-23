@@ -1,7 +1,0 @@
-# Connect to the default openocd-esp port and stop on app_main()
-set remotetimeout 10
-target remote :3333
-monitor reset halt
-maintenance flush register-cache
-thbreak app_main
-continue

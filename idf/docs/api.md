@@ -188,6 +188,36 @@ Bark 的 body 与钉钉/飞书/PushPlus/Server酱/Gotify/Telegram 的正文末�
 `smtpServer` / `smtpPort` / `smtpUser` / `smtpPass` / `smtpTo`），端口缺省按 465（SSL）处理。
 四项任一为空返回「邮件配置不完整」；发送失败时日志里能看到具体阶段（连接 / 认证 / DATA / 服务端拒收）。
 
+## 定时任务
+
+### GET /tasks
+
+返回全部任务（最多 8 个）：
+
+```json
+{"success":true,"tasks":[{"index":0,"enabled":true,"type":2,"phone":"","text":"",
+  "host":"qq.com","url":"","next":1795417327,"repeat_days":3,"last":0}]}
+```
+
+`type`：1=发送短信，2=Ping，3=访问网址；`next`/`last` 为 epoch 秒；`repeat_days` 为 0 表示单次。
+
+### POST /tasks
+
+`application/x-www-form-urlencoded`，`action=save|delete`：
+
+| 字段 | 说明 |
+|---|---|
+| `action` | `save`（默认）/ `delete` |
+| `index` | 任务下标；`-1` 表示新增 |
+| `type` | 1=短信 / 2=Ping / 3=HTTP |
+| `next` | 执行时间（epoch 秒） |
+| `repeat` | 循环天数，0=只执行一次，上限 365 |
+| `enabled` | `on`/`off` |
+| `phone` / `text` / `host` / `url` | 对应该类型的参数 |
+
+校验：类型非法、未选时间、短信缺号码/内容、网址不以 http(s) 开头都会拒绝；
+时间已过时仍接受，返回「任务已保存：时间已过，会在下一轮检查时立即补执行」。
+
 /config 返回的 channels 数组长度即当前通道数（1..50，默认 5）。
 POST /save 通过 pushCount 字段调整数量：增加时新通道名为「未命名通道」，
 减少时设备会删除多余通道在 NVS 中的键。表单字段仍为 pushN + en/type/name/url/key1/key2/body。

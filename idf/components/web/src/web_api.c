@@ -17,6 +17,7 @@
 #include "modem/pdu.h"
 #include "net/wifi.h"
 #include "notify/email.h"
+#include "sched/sched.h"
 #include "notify/push.h"
 #include "web_internal.h"
 
@@ -1114,5 +1115,153 @@ esp_err_t handler_mail_test(httpd_req_t *req)
         httpd_resp_set_type(req, "application/json; charset=utf-8");
         httpd_resp_sendstr(req, "{\"success\":false,\"message\":\"设备忙，请稍后重试\"}");
     }
+    return ESP_OK;
+}
+
+/* ---- 定时任务 ---- */
+static void append_json_str(sbuf_t *out, const char *key, const char *value, bool comma)
+{
+    sbuf_printf(out, "\"%s\":\"", key);
+    util_json_escape(out, value ? value : "");
+    sbuf_append(out, comma ? "\"," : "\"");
+}
+
+static void tasks_to_json(sbuf_t *out)
+{
+    int n = sched_task_count();
+    sbuf_append(out, "{\"success\":true,\"tasks\":[");
+    for (int i = 0; i < n; i++) {
+        sched_task_t t;
+        if (!sched_task_get(i, &t)) {
+            break;
+        }
+        sbuf_printf(out, "%s{\"index\":%d,\"enabled\":%s,\"type\":%u,", i ? "," : "", i,
+                    t.enabled ? "true" : "false", (unsigned)t.type);
+        append_json_str(out, "phone", t.phone, true);
+        append_json_str(out, "text", t.text, true);
+        append_json_str(out, "host", t.host, true);
+        append_json_str(out, "url", t.url, true);
+        sbuf_printf(out, "\"next\":%lld,\"repeat_days\":%d,\"last\":%lld}", (long long)t.next,
+                    (int)t.repeat_days, (long long)t.last);
+    }
+    sbuf_append(out, "]}");
+}
+
+esp_err_t handler_tasks(httpd_req_t *req)
+{
+    if (!web_require_auth(req)) {
+        return ESP_OK;
+    }
+
+    if (req->method == HTTP_GET) {
+        sbuf_t out;
+        sbuf_init(&out);
+        tasks_to_json(&out);
+        httpd_resp_set_type(req, "application/json; charset=utf-8");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+        httpd_resp_send(req, sbuf_cstr(&out), out.len);
+        sbuf_free(&out);
+        return ESP_OK;
+    }
+
+    char *body = web_read_body(req);
+    if (!body) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "请求体为空");
+        return ESP_OK;
+    }
+
+    char action[16] = {0};
+    char idx_s[8] = {0};
+    web_form_get(body, "action", action, sizeof(action));
+    int index = -1;
+    if (web_form_get(body, "index", idx_s, sizeof(idx_s))) {
+        index = atoi(idx_s);
+    }
+
+    sbuf_t out;
+    sbuf_init(&out);
+    httpd_resp_set_type(req, "application/json; charset=utf-8");
+
+    if (strcmp(action, "delete") == 0) {
+        if (sched_task_delete(index)) {
+            json_ok(&out, "任务已删除");
+        } else {
+            json_fail(&out, "任务不存在");
+        }
+        free(body);
+        httpd_resp_send(req, sbuf_cstr(&out), out.len);
+        sbuf_free(&out);
+        return ESP_OK;
+    }
+
+    sched_task_t t;
+    memset(&t, 0, sizeof(t));
+    if (index >= 0 && !sched_task_get(index, &t)) {
+        json_fail(&out, "任务不存在");
+        free(body);
+        httpd_resp_send(req, sbuf_cstr(&out), out.len);
+        sbuf_free(&out);
+        return ESP_OK;
+    }
+
+    char val[256] = {0};
+    char en[8] = {0}, type_s[8] = {0}, next_s[24] = {0}, rep_s[12] = {0};
+    web_form_get(body, "enabled", en, sizeof(en));
+    web_form_get(body, "type", type_s, sizeof(type_s));
+    web_form_get(body, "next", next_s, sizeof(next_s));
+    web_form_get(body, "repeat", rep_s, sizeof(rep_s));
+    t.enabled = (strcmp(en, "on") == 0 || strcmp(en, "1") == 0);
+    t.type = (uint8_t)atoi(type_s);
+    t.next = (int64_t)strtoll(next_s, NULL, 10);
+    t.repeat_days = (int32_t)atoi(rep_s);
+    if (t.repeat_days < 0) {
+        t.repeat_days = 0;
+    }
+    if (t.repeat_days > 365) {
+        t.repeat_days = 365;
+    }
+    if (web_form_get(body, "phone", val, sizeof(val))) {
+        snprintf(t.phone, sizeof(t.phone), "%s", val);
+    }
+    if (web_form_get(body, "text", val, sizeof(val))) {
+        snprintf(t.text, sizeof(t.text), "%s", val);
+    }
+    if (web_form_get(body, "host", val, sizeof(val))) {
+        snprintf(t.host, sizeof(t.host), "%s", val);
+    }
+    if (web_form_get(body, "url", val, sizeof(val))) {
+        snprintf(t.url, sizeof(t.url), "%s", val);
+    }
+
+    if (t.type != SCHED_TYPE_SMS && t.type != SCHED_TYPE_PING && t.type != SCHED_TYPE_HTTP) {
+        json_fail(&out, "任务类型无效");
+    } else if (t.next <= 0) {
+        json_fail(&out, "请选择执行时间");
+    } else if (t.type == SCHED_TYPE_SMS && (!t.phone[0] || !t.text[0])) {
+        json_fail(&out, "短信任务需要填写号码和内容");
+    } else if (t.type == SCHED_TYPE_HTTP && strncmp(t.url, "http", 4) != 0) {
+        json_fail(&out, "网址需以 http:// 或 https:// 开头");
+    } else {
+        if (t.type == SCHED_TYPE_PING && !t.host[0]) {
+            snprintf(t.host, sizeof(t.host), "qq.com");
+        }
+        int slot = sched_task_save(index, &t);
+        if (slot < 0) {
+            json_fail(&out, "任务数量已达上限（%d 个）", SCHED_MAX_TASKS);
+        } else {
+            time_t now = time(NULL);
+            if (t.next <= (int64_t)now) {
+                json_ok(&out, "任务已保存：时间已过，会在下一轮检查时立即补执行");
+            } else {
+                json_ok(&out, "任务已保存");
+            }
+            log_line("网页端保存定时任务 #%d（类型 %u，%s）", slot + 1, (unsigned)t.type,
+                     t.repeat_days > 0 ? "循环" : "单次");
+        }
+    }
+
+    free(body);
+    httpd_resp_send(req, sbuf_cstr(&out), out.len);
+    sbuf_free(&out);
     return ESP_OK;
 }

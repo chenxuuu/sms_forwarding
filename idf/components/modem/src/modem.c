@@ -353,6 +353,16 @@ static void do_init(bool power_cycle)
     log_line("模组型号: %s，固件: %s", s_model[0] ? s_model : "未知",
              s_version[0] ? s_version : "未知");
 
+    /* 模组可能停在飞行模式（自愈的射频重启被复位打断会遗留 CFUN=4）：
+     * 这里强制拉回正常射频，否则 netmon 会把它当成用户主动开飞行模式而一直暂停。 */
+    char cfun[128] = {0};
+    if (at_command("AT+CFUN?", cfun, sizeof(cfun), 3000) == AT_RESULT_OK &&
+        strstr(cfun, "+CFUN: 4")) {
+        log_line("模组停留在飞行模式，恢复为正常射频（AT+CFUN=1）");
+        at_command_ok("AT+CFUN=1", 20000);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+
     /* ML307Y 的 AT+CGACT 有缺陷，跳过 */
     if (strcmp(s_model, "ML307Y") != 0) {
         while (!at_command_ok("AT+CGACT=0,1", 5000)) {

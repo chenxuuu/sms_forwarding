@@ -353,6 +353,36 @@ body.chan-dirty main{padding-bottom:150px}
       </div>
 
       <div class="card" style="margin-top:14px">
+        <div class="row" style="justify-content:space-between">
+          <div class="head">定时任务 <span class="chip" id="taskCount">0</span></div>
+          <button class="btn sm" id="taskAdd">添加任务</button>
+        </div>
+        <div class="tip" style="margin:6px 0 12px">到点自动发送短信 / Ping / 访问网址；设备错过时间（关机、重启）会在时间同步后补执行一次；执行结果推送到所有通道</div>
+        <div id="taskList"><div class="empty">暂无任务</div></div>
+        <div id="taskEditor" style="display:none;margin-top:12px;border-top:1px dashed var(--line);padding-top:12px">
+          <input type="hidden" id="taskIndex" value="-1">
+          <div class="grid two">
+            <div class="field"><label>任务类型</label>
+              <select id="taskType">
+                <option value="1">发送短信</option>
+                <option value="2">Ping</option>
+                <option value="3">访问网址</option>
+              </select>
+            </div>
+            <div class="field"><label>执行时间</label><input type="datetime-local" id="taskAt"></div>
+          </div>
+          <div class="field" id="taskPhoneRow"><label>目标号码</label><input id="taskPhone" inputmode="tel" placeholder="13800138000"></div>
+          <div class="field" id="taskTextRow"><label>短信内容</label><textarea id="taskText" rows="2" placeholder="例如：保号短信"></textarea></div>
+          <div class="field" id="taskHostRow"><label>Ping 主机</label><input id="taskHost" value="qq.com"></div>
+          <div class="field" id="taskUrlRow"><label>访问网址</label><input id="taskUrl" value="https://speed.cloudflare.com/__down?bytes=10"></div>
+          <div class="grid two">
+            <div class="field"><label>循环（天，0 = 只执行一次）</label><input id="taskRepeat" inputmode="numeric" value="0"></div>
+            <div class="field"><label>启用</label><label class="sw" style="margin-top:10px"><input type="checkbox" id="taskEnabled" checked><i></i></label></div>
+          </div>
+          <div class="row"><button class="btn pri" id="taskSaveBtn"><span class="spinner"></span>保存任务</button><button class="btn sm" id="taskCancelBtn">取消</button></div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px">
         <div class="head">本次会话发送记录</div>
         <div class="feed" id="mHistory" style="margin-top:8px"><div class="empty">暂无记录</div></div>
       </div>
@@ -589,7 +619,7 @@ body.chan-dirty main{padding-bottom:150px}
   var NEED = {1:[1,0,0,0],2:[1,0,0,0],3:[1,0,0,0],4:[1,1,0,0],5:[0,1,1,0],6:[0,1,0,0],7:[1,0,0,1],8:[1,1,0,0],9:[1,1,0,0],10:[0,1,1,0]};
   var LABEL = {4:['加签 secret',''],5:['token','渠道 wechat/app/extension'],6:['sendkey',''],7:['',''],8:['签名 secret（可空）',''],9:['token',''],10:['chat_id','bot token']};
 
-  var S = { page:'overview', status:{}, logs:[], logKey:'', logPending:0, filter:'all', search:'', hist:{}, sent:[], nums:[], ats:[], chanBase:'', chanDirty:false };
+  var S = { page:'overview', status:{}, logs:[], logKey:'', logPending:0, filter:'all', search:'', hist:{}, sent:[], nums:[], ats:[], tasks:[], chanBase:'', chanDirty:false };
 
   function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function api(path, opts){
@@ -723,6 +753,7 @@ body.chan-dirty main{padding-bottom:150px}
     if (location.hash !== '#' + page) history.replaceState(null, '', '#' + page);
     movePill();
     if (page === 'logs') { jumpToLogBottom(); refreshLogs(true); }
+    if (page === 'keepalive') { loadTasks(); }
     if (page === 'device') loadFlightState();
   }
 
@@ -985,6 +1016,116 @@ body.chan-dirty main{padding-bottom:150px}
       toast((r && r.message) || (ok ? '测试邮件已发送' : '测试失败'), ok ? 'ok' : 'err');
     }).catch(function(){ busy(btn, false); toast('测试失败：网络错误', 'err'); });
   }
+
+  /* ---------- 定时任务 ---------- */
+  var TASK_NAME = { 1:'发送短信', 2:'Ping', 3:'访问网址' };
+  function pad2(n){ return (n < 10 ? '0' : '') + n; }
+  function fmtTs(ts){
+    if (!ts) return '--';
+    var d = new Date(ts * 1000);
+    return (d.getMonth()+1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+  }
+  function tsToLocalInput(ts){
+    var d = new Date(ts * 1000);
+    return d.getFullYear() + '-' + pad2(d.getMonth()+1) + '-' + pad2(d.getDate()) + 'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+  }
+  function localInputToTs(v){
+    if (!v) return 0;
+    var t = new Date(v).getTime();
+    return isNaN(t) ? 0 : Math.floor(t / 1000);
+  }
+  function taskTarget(t){
+    if (t.type === 1) return t.phone + (t.text ? ' · ' + t.text : '');
+    if (t.type === 2) return t.host || 'qq.com';
+    return t.url || '';
+  }
+  function renderTasks(){
+    var host = $('taskList');
+    $('taskCount').textContent = String(S.tasks.length);
+    if (!S.tasks.length) { host.innerHTML = '<div class="empty">暂无任务</div>'; return; }
+    host.innerHTML = '';
+    S.tasks.forEach(function(t, i){
+      var d = document.createElement('div');
+      d.className = 'ev ' + (t.enabled ? 'sms' : '');
+      var meta = t.next ? ('下次 ' + fmtTs(t.next)) : '已结束';
+      if (t.repeat_days > 0) meta += ' · 每 ' + t.repeat_days + ' 天';
+      else meta += ' · 单次';
+      if (!t.enabled && t.next) meta += ' · 已停用';
+      d.innerHTML = '<span class="chip">' + (TASK_NAME[t.type] || '任务') + '</span>' +
+        '<span class="txt"><b>#' + (i + 1) + '</b> ' + esc(taskTarget(t)) +
+        '<br><span class="tip">' + meta + '</span></span>' +
+        '<span style="flex:1"></span>' +
+        '<button class="btn sm" data-tedit="' + i + '">编辑</button>' +
+        '<button class="btn sm danger" data-tdel="' + i + '">删除</button>';
+      host.appendChild(d);
+    });
+    host.querySelectorAll('[data-tedit]').forEach(function(b){
+      b.addEventListener('click', function(){ openTaskEditor(parseInt(b.getAttribute('data-tedit'), 10)); });
+    });
+    host.querySelectorAll('[data-tdel]').forEach(function(b){
+      b.addEventListener('click', function(){ deleteTask(parseInt(b.getAttribute('data-tdel'), 10)); });
+    });
+  }
+  function loadTasks(){
+    return api('/tasks').then(function(r){
+      if (r && r.success && Array.isArray(r.tasks)) { S.tasks = r.tasks; renderTasks(); }
+    }).catch(function(){});
+  }
+  function syncTaskForm(){
+    var tp = parseInt($('taskType').value, 10);
+    $('taskPhoneRow').style.display = tp === 1 ? '' : 'none';
+    $('taskTextRow').style.display = tp === 1 ? '' : 'none';
+    $('taskHostRow').style.display = tp === 2 ? '' : 'none';
+    $('taskUrlRow').style.display = tp === 3 ? '' : 'none';
+  }
+  function openTaskEditor(i){
+    var t = i >= 0 ? S.tasks[i] : null;
+    $('taskIndex').value = String(t ? i : -1);
+    $('taskType').value = String(t ? t.type : 1);
+    $('taskAt').value = tsToLocalInput(t && t.next ? t.next : Math.floor(Date.now() / 1000) + 600);
+    $('taskPhone').value = t ? (t.phone || '') : '';
+    $('taskText').value = t ? (t.text || '') : '';
+    $('taskHost').value = t ? (t.host || 'qq.com') : 'qq.com';
+    $('taskUrl').value = t ? (t.url || '') : 'https://speed.cloudflare.com/__down?bytes=10';
+    $('taskRepeat').value = String(t ? (t.repeat_days || 0) : 0);
+    $('taskEnabled').checked = t ? !!t.enabled : true;
+    syncTaskForm();
+    $('taskEditor').style.display = '';
+    $('taskEditor').scrollIntoView({ behavior:'smooth', block:'nearest' });
+  }
+  function saveTask(btn){
+    var at = localInputToTs($('taskAt').value);
+    if (!at) { toast('请选择执行时间', 'err'); return; }
+    var p = new URLSearchParams();
+    p.append('action', 'save');
+    p.append('index', $('taskIndex').value || '-1');
+    p.append('type', $('taskType').value);
+    p.append('next', String(at));
+    p.append('phone', $('taskPhone').value.trim());
+    p.append('text', $('taskText').value.trim());
+    p.append('host', $('taskHost').value.trim());
+    p.append('url', $('taskUrl').value.trim());
+    p.append('repeat', $('taskRepeat').value || '0');
+    p.append('enabled', $('taskEnabled').checked ? 'on' : 'off');
+    busy(btn, true);
+    api('/tasks', { method:'POST', body: p.toString() }).then(function(r){
+      busy(btn, false);
+      var ok = !!(r && r.success);
+      toast((r && r.message) || (ok ? '已保存' : '保存失败'), ok ? 'ok' : 'err');
+      if (ok) { $('taskEditor').style.display = 'none'; loadTasks(); }
+    }).catch(function(){ busy(btn, false); toast('保存失败：网络错误', 'err'); });
+  }
+  function deleteTask(i){
+    confirmDlg('删除定时任务 #' + (i + 1), '删除后不再执行，确定删除？', '删除', '取消', 'btn danger', 'btn pri').then(function(ok){
+      if (!ok) return;
+      api('/tasks', { method:'POST', body: 'action=delete&index=' + i }).then(function(r){
+        var good = !!(r && r.success);
+        toast((r && r.message) || (good ? '已删除' : '删除失败'), good ? 'ok' : 'err');
+        if (good) loadTasks();
+      }).catch(function(){ toast('删除失败：网络错误', 'err'); });
+    });
+  }
+
   function save(scope, btn){
     if (scope === 'operator' && $('operMode').value === '1') {
       var pcode = ($('operCode').value || '').trim();
@@ -1363,6 +1504,10 @@ body.chan-dirty main{padding-bottom:150px}
     $('operMode').addEventListener('change', syncOperatorForm);
     $('mailEnable').addEventListener('change', syncMailForm);
     $('mailTest').addEventListener('click', function(){ mailTest(this); });
+    $('taskAdd').addEventListener('click', function(){ openTaskEditor(-1); });
+    $('taskCancelBtn').addEventListener('click', function(){ $('taskEditor').style.display = 'none'; });
+    $('taskType').addEventListener('change', syncTaskForm);
+    $('taskSaveBtn').addEventListener('click', function(){ saveTask(this); });
     $('keepPingBtn').addEventListener('click', function(){ keepPing(this); });
     $('keepHttpBtn').addEventListener('click', function(){ keepHttp(this); });
     $('logPill').addEventListener('click', scrollBottom);
@@ -1398,7 +1543,7 @@ body.chan-dirty main{padding-bottom:150px}
     renderHistory();
     smsMeta();
     go((location.hash || '').replace('#', '') || 'overview');
-    loadStatus(); loadConfig(); refreshLogs(true);
+    loadStatus(); loadConfig(); loadTasks(); refreshLogs(true);
     setInterval(function(){ if (!document.hidden) loadStatus(); }, 8000);
     setInterval(function(){ refreshLogs(false); }, 3000);
     setInterval(function(){

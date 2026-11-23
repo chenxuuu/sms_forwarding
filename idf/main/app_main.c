@@ -14,6 +14,7 @@
 #include "net/time_sync.h"
 #include "net/wifi.h"
 #include "notify/notify.h"
+#include "sched/sched.h"
 #include "web/web_server.h"
 
 /**
@@ -63,6 +64,7 @@ void app_main(void)
     config_init();
     notify_init();
     forwarder_init();
+    sched_init();
 
     esp_err_t err = wifi_start(20000);
     if (err != ESP_OK) {

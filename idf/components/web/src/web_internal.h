@@ -47,6 +47,7 @@ esp_err_t web_spawn_async3(httpd_req_t *req, web_async_fn fn, const char *arg1, 
 esp_err_t handler_root(httpd_req_t *req);
 esp_err_t handler_push_test(httpd_req_t *req);
 esp_err_t handler_mail_test(httpd_req_t *req);
+esp_err_t handler_tasks(httpd_req_t *req);
 esp_err_t handler_save(httpd_req_t *req);
 esp_err_t handler_log(httpd_req_t *req);
 esp_err_t handler_status(httpd_req_t *req);

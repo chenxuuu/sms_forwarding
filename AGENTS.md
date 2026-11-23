@@ -49,29 +49,42 @@ arduino-cli monitor --port COM4 --config 115200
 - `.github/agent/编译烧录实测.md` 是已验证的可靠流程，优先参考。
 - 本机实际项目路径为 `C:\Users\chenx\Desktop\git-repos\sms_forwarding`（非 ASCII 路径仅限源码位置；build 目录必须放在纯英文路径）。
 
-## 工程结构
+## 仓库结构
 
 ```
-code/
-├── code.ino              # 入口: setup() + loop()
-├── config_types.h        # 枚举/结构体/常量（最底层，无依赖）
-├── globals.h/.cpp        # 全局变量 + 引脚定义 + 公共头文件
-├── config.h/.cpp         # NVS 配置存取、有效性校验
-├── modem.h/.cpp          # AT 指令、电源控制、短信发送
-├── push.h/.cpp           # 多通道推送、邮件通知、加密/编码工具
-├── sms_process.h/.cpp    # URC 解析、长短信合并、黑名单、管理员命令
-├── web_handlers.h/.cpp   # HTTP 处理器 + 日志环形缓冲区
-├── web_html.h/.cpp       # SPA HTML 模板（模板占位符 %KEY% 替换）
-├── task_types.h          # 任务/结果结构体定义
-└── wifi_config.h         # WiFi SSID/密码宏定义
-dev_doc/                  # 架构/API/模块详细文档（改代码前先读）
-assets/demo.html          # 纯前端演示页：把 idf 的 web/index.html 复制一份并注入 fetch 模拟层，
-                          所有接口返回假数据，可直接双击打开；不要出现“演示”字样
-.github/workflows/pages.yml  # 把 assets/demo.html 作为 index.html 发布到 GitHub Pages
-.github/agent/            # 编译烧录流程文档
+README.md                     # 门面：原理图、截图、硬件采购、快速开始（功能变了要同步）
+AGENTS.md                     # 本文件
+assets/
+├── photo.png                 # 实物图
+├── flow.svg                  # 原理图（SMIL 动画，README 首屏）
+├── wiring.svg                # 接线图（README 硬件章节）
+├── web-overview.png          # 后台截图：概览页
+├── web-push.png              # 后台截图：推送通道页
+└── demo.html                 # 纯前端演示页：注入 fetch 模拟层，所有接口返回假数据，
+                              可直接双击打开；不要出现“演示”字样；index.html 改动后要重新生成
+idf/                          # 主线实现（ESP-IDF v6.1.1），文档在 idf/docs/
+code/                         # Arduino 框架实现（历史版本，功能与 idf 对齐）
+├── README.md                 # Arduino 版说明（硬件/接线/Arduino IDE 编译）
+├── dev_doc/                  # Arduino 版架构/API/模块文档
+├── code.ino                  # 入口: setup() + loop()
+├── config_types.h            # 枚举/结构体/常量（最底层，无依赖）
+├── globals.h/.cpp            # 全局变量 + 引脚定义 + 公共头文件
+├── config.h/.cpp             # NVS 配置存取、有效性校验
+├── modem.h/.cpp              # AT 指令、电源控制、短信发送
+├── push.h/.cpp               # 多通道推送、邮件通知、加密/编码工具
+├── sms_process.h/.cpp        # URC 解析、长短信合并、黑名单、管理员命令
+├── web_handlers.h/.cpp       # HTTP 处理器 + 日志环形缓冲区
+├── web_html.h/.cpp           # SPA HTML 模板（模板占位符 %KEY% 替换）
+├── task_types.h              # 任务/结果结构体定义
+└── wifi_config.h             # WiFi SSID/密码宏定义
+.github/workflows/
+├── firmware.yml              # 推送 master 后编译 idf，合并单文件固件发到 latest Release
+├── build.yml                 # 校验 Arduino 版可编译
+└── pages.yml                 # 把 assets/demo.html 作为 index.html 发布到 GitHub Pages
+.github/agent/                # 编译烧录流程文档
 ```
 
-依赖方向：config_types.h → globals.h → 各模块 → code.ino。每个 .h/.cpp 对单一职责。
+依赖方向（code/）：config_types.h → globals.h → 各模块 → code.ino。每个 .h/.cpp 对单一职责。
 
 ## 关键约定
 

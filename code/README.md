@@ -1,0 +1,117 @@
+# 低成本短信转发器
+
+> 本目录是 **Arduino 框架实现**（历史版本，功能与 `idf/` 对齐）。新方案（ESP-IDF）在 [`idf/`](../idf/)，
+> 硬件说明、烧录与快速上手请看[仓库根目录 README](../README.md)。  
+> 2022 年的 LuatOS 老方案见 [old-luatos 分支](https://github.com/chenxuuu/sms_forwarding/tree/old-luatos)。
+
+[后台页面演示](https://sms.j2.cx/)
+
+本项目旨在使用低成本的硬件设备，实现短信的自动转发功能，支持多种推送方式同时启用。
+
+> 视频教程：[B站视频](https://www.bilibili.com/video/BV1cSmABYEiX)
+
+<img src="../assets/photo.png" width="200" />
+
+## 功能
+
+- 支持使用通用AT指令与模块进行通信
+- 开启后支持通过WEB界面配置短信转发参数、查询当前状态
+- **支持多达5个推送通道同时启用**，每个通道可独立配置
+- 支持将收到的短信转发到指定的邮箱
+- 支持通过WEB界面主动发送短信，以便消耗余额
+- 支持通过WEB界面进行Ping测试，以极低的成本消耗余额
+- 支持长短信自动合并（30秒超时）
+- 支持管理员短信远程发送短信和重启设备
+- 支持自动选网或按 PLMN 手动指定运营商
+
+## 手动运营商选择
+
+默认使用模组自动选网。如需固定到特定运营商，可在 WEB 管理页的“选网配置”中选择手动模式并填写 5 或 6 位数字 PLMN（MCC + MNC）。保存后设备会重启并应用 LTE 选网配置。
+
+## 推送通道支持
+
+支持以下7种推送方式，可同时启用多个通道：
+
+| 推送方式 | 说明 | 需要配置 |
+|---------|------|---------|
+| **POST JSON** | 通用HTTP POST | URL |
+| **Bark** | iOS推送服务 | Bark服务器URL |
+| **GET请求** | URL参数方式 | URL |
+| **钉钉机器人** | 企业群通知 | Webhook URL，可选Secret加签 |
+| **PushPlus** | 微信公众号推送 | Token |
+| **Server酱** | 微信推送服务 | SendKey |
+| **自定义模板** | 灵活的JSON模板 | URL + 请求体模板 |
+| **飞书机器人** | 自定义通知 | Webhook URL |
+
+### 推送格式说明
+
+- **POST JSON**: `{"sender":"发送者号码","message":"短信内容","timestamp":"时间戳"}`
+- **Bark**: `{"title":"发送者号码","body":"短信内容"}`
+- **GET请求**: `URL?sender=xxx&message=xxx&timestamp=xxx`（自动URL编码）
+- **钉钉机器人**: 文本消息格式，支持加签验证
+- **PushPlus**: 使用Token推送，支持HTML格式
+- **Server酱**: 使用SendKey推送，支持Markdown格式
+- **自定义模板**: 使用`{sender}`、`{message}`、`{timestamp}`占位符
+- **飞书机器人**: 文本消息格式，支持加签验证
+
+|状态信息|主动ping|
+|-|-|
+|![](../assets/status.png)|![](../assets/ping.png)|
+
+## 硬件搭配
+
+若没有焊接能力，希望直接使用成品，可选直接购以下套件（我看过了，和自己做的成本一样）  
+支持**移动/联通/电信卡**：
+
+- [小蓝鲸WIFI短信宝](https://item.taobao.com/item.htm?id=1003711355912)（找客服问）
+- [4G FPC天线](https://item.taobao.com/item.htm?id=1003711355912&skuId=6162872574943)，与开发板同购
+
+如果希望自行焊接硬件，参考下面的硬件搭配，总成本约¥27.8（会有浮动，可按实际自行组合搭配）  
+仅支持**移动/联通卡**：
+
+- ESP32C3开发板，实测选用[ESP32C3 Super Mini](https://item.taobao.com/item.htm?id=852057780489&skuId=5813710390565)，¥9.5包邮
+- ML307R-DC开发板，实测选用[小蓝鲸ML307R-DC核心板](https://item.taobao.com/item.htm?id=797466121802&skuId=5722077108045)，¥16.3包邮
+- [4G FPC天线](https://item.taobao.com/item.htm?id=797466121802&skuId=5722077108045)，¥2，与核心板同购
+
+
+## 硬件连接
+
+ESP32C3 与 ML307R-DC 通过串口（UART）连接，接线如下：
+
+```
+┌───────────────────────────────────────────────┐
+|                                               |
+|   ESP32C3 Super Mini      ML307R-DC核心板     |
+| ┌───────────────────┐    ┌─────────────────┐ |
+└─┼─ GPIO5 (MODEM_EN) │    │                 │ |
+  │       GPIO3 (TX) ─┼───►│ RX              │ |
+  │                   │    │             EN ─┼─┘
+  │       GPIO4 (RX) ◄┼────┤ TX              │ 
+  │                   │    │                 │ 
+  │              GND ─┼────┤ GND             │ 
+  │                   │    │                 │ 
+  │               5V ─┼────┤ VCC (5V)        |
+  │                   │    │                 │
+  └───────────────────┘    └─────────────────┘
+                           │                 │
+                           │  SIM卡槽        │
+                           │  (插入Nano SIM) │
+                           │                 │
+                           │  天线接口       │
+                           │  (连接4G天线)   │
+                           └─────────────────┘
+```
+
+可通过USB连接ESP32C3进行编程和供电，正常工作时，可通过网页与模组进行AT通信，方便调试。
+
+## 软件组成
+
+- ESP32C3运行自己的`Arduino`固件，负责连接WiFi和接收ML307R-DC发送过来的短信数据，然后转发到指定HTTP接口或邮箱
+- ML307R-DC运行默认的AT固件，不用动
+
+需要在`Arduino IDE`中单独安装这些库：
+
+- **ReadyMail** by Mobizt
+- **pdulib** by David Henry
+
+需要在`Arduino IDE`中安装ESP32开发板支持，参考[官方文档](https://docs.espressif.com/projects/arduino-esp32/en/latest/installing.html)，版型选`MakerGO ESP32 C3 SuperMini`。

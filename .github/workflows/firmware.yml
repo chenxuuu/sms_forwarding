@@ -1,0 +1,65 @@
+name: Build IDF Firmware
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'idf/**'
+      - '.github/workflows/firmware.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 选择可用的 ESP-IDF 镜像
+        id: idf
+        run: |
+          for tag in v6.1.1 release-v6.1 latest; do
+            if docker pull -q "espressif/idf:${tag}" >/dev/null 2>&1; then
+              echo "image=espressif/idf:${tag}" >> "$GITHUB_OUTPUT"
+              echo "使用镜像 espressif/idf:${tag}"
+              exit 0
+            fi
+          done
+          echo "没有拉到任何 ESP-IDF 镜像" >&2
+          exit 1
+
+      - name: 编译并合并单文件固件
+        run: |
+          docker run --rm \
+            -v "$PWD:/project" \
+            -w /project/idf \
+            -e IDF_TARGET=esp32c3 \
+            "${{ steps.idf.outputs.image }}" \
+            /bin/bash -lc 'idf.py build && \
+              python -m esptool --chip esp32c3 merge_bin \
+                -o build/sms_forwarder-merged.bin \
+                --flash_mode dio --flash_freq 80m --flash_size 4MB \
+                0x0 build/bootloader/bootloader.bin \
+                0x8000 build/partition_table/partition-table.bin \
+                0x10000 build/sms_forwarder.bin'
+          ls -lh idf/build/sms_forwarder-merged.bin
+
+      - name: 上传到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: 最新固件（自动构建）
+          body: |
+            ESP-IDF 自动构建的单文件固件，烧录地址 `0x0`。
+
+            - 提交：`${{ github.sha }}`
+            - 镜像：`${{ steps.idf.outputs.image }}`
+            - 目标：ESP32-C3，4MB Flash
+
+            注意：WiFi 账号是编译期配置，这个固件里没有。正常使用请按 README 自行
+            `idf.py menuconfig` 填写 WiFi 后编译烧录。
+          files: idf/build/sms_forwarder-merged.bin
+          fail_on_unmatched_files: true

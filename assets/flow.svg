@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 280" width="1120" height="280" role="img" aria-label="短信转发原理：SIM 卡收到短信后由 4G 模组经 UART 交给 ESP32-C3，再通过 WiFi 推送到邮件与多种平台">
+  <defs>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b8cff"/><stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="acc2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5b8cff"/><stop offset="1" stop-color="#22c8c8"/>
+    </linearGradient>
+    <filter id="soft" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="3" stdDeviation="7" flood-color="#2b3a5b" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#c2cde0"/>
+    </marker>
+    <style>
+      .bg{fill:#f7f9fd}
+      .box{fill:#fff;stroke:#e2e8f2;stroke-width:1.5}
+      .ttl{font:600 15px -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;fill:#1d2740}
+      .sub{font:12px -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;fill:#6b7a96}
+      .cap{font:11.5px -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;fill:#8c99b3;letter-spacing:.4px}
+      .ln{stroke:#bccbe4;stroke-width:2;fill:none;stroke-dasharray:7 9;stroke-linecap:round}
+      .pkt{fill:url(#acc2)}
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1120" height="280" rx="18"/>
+  <rect x="0.75" y="0.75" width="1118.5" height="278.5" rx="17.5" fill="none" stroke="#e6ecf6"/>
+
+  <!-- 节点 -->
+  <g filter="url(#soft)">
+    <rect class="box" x="24" y="66" width="156" height="128" rx="16"/>
+    <rect class="box" x="280" y="66" width="216" height="128" rx="16"/>
+    <rect class="box" x="586" y="66" width="214" height="128" rx="16"/>
+    <rect class="box" x="872" y="66" width="224" height="128" rx="16"/>
+  </g>
+
+  <!-- 基站图标 -->
+  <g stroke="#5b8cff" stroke-width="2.2" fill="none" stroke-linecap="round">
+    <path d="M102 96 v22"/>
+    <path d="M96 118 h12"/>
+    <path d="M92 92 a12 12 0 0 1 20 0" opacity=".55"/>
+    <path d="M86 86 a20 20 0 0 1 32 0" opacity=".3"/>
+  </g>
+  <text class="ttl" x="102" y="146" text-anchor="middle">运营商网络</text>
+  <text class="sub" x="102" y="168" text-anchor="middle">短信下发到 SIM 卡</text>
+
+  <!-- 模组图标 -->
+  <g transform="translate(388,86)">
+    <rect x="-13" y="-4" width="26" height="24" rx="4" fill="none" stroke="#8b5cf6" stroke-width="2"/>
+    <path d="M-13 2 h-4 M-13 8 h-4 M-13 14 h-4 M13 2 h4 M13 8 h4 M13 14 h4" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  <text class="ttl" x="388" y="146" text-anchor="middle">ML307R 4G 模组</text>
+  <text class="sub" x="388" y="168" text-anchor="middle">AT 固件 · Nano SIM · 4G 天线</text>
+
+  <!-- ESP32 图标 -->
+  <g transform="translate(693,86)">
+    <rect x="-13" y="-4" width="26" height="24" rx="4" fill="none" stroke="#5b8cff" stroke-width="2"/>
+    <rect x="-5" y="2" width="10" height="10" rx="2" fill="none" stroke="#5b8cff" stroke-width="1.6"/>
+    <path d="M-13 2 h-4 M-13 8 h-4 M-13 14 h-4 M13 2 h4 M13 8 h4 M13 14 h4" stroke="#5b8cff" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  <text class="ttl" x="693" y="146" text-anchor="middle">ESP32-C3</text>
+  <text class="sub" x="693" y="168" text-anchor="middle">PDU 解码 · 长短信合并 · 黑名单</text>
+
+  <!-- 通知图标 -->
+  <g transform="translate(984,84)" stroke="#22b8a6" stroke-width="2.2" fill="none" stroke-linecap="round">
+    <path d="M-11 10 v-5 a11 11 0 0 1 22 0 v5 l3 3 h-28 z"/>
+    <path d="M-3 16 a4 4 0 0 0 6 0"/>
+  </g>
+  <text class="ttl" x="984" y="144" text-anchor="middle">通知到达</text>
+  <text class="sub" x="984" y="166" text-anchor="middle">邮件 · 钉钉 · 飞书 · 微信</text>
+  <text class="sub" x="984" y="183" text-anchor="middle">Telegram · Bark · 自定义模板</text>
+
+  <!-- 连线 -->
+  <path d="M266 123 L280 130 L266 137 Z" fill="#94a5c4"/>
+  <path d="M572 123 L586 130 L572 137 Z" fill="#94a5c4"/>
+  <path d="M858 123 L872 130 L858 137 Z" fill="#94a5c4"/>
+  <path id="a1" class="ln" d="M182 130 H276"/>
+  <path id="a2" class="ln" d="M498 130 H582"/>
+  <path id="a3" class="ln" d="M802 130 H868"/>
+
+  <!-- 流动的数据包 -->
+  <circle class="pkt" r="3.4" opacity=".95">
+    <animateMotion dur="2.2s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" calcMode="linear">
+      <mpath href="#a1"/>
+    </animateMotion>
+    <animate attributeName="opacity" values="0;1;1;0" dur="2.2s" repeatCount="indefinite"/>
+  </circle>
+  <circle class="pkt" r="3.4" opacity=".95">
+    <animateMotion dur="2.2s" begin="0.7s" repeatCount="indefinite">
+      <mpath href="#a2"/>
+    </animateMotion>
+    <animate attributeName="opacity" values="0;1;1;0" dur="2.2s" begin="0.7s" repeatCount="indefinite"/>
+  </circle>
+  <circle class="pkt" r="3.4" opacity=".95">
+    <animateMotion dur="2.2s" begin="1.4s" repeatCount="indefinite">
+      <mpath href="#a3"/>
+    </animateMotion>
+    <animate attributeName="opacity" values="0;1;1;0" dur="2.2s" begin="1.4s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- 连线说明 -->
+  <text class="cap" x="229" y="116" text-anchor="middle">短信</text>
+  <text class="cap" x="540" y="116" text-anchor="middle">UART</text>
+  <text class="cap" x="835" y="116" text-anchor="middle">WiFi</text>
+
+  <!-- 底部说明 -->
+  <text class="cap" x="560" y="240" text-anchor="middle">短信在设备本地解析，收件内容只发往你自己配置的通道，不经过任何第三方服务器</text>
+</svg>

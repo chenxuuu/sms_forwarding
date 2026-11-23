@@ -139,3 +139,12 @@ idf.py build flash
 结论：**用 `crt_bundle_attach = esp_crt_bundle_attach` 做正常校验，不要设置
 `skip_cert_common_name_check`**，SNI 才会正常发送。若确实需要连自签名内网服务，
 再单独评估（会牺牲 SNI）。
+
+## 9. 其它实测与坑
+
+| 场景 | 结论 |
+|---|---|
+| 动态通道 | 加到 6 个 -> /config 返回 6；缩回 5 后多余 NVS 键被删除 |
+| 路由数量 | 注册了 24 个 URI，max_uri_handlers 曾为 20，导致 /wifi、/system 404；现为 32 且注册失败会打日志 |
+| 界面交互 | agent-browser 实测：查询信号结果落面板、飞行模式开关回显 已开启/已关闭、主题三态切换正确 |
+| 保存表单 | 50 个通道的表单可能超过 16KB，请求体上限已放宽到 40KB |

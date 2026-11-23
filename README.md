@@ -13,7 +13,7 @@
 [![Release](https://img.shields.io/github/v/release/chenxuuu/sms_forwarding?style=flat-square&label=%E6%9C%80%E6%96%B0%E5%9B%BA%E4%BB%B6&color=22b8a6)](../../releases/latest)
 [![Demo](https://img.shields.io/badge/%E5%9C%A8%E7%BA%BF%E7%8E%A9%E4%B8%80%E4%B8%8B-8b5cf6?style=flat-square)](https://sms.j2.cx/)
 
-[在线演示](https://sms.j2.cx/) · [硬件采购](#硬件) · [烧录](#-环境与烧录) · [视频教程](https://www.bilibili.com/video/BV1cSmABYEiX) · [常见问题](#常见问题)
+[在线演示](https://sms.j2.cx/) · [硬件采购](#硬件) · [烧录](#烧录) · [视频教程](https://www.bilibili.com/video/BV1cSmABYEiX) · [常见问题](#常见问题)
 
 </div>
 
@@ -42,10 +42,9 @@
 固件内置完整网页（不到 100 KB，直接嵌在 Flash 里），手机上也能用。
 主题支持深色 / 浅色 / 跟随系统。
 
-<p align="center">
-  <img src="assets/web-overview.png" width="425" alt="概览页：设备地址、运行时长、空闲内存、4G 模组状态、最近动态与通知链路" style="vertical-align:top">
-  <img src="assets/web-push.png" width="425" alt="推送通道页：邮件开关与 SMTP 配置、多个推送通道（可逐个测试）" style="vertical-align:top">
-</p>
+| 概览 | 推送通道 |
+|---|---|
+| <img src="assets/web-overview.png" alt="概览页"> | <img src="assets/web-push.png" alt="推送通道页"> |
 
 ## 功能一览
 
@@ -78,47 +77,38 @@
 
 > 模组跑的是出厂 AT 固件，**不用刷机、不用改**，只当"能收短信的串口猫"用。
 
-## 🚀 环境与烧录
+## 烧录
 
-不想装编译环境？直接下 [Release 里的固件](../../releases/latest) 烧进去，一样能用（见下）。
+两种方式，选一种即可。
 
-自己编译只需要三样东西：**一台电脑**（Windows / macOS / Linux）、**一根 USB-C 数据线**、**ESP-IDF v6.1.1**。
-按[官方安装器](https://docs.espressif.com/projects/esp-idf/zh_CN/latest/esp32c3/get-started/index.html)装好后：
+### 方式一：烧现成固件（不用装编译环境）
+
+1. 从 [Releases](../../releases/latest) 下载 `sms_forwarder-merged.bin`
+2. 用 [ESP Launchpad](https://espressif.github.io/esp-launchpad/)（Chrome / Edge）选 ESP32-C3、烧录地址填 `0x0`；
+   或命令行：`esptool.py --chip esp32c3 -p COM3 write_flash 0x0 sms_forwarder-merged.bin`
+3. 配网：连热点 `SMS-Forwarder-XXXX`（无密码）→ 打开 <http://192.168.4.1/> → 选 WiFi、输密码 → 设备自动重启入网
+
+固件在每次推送后由 GitHub Actions 自动构建，功能和源码编译的完全一致。
+
+### 方式二：自己编译
+
+需要 **ESP-IDF v6.1.1**（[官方安装器](https://docs.espressif.com/projects/esp-idf/zh_CN/latest/esp32c3/get-started/index.html)）和一根 USB-C 数据线。
 
 ```bash
 git clone https://github.com/chenxuuu/sms_forwarding.git
 cd sms_forwarding/idf
-
 idf.py build            # 首次约 3~5 分钟
 idf.py -p COM3 flash    # 串口按实际改：Windows 是 COMx，Linux 是 /dev/ttyACM0
 ```
 
-**WiFi 不用在编译时填**：烧好后设备会开一个热点 `SMS-Forwarder-XXXX`（无密码），
-手机或电脑连上它，浏览器打开 <http://192.168.4.1/>，选 WiFi、输密码，保存后设备自动重启入网。
-想一次烧多台，也可以 `idf.py menuconfig → 短信转发器配置` 预置 WiFi，省掉配网这一步。
-
-用 Arduino 框架的版本（`code/`）也可以，见 [code/README.md](code/README.md)。
-
-### 用 CI 构建的固件
-
-每次推送到 master，GitHub Actions 都会用官方 ESP-IDF 镜像把 [`idf/`](idf/) 编译一遍，
-并把合并好的单文件固件挂到 [Releases](../../releases/latest)——**下载就能烧，功能和自己编译的完全一样**，
-首次开机会自己开热点引导配网。
-
-在浏览器打开 [ESP Launchpad](https://espressif.github.io/esp-launchpad/)（Chrome / Edge），
-选 ESP32-C3、地址填 `0x0` 即可一键烧录；也可以命令行：
-
-```bash
-esptool.py --chip esp32c3 -p COM3 write_flash 0x0 sms_forwarder-merged.bin
-```
+烧完同样按方式一的第 3 步配网。要批量烧多台，可以 `idf.py menuconfig → 短信转发器配置` 预填 WiFi，跳过配网。
 
 ### 首次配置
 
-1. 按上面的热点配网流程把设备接入 WiFi（热点名 `SMS-Forwarder-XXXX`，页面 <http://192.168.4.1/>）
-2. 浏览器打开 `http://<设备IP>/`，或 mDNS 域名 `http://sms-xxxx.local/`（后缀见串口日志）
-3. 默认账号 `admin` / `admin123`，**登录后立刻到「后台管理」改掉**
-4. 到「推送通道」填邮箱或任一通道，点「测试」确认能收到
-5. 在「后台管理」填上管理员手机号，之后就能用短信远程操作；顺便填一下本机号码，推送里会带上
+1. 浏览器打开 `http://<设备IP>/`，或 mDNS 域名 `http://sms-xxxx.local/`（后缀见串口日志）
+2. 默认账号 `admin` / `admin123`，**登录后立刻到「后台管理」改掉**
+3. 「推送通道」填邮箱或任一通道，点「测试」确认能收到
+4. 「后台管理」填管理员手机号（之后可用短信远程操作）和本机号码（推送里会带上）
 
 ## 常见问题
 

@@ -65,6 +65,9 @@ code/
 ├── task_types.h          # 任务/结果结构体定义
 └── wifi_config.h         # WiFi SSID/密码宏定义
 dev_doc/                  # 架构/API/模块详细文档（改代码前先读）
+assets/demo.html          # 纯前端演示页：把 idf 的 web/index.html 复制一份并注入 fetch 模拟层，
+                          所有接口返回假数据，可直接双击打开；不要出现“演示”字样
+.github/workflows/pages.yml  # 把 assets/demo.html 作为 index.html 发布到 GitHub Pages
 .github/agent/            # 编译烧录流程文档
 ```
 

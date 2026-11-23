@@ -1,0 +1,1586 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0e14">
+<title>短信转发器</title>
+<style>
+:root{
+  --hue:224; --bg:#0b0e14; --bg2:#121722; --surface:rgba(23,29,40,.86); --surface-solid:#171d28;
+  --line:rgba(255,255,255,.07); --text:#e9eef7; --muted:#8b97ab; --dim:#5b6678;
+  --pri:hsl(var(--hue) 92% 66%); --pri2:hsl(calc(var(--hue) + 46) 88% 68%);
+  --ok:#35d39a; --warn:#f3b23c; --err:#ff6472;
+  --r:18px; --shadow:0 18px 44px rgba(0,0,0,.42);
+}
+html[data-theme=light]{
+  --bg:#f2f5fb; --bg2:#e9eefa; --surface:rgba(255,255,255,.9); --surface-solid:#fff;
+  --line:rgba(20,40,80,.09); --text:#16202f; --muted:#5b6a80; --dim:#93a0b4;
+  --shadow:0 16px 36px rgba(28,45,80,.12);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;overflow-x:hidden;transition:background .5s ease,color .4s ease}
+/* 会随分区变色的极光背景 */
+.aurora{position:fixed;inset:-30% -20%;z-index:0;pointer-events:none;filter:blur(60px);opacity:.55;
+  background:
+    radial-gradient(38% 42% at 18% 24%,hsl(var(--hue) 90% 60% / .34),transparent 70%),
+    radial-gradient(34% 38% at 82% 16%,hsl(calc(var(--hue) + 46) 90% 62% / .28),transparent 70%),
+    radial-gradient(40% 40% at 62% 86%,hsl(calc(var(--hue) - 40) 88% 58% / .22),transparent 72%);
+  transition:background 1.1s ease,opacity .6s}
+html[data-theme=light] .aurora{opacity:.42}
+@keyframes drift{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(2%, -1.5%,0) rotate(2deg)}100%{transform:translate3d(0,0,0)}}
+.aurora.animate{animation:drift 26s ease-in-out infinite}
+
+.app{position:relative;z-index:1;display:flex;min-height:100vh}
+/* ---------- 侧栏：活动指示器会滑动 ---------- */
+.side{width:212px;flex:0 0 212px;position:sticky;top:0;height:100vh;padding:20px 14px;display:flex;flex-direction:column;gap:16px;
+  border-right:1px solid var(--line);backdrop-filter:blur(12px)}
+.brand{display:flex;align-items:center;gap:10px;padding:2px 6px}
+.brand .mark{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:700;
+  background:linear-gradient(140deg,var(--pri),var(--pri2));box-shadow:0 8px 20px hsl(var(--hue) 90% 60% / .35);
+  transition:transform .4s cubic-bezier(.2,.9,.3,1.2)}
+.brand:hover .mark{transform:rotate(-8deg) scale(1.06)}
+.brand b{font-size:14px;letter-spacing:.3px}
+.brand span{display:block;font-size:11px;color:var(--muted)}
+nav{position:relative;display:flex;flex-direction:column;gap:2px}
+.nav-pill{position:absolute;left:0;right:0;height:42px;border-radius:13px;z-index:0;
+  background:linear-gradient(120deg,var(--pri),var(--pri2));opacity:.95;
+  transition:transform .42s cubic-bezier(.2,.9,.3,1.2),height .3s,opacity .3s;box-shadow:0 10px 24px hsl(var(--hue) 90% 55% / .3)}
+.nav-btn{position:relative;z-index:1;display:flex;align-items:center;gap:10px;height:42px;padding:0 12px;border:0;border-radius:13px;
+  background:transparent;color:var(--muted);font:inherit;text-align:left;cursor:pointer;transition:color .25s,transform .2s}
+.nav-btn svg{width:17px;height:17px;flex:0 0 17px}
+.nav-btn:hover{color:var(--text)}
+.nav-btn.on{color:#fff}
+.nav-btn .kbd{margin-left:auto;font-size:10px;opacity:.6}
+.side-foot{margin-top:auto;display:flex;flex-direction:column;gap:8px;font-size:12px;color:var(--muted)}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;background:var(--surface);
+  border:1px solid var(--line);font-size:12px;cursor:pointer;transition:.2s}
+.chip:hover{border-color:var(--pri);color:var(--text)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--dim);transition:background .3s}
+.dot.ok{background:var(--ok);animation:breathe 2.6s infinite}
+@keyframes breathe{0%,100%{box-shadow:0 0 0 0 hsl(160 70% 55% / .5)}50%{box-shadow:0 0 0 7px hsl(160 70% 55% / 0)}}
+
+/* ---------- 主区 ---------- */
+main{flex:1;min-width:0;padding:24px 28px 90px;max-width:1160px}
+.top{display:flex;align-items:flex-end;gap:12px;margin-bottom:18px}
+.top h1{margin:0;font-size:clamp(19px,2.4vw,25px);font-weight:680;letter-spacing:.2px;transition:color .4s}
+.top p{margin:2px 0 0;color:var(--muted);font-size:12px}
+.top .grow{flex:1}
+.btn{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--text);font:inherit;padding:9px 14px;border-radius:12px;
+  cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:transform .14s,box-shadow .25s,border-color .2s,background .3s;backdrop-filter:blur(8px)}
+.btn:hover{transform:translateY(-1px);border-color:var(--pri);box-shadow:0 10px 22px rgba(0,0,0,.2)}
+.btn:active{transform:scale(.97)}
+.btn.pri{border:0;color:#fff;background:linear-gradient(120deg,var(--pri),var(--pri2));box-shadow:0 10px 26px hsl(var(--hue) 90% 55% / .32)}
+.btn.danger{color:var(--err);border-color:hsl(354 90% 66% / .35)}
+.btn.danger:hover{background:hsl(354 90% 66% / .1)}
+.btn.ghost{background:transparent}
+.btn.sm{padding:6px 10px;font-size:12px;border-radius:10px}
+.btn[disabled]{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
+.btn .spinner{width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;display:none;animation:spin .7s linear infinite}
+.btn.loading .spinner{display:block}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ---------- 卡片：跟随指针的聚光 + 轻微位移 ---------- */
+.grid{display:grid;gap:14px}
+.stats{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;
+  backdrop-filter:blur(14px);transition:transform .3s cubic-bezier(.2,.9,.3,1.2),box-shadow .3s,border-color .3s,grid-column .3s;overflow:hidden}
+.card::after{content:"";position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .3s;
+  background:radial-gradient(240px circle at var(--mx,50%) var(--my,50%),hsl(var(--hue) 90% 70% / .14),transparent 60%)}
+.card:hover::after{opacity:1}
+.card.tilt{transform:translate3d(calc(var(--tx,0) * 1px),calc(var(--ty,0) * 1px),0)}
+.card .head{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}
+.card .val{font-size:clamp(20px,2.6vw,27px);font-weight:680;margin-top:7px;letter-spacing:.4px;font-variant-numeric:tabular-nums}
+.card .sub{font-size:11px;color:var(--dim);margin-top:3px}
+.card .more{position:absolute;right:12px;top:12px;width:22px;height:22px;border-radius:8px;display:grid;place-items:center;
+  color:var(--dim);background:transparent;border:0;cursor:pointer;transition:.25s}
+.card:hover .more{color:var(--text);background:var(--bg2)}
+.card .detail{max-height:0;overflow:hidden;transition:max-height .42s cubic-bezier(.2,.9,.3,1.1),opacity .3s;opacity:0}
+.card.open{grid-column:span 2;border-color:hsl(var(--hue) 80% 66% / .45);box-shadow:var(--shadow)}
+.card.open .detail{max-height:280px;opacity:1;margin-top:12px}
+.card .detail .row{display:flex;gap:8px;flex-wrap:wrap}
+.spark{width:100%;height:68px;display:block}
+.stat-flash{animation:flash .9s ease}
+@keyframes flash{0%{background:hsl(var(--hue) 90% 65% / .2)}100%{background:transparent}}
+
+/* ---------- 表单 ---------- */
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:13px}
+.field label{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.field .tip{font-size:11px;color:var(--dim)}
+input,select,textarea{width:100%;font:inherit;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:12px;
+  padding:10px 12px;outline:none;transition:border-color .25s,box-shadow .25s,background .3s}
+input:focus,select:focus,textarea:focus{border-color:var(--pri);box-shadow:0 0 0 3px hsl(var(--hue) 90% 60% / .18)}
+textarea{resize:vertical;min-height:74px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:4px}
+/* 切换开关 */
+.sw{position:relative;width:44px;height:24px;flex:0 0 44px}
+.sw input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer}
+.sw i{position:absolute;inset:0;border-radius:999px;background:var(--bg2);border:1px solid var(--line);transition:.3s}
+.sw i::after{content:"";position:absolute;width:18px;height:18px;left:2px;top:2px;border-radius:50%;background:var(--muted);transition:.3s cubic-bezier(.2,.9,.3,1.2)}
+.sw input:checked + i{background:linear-gradient(120deg,var(--pri),var(--pri2));border-color:transparent}
+.sw input:checked + i::after{transform:translateX(20px);background:#fff}
+
+/* ---------- 通道行：展开成面板（morph） ---------- */
+.chan{border:1px solid var(--line);border-radius:14px;margin-bottom:10px;background:var(--surface);overflow:hidden;transition:border-color .3s,box-shadow .3s}
+.chan.on{border-color:hsl(var(--hue) 80% 66% / .4)}
+.chan-h{display:flex;align-items:center;gap:11px;padding:12px 14px;cursor:pointer;user-select:none}
+.chan-h b{font-weight:600;font-size:13.5px}
+.chan-h .tag{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--bg2);color:var(--muted)}
+.chan-h .arrow{margin-left:auto;color:var(--dim);transition:transform .35s}
+.chan.open .arrow{transform:rotate(180deg)}
+.chan-b{max-height:0;overflow:hidden;transition:max-height .4s cubic-bezier(.2,.9,.3,1.05),padding .3s;padding:0 14px}
+.chan.open .chan-b{max-height:640px;padding:0 14px 14px}
+
+/* ---------- 日志 ---------- */
+.logwrap{position:relative}
+.logbox{height:56vh;overflow:auto;border:1px solid var(--line);border-radius:14px;background:#070a0f;padding:10px 12px;
+  font:12px/1.6 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-all;scroll-behavior:auto}
+html[data-theme=light] .logbox{background:#0b0f16}
+.logbox .ln{animation:lnIn .22s ease}
+@keyframes lnIn{from{opacity:0;transform:translateY(3px)}to{opacity:1}}
+.l-err{color:#ff8f99}.l-ok{color:#6ee7b7}.l-warn{color:#fbbf24}.l-dim{color:#5f6b7d}.l-info{color:#c7d2e0}
+.logbox .ln:hover{background:rgba(255,255,255,.045)}
+.pillnew{position:absolute;left:50%;bottom:14px;transform:translateX(-50%) translateY(12px);opacity:0;pointer-events:none;
+  padding:7px 14px;border-radius:999px;background:linear-gradient(120deg,var(--pri),var(--pri2));color:#fff;font-size:12px;
+  box-shadow:0 10px 24px hsl(var(--hue) 90% 55% / .35);transition:.28s;cursor:pointer}
+.pillnew.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
+.filters{display:flex;gap:6px;flex-wrap:wrap}
+.fchip{padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--muted);font-size:12px;cursor:pointer;transition:.2s}
+.fchip.on{color:#fff;background:linear-gradient(120deg,var(--pri),var(--pri2));border-color:transparent}
+.fchip:hover:not(.on){color:var(--text);border-color:var(--pri)}
+
+/* ---------- 概览的动态流 ---------- */
+.feed{display:flex;flex-direction:column;gap:8px;max-height:230px;overflow:auto}
+.ev{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:11px;background:var(--bg2);font-size:12.5px;
+  animation:lnIn .3s ease;border-left:2px solid transparent}
+.ev.net{border-left-color:var(--pri)}.ev.sms{border-left-color:var(--ok)}.ev.mail{border-left-color:var(--warn)}.ev.err{border-left-color:var(--err)}
+.ev time{color:var(--dim);font-size:11px;flex:0 0 44px;margin-top:2px}
+.ev .txt{flex:1;min-width:0}
+
+/* ---------- 命令面板 / 类型选择器 ---------- */
+.overlay{position:fixed;inset:0;z-index:80;display:none;place-items:start center;padding-top:12vh;
+  background:rgba(4,7,12,.55);backdrop-filter:blur(4px)}
+.overlay.show{display:grid;animation:fadeIn .18s ease}
+.panel{width:min(520px,calc(100vw - 32px));background:var(--surface-solid);border:1px solid var(--line);border-radius:18px;
+  box-shadow:var(--shadow);overflow:hidden;animation:pop .24s cubic-bezier(.2,.9,.3,1.2)}
+@keyframes pop{from{opacity:0;transform:scale(.95) translateY(10px)}to{opacity:1;transform:none}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.panel input{border:0;border-radius:0;background:transparent;padding:14px 16px;font-size:14px;border-bottom:1px solid var(--line)}
+.panel .list{max-height:52vh;overflow:auto;padding:6px}
+.opt{display:flex;gap:10px;align-items:center;padding:10px 12px;border-radius:10px;cursor:pointer;font-size:13px}
+.opt small{color:var(--dim);font-size:11px}
+.opt:hover,.opt.sel{background:var(--bg2)}
+.opt .k{margin-left:auto;font-size:10px;color:var(--dim)}
+#toasts{position:fixed;right:16px;bottom:16px;z-index:90;display:flex;flex-direction:column;gap:9px}
+.toast{display:flex;gap:9px;align-items:flex-start;min-width:210px;max-width:330px;padding:11px 13px;border-radius:12px;
+  background:var(--surface-solid);border:1px solid var(--line);box-shadow:var(--shadow);font-size:13px;
+  animation:toastIn .28s cubic-bezier(.2,.9,.3,1.2) both}
+.toast.out{animation:toastOut .22s ease forwards}
+.toast .ic{width:18px;height:18px;flex:0 0 18px;margin-top:1px}
+.toast.ok .ic{color:var(--ok)}.toast.err .ic{color:var(--err)}.toast.info .ic{color:var(--pri)}
+@keyframes toastIn{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes toastOut{to{opacity:0;transform:translateX(18px)}}
+#modal{position:fixed;inset:0;z-index:85;display:none;place-items:center;background:rgba(4,7,12,.55);backdrop-filter:blur(3px)}
+#modal.show{display:grid;animation:fadeIn .18s}
+.mcard{width:min(400px,calc(100vw - 36px));background:var(--surface-solid);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:var(--shadow);animation:pop .26s cubic-bezier(.2,.9,.3,1.2)}
+.mcard h4{margin:0 0 6px;font-size:15.5px}
+.mcard p{margin:0 0 16px;color:var(--muted);font-size:13px}
+
+.page{display:none}
+.page.on{display:block;animation:pageIn .34s cubic-bezier(.2,.9,.3,1.05)}
+@keyframes pageIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.sec{margin-bottom:18px}
+.sec h3{margin:0 0 10px;font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.3px}
+.empty{color:var(--dim);font-size:12px}
+table.kv{width:100%;border-collapse:collapse;font-size:13px}
+table.kv td{padding:7px 4px;border-bottom:1px solid var(--line)}
+table.kv td:first-child{color:var(--muted);width:40%}
+table.kv tr:last-child td{border-bottom:0}
+pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);border-radius:11px;padding:10px;font-size:11.5px;max-height:200px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+
+@media (max-width:900px){
+  .app{flex-direction:column}
+  .side{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;flex:auto;height:auto;flex-direction:row;padding:7px 8px;z-index:60;
+    border-right:0;border-top:1px solid var(--line);background:var(--surface-solid)}
+  .brand,.side-foot{display:none}
+  nav{flex-direction:row;flex:1;gap:2px}
+  .nav-pill{height:52px;border-radius:12px}
+  .nav-btn{flex:1;flex-direction:column;gap:2px;height:52px;font-size:10px;justify-content:center;padding:0}
+  .nav-btn .kbd{display:none}
+  main{padding:16px 13px 84px}
+  .two{grid-template-columns:1fr}
+  .card.open{grid-column:span 1}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.outbox{margin-top:12px;max-height:240px;overflow:auto}
+a{color:var(--pri);text-decoration:none}
+a:hover{text-decoration:underline}
+.about-text{color:var(--muted);font-size:13px;line-height:1.85;margin:10px 0 0}
+.about-text b{color:var(--text);font-weight:600}
+
+/* ---------- 推送通道未保存提醒 ---------- */
+.dirty-chip{display:none;color:var(--warn);border-color:hsl(38 92% 58% / .5);background:hsl(38 92% 58% / .1)}
+.dirty-chip.on{display:inline-flex}
+.btn.pri.dirty{outline:2px solid hsl(38 92% 58% / .85);outline-offset:2px}
+.savebar{position:fixed;left:50%;bottom:20px;z-index:75;display:flex;align-items:center;gap:12px;
+  width:min(680px,calc(100vw - 24px));padding:12px 16px;border-radius:16px;
+  background:var(--surface-solid);border:1px solid hsl(38 92% 58% / .55);box-shadow:var(--shadow);
+  transform:translateX(-50%) translateY(18px);opacity:0;pointer-events:none;
+  transition:opacity .28s,transform .34s cubic-bezier(.2,.9,.3,1.2)}
+.savebar.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
+.savebar b{font-size:13px}
+.savebar .tip{display:block;font-size:11px;color:var(--dim);margin-top:2px}
+.warn-dot{width:9px;height:9px;flex:0 0 9px;border-radius:50%;background:var(--warn);animation:warnPulse 1.8s infinite}
+@keyframes warnPulse{0%,100%{box-shadow:0 0 0 0 hsl(38 92% 58% / .45)}50%{box-shadow:0 0 0 7px hsl(38 92% 58% / 0)}}
+body.chan-dirty main{padding-bottom:150px}
+@media (max-width:900px){ .savebar{bottom:72px;padding:11px 12px;gap:8px} .savebar .btn{padding:8px 10px} body.chan-dirty main{padding-bottom:200px} }
+.outbox table.kv{font-size:13px}
+.outbox .empty{color:var(--dim);font-size:12px}
+.chan .spacer{flex:1}
+@media (max-width:640px){ .chan-h{flex-wrap:wrap} }
+
+
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:11px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:12px;padding:7px 11px;cursor:pointer;
+  transition:background .2s,color .2s}
+.seg button + button{border-left:1px solid var(--line)}
+.seg button:hover{color:var(--text)}
+.seg button.on{color:#fff;background:linear-gradient(120deg,var(--pri),var(--pri2))}
+@media (max-width:520px){ .seg button{padding:6px 8px;font-size:11px} }
+
+</style>
+</head>
+<body>
+<div class="aurora animate" id="aurora"></div>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><div class="mark">信</div><div><b>短信转发器</b><span id="devName">ESP32-C3</span></div></div>
+    <nav id="nav"><div class="nav-pill" id="navPill"></div></nav>
+    <div class="side-foot">
+      <div class="row" style="justify-content:space-between">
+        <span class="chip" id="netChip"><i class="dot" id="netDot"></i><span id="netText">连接中</span></span>
+        <span class="tip">v2</span>
+      </div>
+      <div><button class="btn sm" id="copyBtn" style="width:100%">复制设备地址</button></div>
+      <div class="tip" id="ipText">--</div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="top">
+      <div><h1 id="pageTitle">概览</h1><p id="pageSub">设备、网络与最近动态</p></div>
+      <div class="grow"></div>
+      <div class="seg" id="themeSeg" role="group" aria-label="主题">
+        <button type="button" data-pref="dark">深色</button>
+        <button type="button" data-pref="light">浅色</button>
+        <button type="button" data-pref="system">跟随系统</button>
+      </div>
+      <button class="btn sm" id="refreshBtn"><span class="spinner"></span>刷新状态</button>
+    </div>
+
+    <section class="page on" id="p-overview">
+      <div class="grid stats">
+        <div class="card"><div class="head">设备地址</div><div class="val" id="vIp">--</div><div class="sub" id="subIp">--</div></div>
+        <div class="card"><div class="head">运行时长</div><div class="val" id="vUp">--</div><div class="sub">自上次重启</div></div>
+        <div class="card"><div class="head">空闲内存</div><div class="val" id="vHeap">--</div><div class="sub">堆剩余</div></div>
+        <div class="card"><div class="head">4G 模组</div><div class="val" id="vModem">--</div><div class="sub" id="subModem">--</div></div>
+      </div>
+
+      <div class="grid two" style="margin-top:14px">
+        <div class="card">
+          <div class="head">最近动态 <span class="chip" id="feedCount">0</span></div>
+          <div class="feed" id="feed"><div class="empty">暂无事件</div></div>
+        </div>
+        <div class="card">
+          <div class="head">通知链路</div>
+          <table class="kv" style="margin-top:6px">
+            <tr><td>邮件通知</td><td id="kMail">--</td></tr>
+            <tr><td>推送通道</td><td id="kPush">--</td></tr>
+            <tr><td>管理员号码</td><td id="kAdmin">--</td></tr>
+            <tr><td>本机号码</td><td id="kSelf">--</td></tr>
+            <tr><td>WiFi</td><td id="kWifi">--</td></tr>
+          </table>
+          <div class="sec" style="margin:14px 0 0">
+            <h3>下一步</h3>
+            <div class="row">
+              <button class="btn pri sm" data-go="keepalive">去发短信</button>
+              <button class="btn sm" data-go="push">配置通知</button>
+              <button class="btn sm" data-go="logs">查看日志</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="p-keepalive">
+      <div class="card">
+        <div class="head">发送短信</div>
+        <div class="field" style="margin-top:12px">
+          <label>目标号码</label>
+          <input id="mPhone" list="numList" inputmode="tel" placeholder="17612345678">
+          <datalist id="numList"></datalist>
+        </div>
+        <div class="field"><label>内容 <span class="tip" id="mCount">0 / 160</span></label>
+          <textarea id="mText" rows="4" placeholder="单条最多 70 个汉字（160 个英文字符）"></textarea>
+        </div>
+        <div class="row">
+          <button class="btn pri" id="mSend"><span class="spinner"></span><span id="mSendLabel">发送短信</span></button>
+          <button class="btn sm" id="mClear">清空内容</button>
+          <span class="tip" id="mResult">未发送</span>
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <div class="head">保号操作</div>
+        <div class="tip" style="margin:6px 0 12px">通过模组主动联网，用于保持 SIM 卡在线；执行时会短暂激活数据连接</div>
+        <div class="grid two">
+          <div>
+            <div class="field"><label>Ping 目标</label><input id="keepPingHost" value="qq.com" placeholder="IP 或域名"></div>
+            <div class="row" style="margin-top:8px"><button class="btn pri sm" id="keepPingBtn"><span class="spinner"></span>执行 Ping</button></div>
+            <div class="outbox" id="keepPingOut"><span class="empty">结果会显示在这里</span></div>
+          </div>
+          <div>
+            <div class="field"><label>访问网址</label><input id="keepHttpUrl" value="https://speed.cloudflare.com/__down?bytes=10" placeholder="https://..."></div>
+            <div class="tip" style="margin:4px 0 8px">默认网址末尾 bytes=10 表示只下载 10 字节 body，流量非常可控；若当前网络访问失败（如模组错误码 5），可换成其他网址重试</div>
+            <div class="row" style="margin-top:8px"><button class="btn pri sm" id="keepHttpBtn"><span class="spinner"></span>访问网址</button></div>
+            <div class="outbox" id="keepHttpOut"><span class="empty">结果会显示在这里</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="head">本次会话发送记录</div>
+        <div class="feed" id="mHistory" style="margin-top:8px"><div class="empty">暂无记录</div></div>
+      </div>
+    </section>
+
+    <section class="page" id="p-push">
+      <div class="card">
+        <div class="row" style="justify-content:space-between">
+          <div class="head">邮件通知 <span class="chip" id="mailState">--</span></div>
+          <span class="row" style="gap:8px">
+            <label class="sw"><input type="checkbox" id="mailEnable"><i></i></label>
+            <span class="tip">启用</span>
+          </span>
+        </div>
+        <div class="tip" id="mailOffTip" style="display:none;margin-top:6px">已关闭邮件通道：短信与系统通知只发送到推送通道</div>
+        <div class="two" style="margin-top:12px">
+          <div class="field"><label>SMTP 服务器</label><input id="smtpServer" placeholder="smtp.qq.com"></div>
+          <div class="field"><label>端口</label><input id="smtpPort" inputmode="numeric" placeholder="465"></div>
+        </div>
+        <div class="two">
+          <div class="field"><label>账号</label><input id="smtpUser" placeholder="you@qq.com"></div>
+          <div class="field"><label>密码/授权码</label><input id="smtpPass" type="password"></div>
+        </div>
+        <div class="field"><label>收件地址</label><input id="smtpTo" placeholder="receiver@example.com"></div>
+        <div class="row"><button class="btn pri" data-save="mail"><span class="spinner"></span>保存邮件设置</button><span class="tip">465 端口为 SSL；其它端口明文</span></div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="row" style="justify-content:space-between">
+          <div class="head">推送通道 <span class="chip" id="pushStat">--</span><span class="chip dirty-chip" id="chanDirtyChip">有未保存修改</span></div>
+          <div class="row">
+            <span class="chip" id="chanCount">--</span>
+            <button class="btn sm" id="addChan">添加通道</button>
+            <button class="btn pri" data-save="push"><span class="spinner"></span>保存全部通道</button>
+          </div>
+        </div>
+        <div class="tip" style="margin:6px 0 12px">启动、IP 变化、网络恢复、配置更新会发送到所有已启用通道；修改后必须点击「保存全部通道」才会生效</div>
+        <div id="channels"><div class="empty">加载中…</div></div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="head">号码黑名单</div>
+        <div class="field" style="margin-top:10px"><textarea id="blacklist" rows="3" placeholder="每行一个号码"></textarea></div>
+        <div class="row"><button class="btn pri" data-save="blacklist"><span class="spinner"></span>保存黑名单</button></div>
+      </div>
+    </section>
+
+        <section class="page" id="p-admin">
+      <div class="grid two">
+        <div class="card"><div class="head">管理账号</div>
+          <div class="field" style="margin-top:10px"><label>账号</label><input id="webUser"></div>
+          <div class="field"><label>密码</label><input id="webPass" type="password"></div>
+          <div class="row"><button class="btn pri" data-save="account"><span class="spinner"></span>保存账号</button></div>
+        </div>
+        <div class="card"><div class="head">管理员号码</div>
+          <div class="field" style="margin-top:10px"><label>手机号</label><input id="adminPhone" placeholder="13800138000"></div>
+          <div class="tip" style="margin-bottom:10px">该号码发送 SMS:号码:内容 可远程发短信；RESET 重启设备；RESETPASS 重置后台密码</div>
+          <div class="row"><button class="btn pri" data-save="admin"><span class="spinner"></span>保存号码</button></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="head">本机号码</div>
+        <div class="field" style="margin-top:10px">
+          <label>SIM 卡号码</label>
+          <input id="selfPhone" inputmode="tel" placeholder="留空则由开机自动尝试读取">
+          <div class="tip" style="margin-top:4px">用于通知文案和自定义模版变量 {self_phone}；留空时每次启动都会尝试 AT+CNUM 自动获取，取不到就保持为空</div>
+        </div>
+        <div class="row"><button class="btn pri" data-save="selfphone"><span class="spinner"></span>保存本机号码</button></div>
+      </div>
+    </section>
+
+<section class="page" id="p-device">
+      <div class="card">
+        <div class="head">选网配置</div>
+        <div class="grid two" style="margin-top:10px">
+          <div class="field"><label>选网模式</label>
+            <select id="operMode">
+              <option value="0">自动选择</option>
+              <option value="1">手动指定</option>
+            </select>
+          </div>
+          <div class="field" id="operActRow"><label>网络类型</label>
+            <select id="operAct">
+              <option value="7">LTE（4G）</option>
+              <option value="2">3G（WCDMA）</option>
+              <option value="0">2G（GSM）</option>
+            </select>
+          </div>
+        </div>
+        <div class="field" id="operPlmnRow" style="margin-top:10px">
+          <label>PLMN（MCC + MNC）</label>
+          <input id="operCode" placeholder="例如 46000" inputmode="numeric" maxlength="6">
+          <div class="tip" style="margin-top:4px">中国移动 46000 / 中国联通 46001 / 中国电信 46011；仅手动模式需要</div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn pri" data-save="operator"><span class="spinner"></span>保存选网配置</button>
+        </div>
+        <div class="tip" style="margin-top:8px">默认自动选网；保存后需重启设备生效</div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="head">模组信息查询</div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn sm" data-act="ati">查询固件</button>
+          <button class="btn sm" data-act="siminfo">查询 SIM</button>
+          <button class="btn sm" data-act="network">查询网络</button>
+          <button class="btn sm" data-act="wifi">查询 WiFi</button>
+          <button class="btn sm" data-act="signal">查询信号</button>
+        </div>
+        <div class="outbox" id="infoOut"><span class="empty">查询结果会显示在这里</span></div>
+      </div>
+
+
+      <div class="card" style="margin-top:14px">
+        <div class="head">维护</div>
+        <div class="row" style="margin-top:10px;gap:14px">
+          <span class="row" style="gap:8px">
+            <label class="sw"><input type="checkbox" id="flightSw"><i></i></label>
+            <span>飞行模式 <b id="flightState" style="color:var(--muted)">读取中…</b></span>
+          </span>
+          <span class="tip">开启后射频关闭，无法收发短信</span>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn sm" data-act="wifi_restart">重连 WiFi</button>
+          <button class="btn sm" data-act="modem_restart">软重启模组</button>
+          <button class="btn sm" data-act="modem_hardreset">硬重启模组</button>
+          <button class="btn sm danger" data-act="system_restart">重启设备</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="p-logs">
+      <div class="card" style="padding:12px 14px">
+        <div class="row" style="justify-content:space-between">
+          <div class="filters" id="fChips">
+            <button class="fchip on" data-f="all">全部</button>
+            <button class="fchip" data-f="err">错误</button>
+            <button class="fchip" data-f="sms">短信</button>
+            <button class="fchip" data-f="net">网络</button>
+            <button class="fchip" data-f="notify">通知</button>
+            <button class="fchip" data-f="at">AT指令</button>
+          </div>
+          <div class="row">
+            <input id="logSearch" placeholder="搜索日志" style="width:120px">
+            <button class="btn sm" id="logCopy">复制日志</button>
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px;gap:16px">
+          <span class="row" style="gap:8px"><label class="sw"><input type="checkbox" id="logAuto" checked><i></i></label><span>自动刷新 <b id="autoState">开</b></span></span>
+          <span class="row" style="gap:8px"><label class="sw"><input type="checkbox" id="logFollow" checked><i></i></label><span>跟随最新 <b id="followState">开</b></span></span>
+          <span class="tip">向上翻看时会自动停止跟随，不会把你拉回底部</span>
+        </div>
+        <div class="logwrap" style="margin-top:10px">
+          <div class="logbox" id="logBox"><div class="l-dim">加载中…</div></div>
+          <div class="pillnew" id="logPill">有新日志 · 点击查看</div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <div class="head">AT 指令</div>
+        <div class="row" style="margin-top:10px">
+          <input id="atCmd" placeholder="AT+CSQ" style="flex:1;min-width:110px">
+          <button class="btn pri sm" id="atRun">执行指令</button>
+        </div>
+        <div class="field" style="margin-top:10px"><label>最近执行过的指令</label>
+          <select id="atPick"><option value="">选择后可填入输入框</option></select>
+        </div>
+        <pre class="raw" id="atOut">等待指令…</pre>
+      </div>
+    </section>
+
+    <section class="page" id="p-about">
+      <div class="grid two">
+        <div class="card">
+          <div class="head">项目</div>
+          <div class="val" style="font-size:20px">短信转发器</div>
+          <div class="sub">ESP32-C3 + ML307 4G 模组 · 开源固件</div>
+          <table class="kv" style="margin-top:10px">
+            <tr><td>开源地址</td><td><a href="https://github.com/chenxuuu/sms_forwarding" target="_blank" rel="noopener">github.com/chenxuuu/sms_forwarding</a></td></tr>
+            <tr><td>固件版本</td><td>ESP-IDF v6.1.1</td></tr>
+            <tr><td>设备型号</td><td id="aboutModel">--</td></tr>
+            <tr><td>设备名称</td><td id="aboutName">--</td></tr>
+          </table>
+          <div class="row" style="margin-top:12px">
+            <button class="btn pri sm" id="repoCopy">复制项目地址</button>
+            <a class="btn sm" href="https://github.com/chenxuuu/sms_forwarding" target="_blank" rel="noopener">在 GitHub 打开</a>
+          </div>
+        </div>
+        <div class="card">
+          <div class="head">关于</div>
+          <p class="about-text">
+            把收到的短信通过 WiFi 推送到邮件与多种平台（Bark、钉钉、飞书、Telegram、PushPlus、Server 酱等），
+            支持管理员短信命令、号码黑名单、长短信合并、基站掉线自动重连与 mDNS 访问。
+          </p>
+          <p class="about-text">
+            配置保存在 NVS，可从 Arduino 版本原地升级。项目完全开源，欢迎提交 Issue 与 Pull Request。
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="savebar" id="pushSaveBar">
+  <span class="warn-dot"></span>
+  <div><b>推送通道有未保存的修改</b><span class="tip">离开本页、刷新或重启都会丢失</span></div>
+  <span style="flex:1"></span>
+  <button class="btn sm ghost" id="pushDiscard">放弃修改</button>
+  <button class="btn pri" id="pushSaveNow"><span class="spinner"></span>立即保存</button>
+</div>
+<div id="modal"><div class="mcard"><h4 id="mTitle">确认</h4><p id="mBody"></p>
+  <div class="row" style="justify-content:flex-end"><button class="btn" id="mNo">取消</button><button class="btn danger" id="mYes">确定</button></div>
+</div></div>
+<div id="toasts"></div>
+
+<script>
+/* 本地数据层：拦截 fetch 返回仿真数据，所有交互都可以在离线状态下完成 */
+(function(){
+  'use strict';
+  var T0 = Date.now();
+  var state = {
+    flight: false,
+    logs: [
+      "[启动] 短信转发器 v1.0 (ESP-IDF v6.1.1)",
+      "[WiFi] 已连接 home-2.4g，IP 192.168.1.23",
+      "AT> AT+CPIN? -> +CPIN: READY   [OK]",
+      "AT> AT+CREG=2 -> [OK]",
+      "AT> AT+CEREG=2 -> [OK]",
+      "应用选网配置：自动选择（AT+COPS=0）",
+      "AT> AT+COPS=0 -> [OK]",
+      "AT> AT+CEREG? -> +CEREG: 2,1,\"5D21\",\"07931039\",7   [OK]",
+      "[模组] 网络已注册，模组就绪",
+      "AT> AT+CNUM -> +CNUM: \"\",\"+8613800138000\",145   [OK]",
+      "本机号码已自动获取: +8613800138000",
+      "[通知] 启动通知已发送（邮件 1/3，通道 2/2）",
+      "AT> AT+CSQ -> +CSQ: 22,99   [OK]",
+      "[短信] 收到 +8613900139000 的短信：今晚七点老地方见",
+      "[通知] 短信已转发到 邮件 + 2 个通道",
+      "AT> AT+MPING=\"qq.com\",30,1 -> +MPING: 1,0,38,52   [OK]",
+      "[保号] Ping qq.com 成功，延迟 38ms",
+      "AT> AT+CFUN? -> +CFUN: 1   [OK]"
+    ],
+    extra: [
+      "AT> AT+CSQ -> +CSQ: 23,99   [OK]",
+      "[短信] 收到 10690000 的短信：您本月流量已使用 1.2GB",
+      "[通知] 短信已转发到 邮件 + 2 个通道",
+      "AT> AT+CEREG? -> +CEREG: 2,1,\"5D21\",\"07931039\",7   [OK]",
+      "[保号] Ping qq.com 成功，延迟 41ms",
+      "[网络] 小区切换，信号 23",
+      "AT> AT+CNMI=2,2,0,0,0 -> [OK]",
+      "[通知] 配置已更新：推送通道（当前 5 个）"
+    ],
+    status: {
+      ip: "192.168.1.23", ssid: "home-2.4g", rssi: -57, heap_kb: 62,
+      uptime_s: 91234, modem_ready: true, net_stat: 1, net_csq: 22, net_sim: true,
+      email_ok: true, mail_enabled: true, self_phone: "+8613800138000",
+      push_count: 2, device_name: "sms-9e3c", model: "ML307Y",
+      admin_phone: "13800138000"
+    },
+    config: {
+      web_user: "admin", web_pass: "admin123", mail_enabled: true,
+      smtp_server: "smtp.qq.com", smtp_port: 465, smtp_user: "me@qq.com",
+      smtp_pass: "abcdefghijklmnop", smtp_to: "me@qq.com",
+      admin_phone: "13800138000", self_phone: "+8613800138000",
+      blacklist: "10086\n10690000", operator_mode: 0, operator_act: 7, operator_code: "",
+      channels: [
+        {enabled: true, type: 2, name: "Bark 手机", url: "https://api.day.app/9xK2mQd7", key1: "", key2: "", custom_body: ""},
+        {enabled: true, type: 10, name: "Telegram", url: "https://api.telegram.org", key1: "624188013", key2: "7812345678:AAHdemoTokenOnly", custom_body: ""},
+        {enabled: false, type: 4, name: "钉钉群", url: "https://oapi.dingtalk.com/robot/send?access_token=demo", key1: "", key2: "", custom_body: ""},
+        {enabled: false, type: 5, name: "PushPlus", url: "", key1: "", key2: "wechat", custom_body: ""},
+        {enabled: false, type: 7, name: "自建模板", url: "https://example.com/hook", key1: "", key2: "", custom_body: "{\"from\":\"{sender}\",\"text\":\"{message}\",\"at\":\"{timestamp}\",\"phone\":\"{self_phone}\"}"}
+      ]
+    }
+  };
+  var ticker = 0;
+
+  function json(obj){ return new Response(JSON.stringify(obj), {status: 200, headers: {"Content-Type": "application/json; charset=utf-8"}}); }
+  function later(fn, ms){ return new Promise(function(res){ setTimeout(function(){ res(fn()); }, ms); }); }
+  function parseBody(body){
+    var out = {};
+    if (!body) return out;
+    String(body).split("&").forEach(function(kv){
+      var i = kv.indexOf("=");
+      if (i < 0) return;
+      out[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1).replace(/\+/g, " "));
+    });
+    return out;
+  }
+  function pushLog(line){
+    state.logs.push(line);
+    if (state.logs.length > 200) state.logs.shift();
+  }
+  function refreshDerived(){
+    var c = state.config;
+    state.status.self_phone = c.self_phone;
+    state.status.admin_phone = c.admin_phone;
+    state.status.mail_enabled = c.mail_enabled;
+    state.status.email_ok = !!(c.mail_enabled && c.smtp_server && c.smtp_user && c.smtp_pass && c.smtp_to);
+    var n = 0;
+    for (var i = 0; i < c.channels.length; i++) {
+      var ch = c.channels[i];
+      if (ch.enabled && (ch.url || ch.key1)) n++;
+    }
+    state.status.push_count = n;
+    state.status.uptime_s = 91234 + Math.floor((Date.now() - T0) / 1000);
+  }
+
+  var MAP = {
+    webUser: "web_user", webPass: "web_pass", smtpServer: "smtp_server", smtpPort: "smtp_port",
+    smtpUser: "smtp_user", smtpPass: "smtp_pass", smtpSendTo: "smtp_to", adminPhone: "admin_phone",
+    selfPhone: "self_phone", numberBlackList: "blacklist", operatorCode: "operator_code"
+  };
+  function applySave(p){
+    var k;
+    for (k in MAP) {
+      if (Object.prototype.hasOwnProperty.call(p, k)) state.config[MAP[k]] = p[k];
+    }
+    if (p.mailEnabled != null) state.config.mail_enabled = (p.mailEnabled === "on" || p.mailEnabled === "1");
+    if (p.operatorMode != null) state.config.operator_mode = parseInt(p.operatorMode, 10) || 0;
+    if (p.operatorAct != null) state.config.operator_act = parseInt(p.operatorAct, 10) || 7;
+    if (p.pushCount != null) {
+      var want = parseInt(p.pushCount, 10) || 0;
+      if (want < 1) want = 1;
+      if (want > 50) want = 50;
+      while (state.config.channels.length < want) {
+        state.config.channels.push({enabled: false, type: 1, name: "通道" + (state.config.channels.length + 1), url: "", key1: "", key2: "", custom_body: ""});
+      }
+      state.config.channels.length = want;
+    }
+    for (var i = 0; i < state.config.channels.length; i++) {
+      var ch = state.config.channels[i];
+      if (p["push" + i + "en"] != null) ch.enabled = p["push" + i + "en"] === "on";
+      if (p["push" + i + "type"] != null) ch.type = parseInt(p["push" + i + "type"], 10) || 1;
+      if (p["push" + i + "name"] != null) ch.name = p["push" + i + "name"];
+      if (p["push" + i + "url"] != null) ch.url = p["push" + i + "url"];
+      if (p["push" + i + "key1"] != null) ch.key1 = p["push" + i + "key1"];
+      if (p["push" + i + "key2"] != null) ch.key2 = p["push" + i + "key2"];
+      if (p["push" + i + "body"] != null) ch.custom_body = p["push" + i + "body"];
+    }
+    refreshDerived();
+  }
+
+  var QUERY_HTML = {
+    ati: '<table class="kv"><tr><td>厂商</td><td>China Mobile</td></tr><tr><td>型号</td><td>ML307Y</td></tr><tr><td>固件版本</td><td>ML307Y_V1.0.4</td></tr><tr><td>IMEI</td><td>861234567890123</td></tr></table>',
+    siminfo: '<table class="kv"><tr><td>IMSI</td><td>460013011100698</td></tr><tr><td>ICCID</td><td>89860117801411438528</td></tr><tr><td>本机号码</td><td>+8613800138000</td></tr><tr><td>SIM 状态</td><td>READY</td></tr></table>',
+    network: '<table class="kv"><tr><td>注册状态</td><td>已注册（本地）</td></tr><tr><td>运营商</td><td>CHINA MOBILE</td></tr><tr><td>网络类型</td><td>LTE</td></tr><tr><td>数据连接</td><td>已激活</td></tr><tr><td>APN</td><td>cmnet</td></tr></table>',
+    wifi: '<table class="kv"><tr><td>SSID</td><td>home-2.4g</td></tr><tr><td>IP</td><td>192.168.1.23</td></tr><tr><td>网关</td><td>192.168.1.1</td></tr><tr><td>掩码</td><td>255.255.255.0</td></tr><tr><td>DNS</td><td>192.168.1.1</td></tr><tr><td>信号</td><td>-57 dBm</td></tr><tr><td>信道</td><td>6</td></tr></table>'
+  };
+
+  function atResponse(cmd){
+    var c = cmd.toUpperCase();
+    if (c.indexOf("AT+CSQ") === 0) return "+CSQ: 22,99\n\nOK";
+    if (c.indexOf("AT+CFUN?") === 0) return "+CFUN: " + (state.flight ? "4" : "1") + "\n\nOK";
+    if (c.indexOf("AT+CREG?") === 0) return "+CREG: 2,1,\"5D21\",\"07931039\",7\n\nOK";
+    if (c.indexOf("AT+CEREG?") === 0) return "+CEREG: 2,1,\"5D21\",\"07931039\",7\n\nOK";
+    if (c.indexOf("AT+COPS?") === 0) return "+COPS: 0,0,\"CHINA MOBILE\",7\n\nOK";
+    if (c.indexOf("AT+CNUM") === 0) return "+CNUM: \"\",\"+8613800138000\",145\n\nOK";
+    if (c.indexOf("AT+CIMI") === 0) return "460013011100698\n\nOK";
+    if (c.indexOf("ATI") === 0) return "ML307Y\nRevision: ML307Y_V1.0.4\n\nOK";
+    if (c.indexOf("AT+CGMR") === 0) return "ML307Y_V1.0.4\n\nOK";
+    return "OK";
+  }
+
+  function route(path, params, opts){
+    var body = parseBody(opts && opts.body);
+    if (path === "/status") { refreshDerived(); return json(state.status); }
+    if (path === "/config") { return json(state.config); }
+    if (path === "/log") {
+      if (ticker++ % 4 === 3) pushLog(state.extra[Math.floor(Math.random() * state.extra.length)]);
+      return json(state.logs);
+    }
+    if (path === "/save") {
+      applySave(body);
+      return json({success: true, message: "配置已保存"});
+    }
+    if (path === "/sendsms") {
+      var res = params.phone === "10086";
+      pushLog("[短信] 发送到 " + (params.phone || "未知号码") + (res ? " 失败：号码不可用" : " 成功"));
+      return json(res ? {success: false, message: "发送失败：模组返回 ERROR"}
+                      : {success: true, message: "短信已提交发送"});
+    }
+    if (path === "/query") return json({success: true, message: QUERY_HTML[params.type] || '<span class="empty">无数据</span>'});
+    if (path === "/at") return json({success: true, message: atResponse(params.cmd || "")});
+    if (path === "/modem") {
+      if (params.action === "signal") return json({success: true, message: "RSRP -87 dBm，RSRQ -9 dB，信号良好"});
+      return json({success: true, message: "指令已提交"});
+    }
+    if (path === "/flight") {
+      if (params.action === "state") return json({success: true, cfun: state.flight ? 4 : 1, flight: state.flight});
+      if (params.action !== "off" && params.action !== "0") state.flight = true;
+      else state.flight = false;
+      state.status.modem_ready = !state.flight;
+      pushLog("AT> AT+CFUN=" + (state.flight ? "4" : "1") + " -> [OK]");
+      return json({success: true, cfun: state.flight ? 4 : 1, flight: state.flight});
+    }
+    if (path === "/ping") {
+      var host = params.ip || "qq.com";
+      pushLog("AT> AT+MPING=\"" + host + "\",30,1 -> +MPING: 1,0,38,52   [OK]");
+      return json({success: true, message: "目标: " + host + "，延迟: 38 ms，TTL: 52"});
+    }
+    if (path === "/keepalive_http") {
+      pushLog("[保号] 访问 " + (params.url || "") + " 成功，收到 10 字节");
+      return json({success: true, message: "访问成功，HTTP 200，收到 10 字节 body"});
+    }
+    if (path === "/wifi") return json({success: true, message: "WiFi 重连指令已提交"});
+    if (path === "/system") return json({success: true, message: "设备即将重启"});
+    return json({success: true, message: "ok"});
+  }
+
+  window.fetch = function(input, opts){
+    var url = typeof input === "string" ? input : (input && input.url) || "";
+    var q = url.indexOf("?");
+    var path = q < 0 ? url : url.slice(0, q);
+    var params = {};
+    if (q >= 0) {
+      url.slice(q + 1).split("&").forEach(function(kv){
+        var i = kv.indexOf("=");
+        if (i < 0) return;
+        params[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1));
+      });
+    }
+    path = path.replace(/^https?:\/\/[^/]+/, "");
+    if (path === "") path = "/";
+    return later(function(){ return route(path, params, opts); }, 120 + Math.floor(Math.random() * 260));
+  };
+
+  refreshDerived();
+})();
+</script>
+
+<script>
+(function(){
+  'use strict';
+  var $ = function(id){ return document.getElementById(id); };
+  var LS = window.localStorage;
+  var PAGES = [
+    { id:'overview', name:'概览', sub:'设备、网络与最近动态', hue:224 },
+    { id:'push', name:'推送通道', sub:'邮件、推送通道与号码黑名单', hue:268 },
+    { id:'device', name:'设备', sub:'选网、模组信息与维护', hue:186 },
+    { id:'keepalive', name:'保号与发送', nav:'保号发送', sub:'发送短信、Ping 与 HTTP 访问', hue:206 },
+    { id:'admin', name:'后台管理', sub:'后台账号与管理员号码', hue:280 },
+    { id:'logs', name:'日志', sub:'实时日志与 AT 指令（可过滤、可暂停跟随）', hue:340 },
+    { id:'about', name:'关于项目', sub:'项目信息与开源地址', hue:300 }
+  ];
+  var TYPES = [
+    [1,'POST JSON'], [2,'Bark'], [3,'GET 请求'], [4,'钉钉机器人'], [5,'PushPlus'],
+    [6,'Server酱'], [7,'自定义模板'], [8,'飞书机器人'], [9,'Gotify'], [10,'Telegram Bot']
+  ];
+  var NEED = {1:[1,0,0,0],2:[1,0,0,0],3:[1,0,0,0],4:[1,1,0,0],5:[0,1,1,0],6:[0,1,0,0],7:[1,0,0,1],8:[1,1,0,0],9:[1,1,0,0],10:[0,1,1,0]};
+  var LABEL = {4:['加签 secret',''],5:['token','渠道 wechat/app/extension'],6:['sendkey',''],7:['',''],8:['签名 secret（可空）',''],9:['token',''],10:['chat_id','bot token']};
+
+  var S = { page:'overview', status:{}, logs:[], logKey:'', logPending:0, filter:'all', search:'', hist:{}, sent:[], nums:[], ats:[], chanBase:'', chanDirty:false };
+
+  function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function api(path, opts){
+    opts = opts || {}; opts.cache = 'no-store';
+    if (opts.body && !opts.headers) opts.headers = {'Content-Type':'application/x-www-form-urlencoded'};
+    return fetch(path, opts).then(function(r){
+      var ct = r.headers.get('content-type') || '';
+      if (ct.indexOf('json') >= 0) return r.json();
+      return r.text().then(function(t){ return { success:r.ok, message:t }; });
+    });
+  }
+  function busy(btn, on){
+    if (!btn) return;
+    btn.classList.toggle('loading', !!on);
+    btn.disabled = !!on;
+  }
+  function toast(msg, type){
+    type = type || 'info';
+    var el = document.createElement('div');
+    el.className = 'toast ' + type;
+    el.innerHTML = '<span class="ic">' + (type === 'ok' ? '✓' : type === 'err' ? '✕' : 'i') + '</span><div>' + esc(msg) + '</div>';
+    $('toasts').appendChild(el);
+    setTimeout(function(){ el.classList.add('out'); setTimeout(function(){ el.remove(); }, 250); }, 3000);
+  }
+  /* 复制（http 页面通常可用 clipboard，失败时退回 execCommand） */
+  function copyText(text, done){
+    function fallback(){
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (ok) done(); else toast('复制失败，请手动选择文本', 'err');
+      } catch (e) { toast('复制失败', 'err'); }
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(fallback);
+    } else {
+      fallback();
+    }
+  }
+  /* yesText/noText 用具体动作命名，避免"确定"到底是保存还是丢弃 */
+  function confirmDlg(title, text, yesText, noText, yesClass, noClass){
+    return new Promise(function(resolve){
+      $('mTitle').textContent = title;
+      $('mBody').textContent = text;
+      $('mYes').textContent = yesText || '确定';
+      $('mNo').textContent = noText || '取消';
+      $('mYes').className = yesClass || 'btn danger';
+      $('mNo').className = noClass || 'btn';
+      $('modal').classList.add('show');
+      function end(ok){ $('modal').classList.remove('show'); $('mYes').onclick = null; $('mNo').onclick = null; resolve(ok); }
+      $('mYes').onclick = function(){ end(true); };
+      $('mNo').onclick = function(){ end(false); };
+    });
+  }
+  function fmtUp(sec){
+    sec = Math.max(0, Math.floor(sec));
+    var d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+    if (d) return d + ' 天 ' + h + ' 小时';
+    if (h) return h + ' 小时 ' + m + ' 分';
+    if (m) return m + ' 分 ' + s + ' 秒';
+    return s + ' 秒';
+  }
+  function loadLocal(){
+    try {
+      S.nums = JSON.parse(LS.getItem('nums') || '[]');
+      S.ats = JSON.parse(LS.getItem('ats') || '[]');
+    } catch(e){}
+  }
+  function saveLocal(){ LS.setItem('nums', JSON.stringify(S.nums)); LS.setItem('ats', JSON.stringify(S.ats)); }
+
+  /* ---------- 导航（固定顺序，不按使用频率重排） ---------- */
+  function renderNav(){
+    var nav = $('nav'), pill = $('navPill');
+    nav.innerHTML = ''; nav.appendChild(pill);
+    PAGES.forEach(function(p){
+      var b = document.createElement('button');
+      b.className = 'nav-btn' + (p.id === S.page ? ' on' : '');
+      b.setAttribute('data-page', p.id);
+      b.textContent = p.nav || p.name;
+      b.addEventListener('click', function(){ go(p.id); });
+      nav.appendChild(b);
+    });
+    movePill();
+  }
+  function movePill(){
+    var cur = document.querySelector('.nav-btn.on'), pill = $('navPill');
+    if (!cur || !pill) return;
+    var mobile = window.innerWidth <= 900;
+    if (mobile) {
+      pill.style.transform = 'translateX(' + cur.offsetLeft + 'px)';
+      pill.style.width = cur.offsetWidth + 'px';
+      pill.style.height = cur.offsetHeight + 'px';
+      pill.style.top = cur.offsetTop + 'px';
+    } else {
+      pill.style.transform = 'translateY(' + cur.offsetTop + 'px)';
+      pill.style.width = cur.offsetWidth + 'px';
+      pill.style.height = cur.offsetHeight + 'px';
+      pill.style.top = '0px';
+    }
+  }
+  function go(page){
+    if (!PAGES.some(function(p){ return p.id === page; })) page = 'overview';
+    /* 有未保存的通道修改时，离开页面前必须确认，避免白改 */
+    if (S.chanDirty && page !== S.page) {
+      confirmDlg('推送通道未保存', '离开本页后，未保存的通道修改会丢失。如需保留，请点「留在此页」后点击「立即保存」。', '放弃修改并离开', '留在此页', 'btn danger', 'btn pri')
+        .then(function(ok){
+          if (!ok) { history.replaceState(null, '', '#' + S.page); return; }
+          chanSetDirty(false);
+          S.chanBase = '';
+          go(page);
+          loadConfig(false);
+        });
+      return;
+    }
+    S.page = page;
+    var btns = document.querySelectorAll('.nav-btn');
+    for (var i = 0; i < btns.length; i++) btns[i].classList.toggle('on', btns[i].getAttribute('data-page') === page);
+    var pages = document.querySelectorAll('.page');
+    for (var j = 0; j < pages.length; j++) pages[j].classList.toggle('on', pages[j].id === 'p-' + page);
+    var meta = PAGES.filter(function(p){ return p.id === page; })[0] || PAGES[0];
+    $('pageTitle').textContent = meta.name;
+    $('pageSub').textContent = meta.sub;
+    document.documentElement.style.setProperty('--hue', meta.hue);
+    if (location.hash !== '#' + page) history.replaceState(null, '', '#' + page);
+    movePill();
+    if (page === 'logs') { refreshLogs(true); }
+    if (page === 'device') loadFlightState();
+  }
+
+  /* ---------- 状态 ---------- */
+  function applyStatus(s){
+    if (!s || s.success === false) return;
+    S.status = s;
+    $('vIp').textContent = s.ip || '--';
+    $('subIp').textContent = (s.device_name || '') + '.local';
+    $('devName').textContent = s.device_name || 'ESP32-C3';
+    $('ipText').textContent = 'http://' + (s.ip || '') + '/';
+    $('vUp').textContent = fmtUp(s.uptime_s || 0);
+    $('vHeap').textContent = (s.heap_kb || 0) + ' KB';
+    var netKnown = typeof s.net_stat === 'number' && s.net_stat >= 0;
+    $('vModem').textContent = s.modem_ready ? '已就绪' : (netKnown ? '重连中' : '未就绪');
+    $('vModem').style.color = s.modem_ready ? 'var(--ok)' : 'var(--err)';
+    var sigTxt = '';
+    if (typeof s.net_csq === 'number' && s.net_csq >= 0) {
+      sigTxt = s.net_csq === 99 ? ' · 无信号' : ' · 信号 ' + s.net_csq;
+    }
+    $('subModem').textContent = (s.model || '--') + sigTxt;
+    $('kMail').textContent = mailText(s);
+    $('kPush').textContent = (s.push_count || 0) + ' 个已启用';
+    $('kWifi').textContent = (s.ssid || '--') + (s.rssi ? '（' + s.rssi + ' dBm）' : '');
+    $('mailState').textContent = mailText(s);
+    $('pushStat').textContent = (s.push_count || 0) + ' 个启用';
+    $('netDot').className = 'dot ' + (s.modem_ready ? 'ok' : '');
+    $('netText').textContent = s.modem_ready ? '在线' : '离线';
+    $('aboutModel').textContent = s.model || '--';
+    $('aboutName').textContent = s.device_name ? s.device_name + '.local' : '--';
+    if (s.admin_phone) $('kAdmin').textContent = s.admin_phone;
+    $('kSelf').textContent = s.self_phone || '--';
+  }
+  function loadStatus(){ return api('/status').then(applyStatus).catch(function(){}); }
+  /* 邮件通道状态：关闭 / 已配置 / 未配置（mail_enabled 缺失时按开启处理） */
+  function mailText(s){
+    if (s && s.mail_enabled === false) return '已关闭';
+    return (s && s.email_ok) ? '已配置' : '未配置';
+  }
+  function syncMailForm(){
+    var on = $('mailEnable').checked;
+    $('mailOffTip').style.display = on ? 'none' : '';
+  }
+
+  /* ---------- 配置 ---------- */
+  /* ---------- 选网配置：手动模式才显示 PLMN / 网络类型 ---------- */
+  function syncOperatorForm(){
+    var manual = $('operMode').value === '1';
+    $('operPlmnRow').style.display = manual ? '' : 'none';
+    $('operActRow').style.display = manual ? '' : 'none';
+  }
+  function loadConfig(keepChannels){
+    return api('/config').then(function(cfg){
+      if (!cfg || cfg.success === false) return;
+      $('webUser').value = cfg.web_user || '';
+      $('webPass').value = cfg.web_pass || '';
+      $('mailEnable').checked = cfg.mail_enabled !== false;
+      syncMailForm();
+      $('smtpServer').value = cfg.smtp_server || '';
+      $('smtpPort').value = cfg.smtp_port || '';
+      $('smtpUser').value = cfg.smtp_user || '';
+      $('smtpPass').value = cfg.smtp_pass || '';
+      $('smtpTo').value = cfg.smtp_to || '';
+      $('adminPhone').value = cfg.admin_phone || '';
+      $('selfPhone').value = cfg.self_phone || '';
+      $('blacklist').value = cfg.blacklist || '';
+      $('operMode').value = cfg.operator_mode === 1 ? '1' : '0';
+      $('operCode').value = cfg.operator_code || '';
+      $('operAct').value = (cfg.operator_act === 0 || cfg.operator_act === 2 || cfg.operator_act === 7)
+        ? String(cfg.operator_act) : '7';
+      syncOperatorForm();
+      if (cfg.admin_phone) $('kAdmin').textContent = cfg.admin_phone;
+      /* 保存其它分区（邮件/账号等）时不能把用户正在编辑的通道冲掉 */
+      if (!(keepChannels && S.chanDirty)) {
+        renderChannels(cfg.channels || []);
+        chanResetBaseline();
+      }
+    });
+  }
+  function renderChannels(chs){
+    S.channels = chs;
+    var host = $('channels');
+    host.innerHTML = '';
+    chs.forEach(function(ch, i){ host.appendChild(channelRow(i, ch)); });
+    $('chanCount').textContent = chs.length + ' / 50';
+  }
+  function readChannel(i){
+    return {
+      enabled: $('c' + i + 'en').checked,
+      type: parseInt($('c' + i + 'type').value, 10) || 1,
+      name: $('c' + i + 'name').value,
+      url: $('c' + i + 'url').value,
+      key1: $('c' + i + 'key1').value,
+      key2: $('c' + i + 'key2').value,
+      custom_body: $('c' + i + 'bodyText').value
+    };
+  }
+  function snapshotChannels(){
+    var list = [];
+    for (var i = 0; i < (S.channels || []).length; i++) list.push(readChannel(i));
+    return list;
+  }
+  /* ---------- 未保存修改跟踪（推送通道） ---------- */
+  function chanSignature(){
+    try { return JSON.stringify(snapshotChannels()); } catch (e) { return ''; }
+  }
+  function chanSetDirty(on){
+    S.chanDirty = !!on;
+    var bar = $('pushSaveBar');
+    if (bar) bar.classList.toggle('show', S.chanDirty);
+    var chip = $('chanDirtyChip');
+    if (chip) chip.classList.toggle('on', S.chanDirty);
+    var btn = document.querySelector('[data-save="push"]');
+    if (btn) btn.classList.toggle('dirty', S.chanDirty);
+    document.body.classList.toggle('chan-dirty', S.chanDirty);
+  }
+  function chanCheckDirty(){
+    if (!S.chanBase) return;
+    chanSetDirty(chanSignature() !== S.chanBase);
+  }
+  function chanResetBaseline(){
+    S.chanBase = chanSignature();
+    chanSetDirty(false);
+  }
+  function renderList(list){
+    renderChannels(list);
+    chanCheckDirty();
+    toast('通道数量已改为 ' + list.length + '，尚未保存', 'info');
+  }
+  function addChannel(){
+    if (!S.channels || S.channels.length >= 50) { toast('最多 50 个通道', 'err'); return; }
+    var list = snapshotChannels();
+    list.push({ enabled:false, type:1, name:'未命名通道', url:'', key1:'', key2:'', custom_body:'' });
+    renderList(list);
+    var rows = document.querySelectorAll('#channels .chan');
+    var last = rows[rows.length - 1];
+    if (last) { last.classList.add('open'); last.scrollIntoView({ behavior:'smooth', block:'nearest' }); }
+  }
+  function delChannel(i){
+    confirmDlg('删除通道 ' + (i + 1), '删除后需要点击「保存全部通道」才会写入设备。', '删除', '取消', 'btn danger', 'btn pri').then(function(ok){
+      if (!ok) return;
+      var list = snapshotChannels();
+      list.splice(i, 1);
+      renderList(list);
+    });
+  }
+  function channelRow(i, ch){
+    var el = document.createElement('div');
+    el.className = 'chan' + (ch.enabled ? ' on' : '');
+    var opts = TYPES.map(function(t){ return '<option value="' + t[0] + '"' + (t[0] === (ch.type || 1) ? ' selected' : '') + '>' + t[1] + '</option>'; }).join('');
+    el.innerHTML =
+      '<div class="chan-h">' +
+        '<label class="sw"><input type="checkbox" id="c' + i + 'en"' + (ch.enabled ? ' checked' : '') + '><i></i></label>' +
+        '<b id="c' + i + 'title">' + esc(ch.name || '未命名通道') + '</b>' +
+        '<span class="chip" id="c' + i + 'state">' + (ch.enabled ? '已启用' : '已停用') + '</span>' +
+        '<span class="spacer" style="flex:1"></span>' +
+        '<button class="btn sm" id="c' + i + 'toggle">展开设置</button>' +
+        '<button class="btn sm danger" id="c' + i + 'del">删除</button>' +
+      '</div>' +
+      '<div class="chan-b" id="c' + i + 'body">' +
+        '<div class="two">' +
+          '<div class="field"><label>通道名称</label><input id="c' + i + 'name" value="' + esc(ch.name || '') + '"></div>' +
+          '<div class="field"><label>推送方式</label><select id="c' + i + 'type">' + opts + '</select></div>' +
+        '</div>' +
+        '<div class="field"><label id="c' + i + 'ul">推送 URL</label><input id="c' + i + 'url" value="' + esc(ch.url || '') + '" placeholder="https://"></div>' +
+        '<div class="field" id="c' + i + 'w1"><label id="c' + i + 'l1">参数 1</label><input id="c' + i + 'key1" value="' + esc(ch.key1 || '') + '"></div>' +
+        '<div class="field" id="c' + i + 'w2"><label id="c' + i + 'l2">参数 2</label><input id="c' + i + 'key2" value="' + esc(ch.key2 || '') + '"></div>' +
+        '<div class="field" id="c' + i + 'wb"><label>请求体模板</label><textarea id="c' + i + 'bodyText" rows="3">' + esc(ch.custom_body || '') + '</textarea><span class="tip">支持 {sender} {message} {timestamp} {self_phone}</span></div>' +
+      '</div>';
+    var sw = el.querySelector('#c' + i + 'en');
+    sw.addEventListener('change', function(){
+      el.classList.toggle('on', sw.checked);
+      el.querySelector('#c' + i + 'state').textContent = sw.checked ? '已启用' : '已停用';
+    });
+    var tg = el.querySelector('#c' + i + 'toggle');
+    tg.addEventListener('click', function(){
+      var open = el.classList.toggle('open');
+      tg.textContent = open ? '收起设置' : '展开设置';
+    });
+    el.querySelector('#c' + i + 'del').addEventListener('click', function(){ delChannel(i); });
+    var sel = el.querySelector('#c' + i + 'type');
+    sel.addEventListener('change', function(){ syncType(el, i, parseInt(sel.value, 10) || 1); });
+    el._type = ch.type || 1;
+    syncType(el, i, ch.type || 1);
+    return el;
+  }
+  function syncType(el, i, t){
+    var need = NEED[t] || NEED[1], lab = LABEL[t] || ['', ''];
+    el.querySelector('#c' + i + 'w1').style.display = need[1] ? '' : 'none';
+    el.querySelector('#c' + i + 'w2').style.display = need[2] ? '' : 'none';
+    el.querySelector('#c' + i + 'wb').style.display = need[3] ? '' : 'none';
+    el.querySelector('#c' + i + 'ul').textContent = need[0] ? '推送 URL' : '推送 URL（可空，使用默认地址）';
+    if (need[1]) el.querySelector('#c' + i + 'l1').textContent = lab[0] || '参数 1';
+    if (need[2]) el.querySelector('#c' + i + 'l2').textContent = lab[1] || '参数 2';
+  }
+  function collect(scope){
+    var p = new URLSearchParams();
+    if (scope === 'account') { p.append('webUser', $('webUser').value); p.append('webPass', $('webPass').value); }
+    if (scope === 'mail') {
+      p.append('mailEnabled', $('mailEnable').checked ? 'on' : 'off');
+      p.append('smtpServer', $('smtpServer').value); p.append('smtpPort', $('smtpPort').value);
+      p.append('smtpUser', $('smtpUser').value); p.append('smtpPass', $('smtpPass').value);
+      p.append('smtpSendTo', $('smtpTo').value);
+    }
+    if (scope === 'admin') p.append('adminPhone', $('adminPhone').value);
+    if (scope === 'selfphone') p.append('selfPhone', ($('selfPhone').value || '').trim());
+    if (scope === 'blacklist') p.append('numberBlackList', $('blacklist').value);
+    if (scope === 'operator') {
+      p.append('operatorMode', $('operMode').value);
+      p.append('operatorCode', ($('operCode').value || '').trim());
+      p.append('operatorAct', $('operAct').value);
+    }
+    if (scope === 'push') {
+      var list = snapshotChannels();
+      p.append('pushCount', String(list.length));
+      for (var i = 0; i < list.length; i++) {
+        p.append('push' + i + 'en', list[i].enabled ? 'on' : 'off');
+        p.append('push' + i + 'type', String(list[i].type));
+        p.append('push' + i + 'name', list[i].name);
+        p.append('push' + i + 'url', list[i].url);
+        p.append('push' + i + 'key1', list[i].key1);
+        p.append('push' + i + 'key2', list[i].key2);
+        p.append('push' + i + 'body', list[i].custom_body);
+      }
+    }
+    return p.toString();
+  }
+  function save(scope, btn){
+    if (scope === 'operator' && $('operMode').value === '1') {
+      var pcode = ($('operCode').value || '').trim();
+      if (!/^[0-9]{5,6}$/.test(pcode)) { toast('手动选网需填写 5~6 位数字 PLMN', 'err'); return; }
+    }
+    busy(btn, true);
+    api('/save?json=1', { method:'POST', body: collect(scope) }).then(function(r){
+      busy(btn, false);
+      if (r && r.success) {
+        toast(scope === 'operator' ? '选网配置已保存，重启设备后生效' : (r.message || '已保存'), 'ok');
+        /* 保存通道：以设备回读为准并清除未保存标记；保存其它分区：保留正在编辑的通道 */
+        loadConfig(scope !== 'push');
+        loadStatus();
+      } else toast((r && r.message) || '保存失败', 'err');
+    }).catch(function(){ busy(btn, false); toast('保存失败：网络错误', 'err'); });
+  }
+
+  /* ---------- 发短信 ---------- */
+  function smsMeta(){
+    var v = $('mText').value;
+    var ucs2 = /[^\x00-\x7f]/.test(v);
+    var limit = ucs2 ? 70 : 160;
+    $('mCount').textContent = v.length + ' / ' + limit + (ucs2 ? '（UCS2）' : '（GSM7）');
+    $('mCount').style.color = v.length > limit ? 'var(--err)' : '';
+  }
+  function renderNums(){
+    var dl = $('numList');
+    dl.innerHTML = '';
+    S.nums.forEach(function(n){ var o = document.createElement('option'); o.value = n; dl.appendChild(o); });
+  }
+  function renderHistory(){
+    var host = $('mHistory');
+    if (!S.sent.length) { host.innerHTML = '<div class="empty">暂无记录</div>'; return; }
+    host.innerHTML = '';
+    S.sent.forEach(function(it, i){
+      var d = document.createElement('div');
+      d.className = 'ev ' + (it.ok ? 'sms' : 'err');
+      d.innerHTML = '<span class="txt"><b>' + esc(it.phone) + '</b> · ' + esc(it.text) + '</span><span class="chip">' + (it.ok ? '成功' : '失败') + '</span>';
+      host.appendChild(d);
+    });
+  }
+  function sendSms(){
+    var phone = $('mPhone').value.trim(), text = $('mText').value.trim();
+    var btn = $('mSend'), label = $('mSendLabel'), res = $('mResult');
+    if (!phone) { toast('请填写目标号码', 'err'); return; }
+    if (!text) { toast('请填写短信内容', 'err'); return; }
+    busy(btn, true); label.textContent = '发送中…'; res.textContent = '正在发送…';
+    api('/sendsms?json=1', { method:'POST', body: 'phone=' + encodeURIComponent(phone) + '&content=' + encodeURIComponent(text) })
+      .then(function(r){
+        busy(btn, false); label.textContent = '发送短信';
+        var ok = !!(r && r.success);
+        var msg = (r && r.message) || (ok ? '已发送' : '发送失败');
+        res.textContent = msg;
+        res.style.color = ok ? 'var(--ok)' : 'var(--err)';
+        toast(msg, ok ? 'ok' : 'err');
+        if (ok) {
+          S.nums = [phone].concat(S.nums.filter(function(x){ return x !== phone; })).slice(0, 5);
+          saveLocal(); renderNums();
+          S.sent.unshift({ phone:phone, text:text.slice(0, 30), ok:true });
+          S.sent = S.sent.slice(0, 5); renderHistory();
+        }
+      })
+      .catch(function(){
+        busy(btn, false); label.textContent = '发送短信';
+        res.textContent = '发送失败：网络错误'; res.style.color = 'var(--err)';
+      });
+  }
+
+  /* ---------- 工具动作 ---------- */
+  var QUERY = { ati:'固件', siminfo:'SIM', network:'网络', wifi:'WiFi' };
+  function act(name, btn){
+    if (name === 'at') return runAt(btn);
+    if (name === 'signal') return querySignal(btn);
+    if (QUERY[name]) return queryHtml(name, btn);
+    if (name === 'wifi_restart' || name === 'modem_restart' || name === 'modem_hardreset' || name === 'system_restart') {
+      var tip = {
+        wifi_restart:['重连 WiFi','会短暂断开，约 5 秒'],
+        modem_restart:['软重启模组','约 15 秒无法收发短信'],
+        modem_hardreset:['硬重启模组','断电重启，约 20 秒'],
+        system_restart:['重启设备','整机重启，网页会中断约 30 秒']
+      }[name];
+      confirmDlg(tip[0], tip[1] + '，确定现在执行？', name === 'wifi_restart' ? '确定重连' : '确定重启', '取消', 'btn danger', 'btn pri').then(function(ok){
+        if (!ok) return;
+        var url = name === 'system_restart' ? '/system?action=restart'
+                : name === 'wifi_restart' ? '/wifi?action=restart'
+                : '/modem?action=' + (name === 'modem_restart' ? 'restart' : 'hardreset');
+        busy(btn, true);
+        api(url).then(function(r){ busy(btn, false); toast((r && r.message) || '已提交', 'ok'); })
+                .catch(function(){ busy(btn, false); toast('请求失败', 'err'); });
+      });
+    }
+  }
+  function outBox(){
+    var box = $('infoOut');
+    box.classList.remove('empty');
+    return box;
+  }
+  function querySignal(btn){
+    busy(btn, true);
+    $('infoOut').innerHTML = '<span class="empty">查询中…</span>';
+    api('/modem?action=signal').then(function(r){
+      busy(btn, false);
+      if (!r || !r.success) { $('infoOut').innerHTML = '<span class="empty">' + esc((r && r.message) || '查询失败') + '</span>'; return; }
+      outBox().innerHTML = '<table class="kv"><tr><td>信号</td><td>' + esc(r.message) + '</td></tr></table>';
+    }).catch(function(){ busy(btn, false); $('infoOut').innerHTML = '<span class="empty">请求失败</span>'; });
+  }
+  function queryHtml(type, btn){
+    busy(btn, true);
+    $('infoOut').innerHTML = '<span class="empty">查询中…</span>';
+    api('/query?type=' + type).then(function(r){
+      busy(btn, false);
+      if (!r || !r.success) { $('infoOut').innerHTML = '<span class="empty">' + esc((r && r.message) || '查询失败') + '</span>'; return; }
+      outBox().innerHTML = r.message;
+    }).catch(function(){ busy(btn, false); $('infoOut').innerHTML = '<span class="empty">请求失败</span>'; });
+  }
+  function runAt(btn){
+    var cmd = $('atCmd').value.trim();
+    if (!cmd) { toast('请先输入 AT 指令', 'err'); return; }
+    busy(btn, true);
+    $('atOut').textContent = '执行中…';
+    api('/at?cmd=' + encodeURIComponent(cmd)).then(function(r){
+      busy(btn, false);
+      $('atOut').textContent = (r && r.message) || '(空)';
+      var arr = [cmd].concat(S.ats.filter(function(x){ return x !== cmd; })).slice(0, 6);
+      S.ats = arr; saveLocal(); renderAts();
+    }).catch(function(){ busy(btn, false); $('atOut').textContent = '请求失败'; });
+  }
+  function renderAts(){
+    var sel = $('atPick');
+    sel.innerHTML = '<option value="">选择后可填入输入框</option>';
+    S.ats.forEach(function(c){
+      var o = document.createElement('option');
+      o.value = c; o.textContent = c;
+      sel.appendChild(o);
+    });
+  }
+
+  /* ---------- 飞行模式（开关反映真实状态） ---------- */
+  function setFlightUi(on, text){
+    var sw = $('flightSw');
+    sw.checked = !!on;
+    $('flightState').textContent = text || (on ? '已开启' : '已关闭');
+    $('flightState').style.color = on ? 'var(--warn)' : 'var(--muted)';
+  }
+  function loadFlightState(){
+    setFlightUi(false, '读取中…');
+    api('/flight?action=state').then(function(r){
+      if (!r || !r.success) { setFlightUi(false, '读取失败'); return; }
+      setFlightUi(r.cfun === 4, r.cfun === 4 ? '已开启' : '已关闭');
+    }).catch(function(){ setFlightUi(false, '读取失败'); });
+  }
+  function toggleFlight(){
+    var target = $('flightSw').checked;
+    $('flightState').textContent = '切换中…';
+    api('/flight?action=' + (target ? 'on' : 'off')).then(function(r){
+      if (!r || !r.success) { toast((r && r.message) || '切换失败', 'err'); loadFlightState(); return; }
+      toast(target ? '已开启飞行模式（无法收发短信）' : '已关闭飞行模式', 'ok');
+      loadFlightState();
+    }).catch(function(){ toast('切换失败', 'err'); loadFlightState(); });
+  }
+
+  /* ---------- 保号操作：Ping / HTTP 流量 ---------- */
+  function keepPing(btn){
+    var host = ($('keepPingHost').value || '').trim() || 'qq.com';
+    $('keepPingOut').innerHTML = '<span class="empty">Ping 中…</span>';
+    busy(btn, true);
+    api('/ping?ip=' + encodeURIComponent(host), { method:'POST' }).then(function(r){
+      busy(btn, false);
+      $('keepPingOut').innerHTML = '<span class="' + (r && r.success ? 'l-ok' : 'l-err') + '">' +
+        esc((r && r.message) || '操作失败') + '</span>';
+    }).catch(function(){
+      busy(btn, false);
+      $('keepPingOut').innerHTML = '<span class="l-err">请求失败</span>';
+    });
+  }
+  function keepHttp(btn){
+    var url = ($('keepHttpUrl').value || '').trim();
+    if (!url) { toast('请填写网址', 'err'); return; }
+    confirmDlg('可能产生流量消耗',
+      '将通过 4G 网络主动访问该网址，会产生流量消耗。请确保目标页面返回的数据量在可承受范围内（默认网址 bytes=10 仅下载 10 字节）。',
+      '确定访问', '取消', 'btn danger', 'btn pri').then(function(ok){
+      if (!ok) return;
+      $('keepHttpOut').innerHTML = '<span class="empty">访问中…</span>';
+      busy(btn, true);
+      api('/keepalive_http?url=' + encodeURIComponent(url)).then(function(r){
+        busy(btn, false);
+        $('keepHttpOut').innerHTML = '<span class="' + (r && r.success ? 'l-ok' : 'l-err') + '">' +
+          esc((r && r.message) || '访问失败') + '</span>';
+      }).catch(function(){
+        busy(btn, false);
+        $('keepHttpOut').innerHTML = '<span class="l-err">请求失败</span>';
+      });
+    });
+  }
+
+  /* ---------- 日志 ---------- */
+  function nearBottom(box){ return box.scrollHeight - box.scrollTop - box.clientHeight < 28; }
+  function classify(line){
+    if (line.indexOf('AT>') === 0) return 'l-dim';   /* 原始 AT 交互统一弱显示 */
+    if (/失败|错误|超时|异常|未响应/.test(line)) return 'l-err';
+    if (/成功|已就绪|已恢复|已连接|已保存/.test(line)) return 'l-ok';
+    if (/重试|警告|未配置|跳过/.test(line)) return 'l-warn';
+    if (line.indexOf('模组>') === 0) return 'l-dim';
+    return 'l-info';
+  }
+  function kindOf(line){
+    if (line.indexOf('AT>') === 0) return 'at';
+    if (/短信|PDU|CMT|长短信/.test(line)) return 'sms';
+    if (/WiFi|网络|IP|NTP|mDNS|心跳/.test(line)) return 'net';
+    if (/邮件|推送|通道|通知/.test(line)) return 'notify';
+    if (/失败|错误|超时/.test(line)) return 'err';
+    return 'other';
+  }
+  function passes(line){
+    if (S.filter !== 'all' && kindOf(line) !== S.filter) return false;
+    if (S.search && line.toLowerCase().indexOf(S.search) < 0) return false;
+    return true;
+  }
+  function logRow(line){
+    var d = document.createElement('div');
+    d.className = 'ln ' + classify(line);
+    d.textContent = line;
+    return d;
+  }
+  function renderLogsFull(){
+    var box = $('logBox'), n = 0;
+    box.innerHTML = '';
+    S.logs.forEach(function(l){ if (passes(l)) { box.appendChild(logRow(l)); n++; } });
+    if (!n) box.innerHTML = '<div class="l-dim">没有匹配的日志</div>';
+  }
+  function scrollBottom(){ var b = $('logBox'); b.scrollTop = b.scrollHeight; S.logPending = 0; $('logPill').classList.remove('show'); }
+  function refreshLogs(force){
+    if (!force && (!document.getElementById('logAuto').checked || document.hidden)) return Promise.resolve();
+    return api('/log').then(function(lines){
+      if (!Array.isArray(lines)) return;
+      var key = lines.length + '|' + (lines[lines.length - 1] || '');
+      if (key === S.logKey && !force) return;
+      var box = $('logBox'), atBottom = nearBottom(box), prev = S.logs;
+      S.logKey = key; S.logs = lines;
+      if (force || !prev.length) { renderLogsFull(); scrollBottom(); updateFeed(); return; }
+      var idx = lines.lastIndexOf(prev[prev.length - 1]);
+      if (idx < 0) {
+        var ratio = box.scrollHeight > box.clientHeight ? box.scrollTop / (box.scrollHeight - box.clientHeight) : 1;
+        renderLogsFull();
+        if (atBottom) scrollBottom(); else box.scrollTop = ratio * (box.scrollHeight - box.clientHeight);
+        updateFeed();
+        return;
+      }
+      var added = 0;
+      for (var i = idx + 1; i < lines.length; i++) { if (!passes(lines[i])) continue; box.appendChild(logRow(lines[i])); added++; }
+      if (added && atBottom && $('logFollow').checked) scrollBottom();
+      if (added && !atBottom) {
+        S.logPending += added;
+        $('logPill').textContent = S.logPending + ' 条新日志 · 点击跳到最新';
+        $('logPill').classList.add('show');
+      }
+      updateFeed();
+    }).catch(function(){});
+  }
+  function updateFeed(){
+    var groups = [], cur = null;
+    S.logs.slice(-60).forEach(function(l){
+      var k = kindOf(l);
+      if (cur && cur.k === k) { cur.n++; cur.last = l; return; }
+      cur = { k:k, n:1, last:l };
+      groups.push(cur);
+    });
+    var feed = $('feed');
+    if (!groups.length) { feed.innerHTML = '<div class="empty">暂无事件</div>'; $('feedCount').textContent = '0'; return; }
+    feed.innerHTML = '';
+    groups.slice(-6).reverse().forEach(function(g){
+      var d = document.createElement('div');
+      d.className = 'ev ' + (g.k === 'other' ? '' : g.k);
+      var name = { sms:'短信', net:'网络', notify:'通知', err:'异常', other:'其他' }[g.k] || '事件';
+      d.innerHTML = '<span class="chip">' + name + (g.n > 1 ? ' ×' + g.n : '') + '</span><span class="txt">' + esc(g.last) + '</span>';
+      feed.appendChild(d);
+    });
+    $('feedCount').textContent = String(S.logs.length);
+  }
+
+  /* ---------- 主题：深色 / 浅色 / 跟随系统（默认跟随） ---------- */
+  var MQ = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+  function themePref(){
+    var v = LS.getItem('theme');
+    return (v === 'dark' || v === 'light' || v === 'system') ? v : 'system';
+  }
+  function resolveTheme(pref){
+    if (pref === 'system') return (MQ && MQ.matches) ? 'light' : 'dark';
+    return pref;
+  }
+  function applyTheme(pref){
+    LS.setItem('theme', pref);
+    document.documentElement.setAttribute('data-theme', resolveTheme(pref));
+    var btns = document.querySelectorAll('#themeSeg button');
+    for (var i = 0; i < btns.length; i++) {
+      var on = btns[i].getAttribute('data-pref') === pref;
+      btns[i].classList.toggle('on', on);
+      btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+  }
+  function initTheme(){
+    var pref = themePref();
+    applyTheme(pref);
+    var btns = document.querySelectorAll('#themeSeg button');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].addEventListener('click', function(){ applyTheme(this.getAttribute('data-pref')); });
+    }
+    if (MQ) {
+      var onChange = function(){ if (themePref() === 'system') applyTheme('system'); };
+      if (MQ.addEventListener) MQ.addEventListener('change', onChange);
+      else if (MQ.addListener) MQ.addListener(onChange);
+    }
+  }
+
+  /* ---------- 绑定 ---------- */
+  function bind(){
+    document.querySelectorAll('[data-save]').forEach(function(b){
+      b.addEventListener('click', function(){ save(b.getAttribute('data-save'), b); });
+    });
+    document.querySelectorAll('[data-go]').forEach(function(b){
+      b.addEventListener('click', function(){ go(b.getAttribute('data-go')); });
+    });
+    document.querySelectorAll('[data-act]').forEach(function(b){
+      b.addEventListener('click', function(){ act(b.getAttribute('data-act'), b); });
+    });
+    $('refreshBtn').addEventListener('click', function(){
+      if (S.chanDirty) {
+        confirmDlg('推送通道未保存', '刷新会重新读取设备配置，未保存的通道修改将丢失。', '放弃修改并刷新', '继续编辑', 'btn danger', 'btn pri').then(function(ok){
+          if (!ok) return;
+          S.chanBase = '';
+          chanSetDirty(false);
+          loadStatus(); loadConfig(false); refreshLogs(true); toast('状态已刷新', 'ok');
+        });
+        return;
+      }
+      loadStatus(); loadConfig(); refreshLogs(true); toast('状态已刷新', 'ok');
+    });
+    $('copyBtn').addEventListener('click', function(){
+      var ip = $('vIp').textContent || '';
+      copyText('http://' + ip + '/', function(){ toast('已复制 http://' + ip + '/', 'ok'); });
+    });
+    $('repoCopy').addEventListener('click', function(){
+      copyText('https://github.com/chenxuuu/sms_forwarding', function(){
+        toast('已复制项目地址', 'ok');
+      });
+    });
+    $('addChan').addEventListener('click', addChannel);
+    $('channels').addEventListener('input', chanCheckDirty);
+    $('channels').addEventListener('change', chanCheckDirty);
+    $('pushSaveNow').addEventListener('click', function(){ save('push', this); });
+    $('pushDiscard').addEventListener('click', function(){
+      confirmDlg('未保存的通道修改', '将丢弃当前未保存的通道修改，恢复为设备中的配置。', '放弃修改', '取消', 'btn danger', 'btn pri').then(function(ok){
+        if (!ok) return;
+        S.chanBase = '';
+        chanSetDirty(false);
+        loadConfig(false);
+        toast('已放弃未保存的修改', 'info');
+      });
+    });
+    window.addEventListener('beforeunload', function(e){
+      if (!S.chanDirty) return;
+      e.preventDefault();
+      e.returnValue = '';
+    });
+    $('mSend').addEventListener('click', sendSms);
+    $('mClear').addEventListener('click', function(){ $('mText').value = ''; smsMeta(); });
+    $('mText').addEventListener('input', smsMeta);
+    $('atRun').addEventListener('click', function(){ runAt(this); });
+    $('atPick').addEventListener('change', function(){ if (this.value) $('atCmd').value = this.value; });
+    $('flightSw').addEventListener('change', toggleFlight);
+    $('operMode').addEventListener('change', syncOperatorForm);
+    $('mailEnable').addEventListener('change', syncMailForm);
+    $('keepPingBtn').addEventListener('click', function(){ keepPing(this); });
+    $('keepHttpBtn').addEventListener('click', function(){ keepHttp(this); });
+    $('logPill').addEventListener('click', scrollBottom);
+    $('logCopy').addEventListener('click', function(){
+      copyText(S.logs.join(String.fromCharCode(10)), function(){ toast('已复制 ' + S.logs.length + ' 行日志', 'ok'); });
+    });
+    $('logSearch').addEventListener('input', function(){ S.search = this.value.trim().toLowerCase(); renderLogsFull(); });
+    document.querySelectorAll('#fChips .fchip').forEach(function(c){
+      c.addEventListener('click', function(){
+        document.querySelectorAll('#fChips .fchip').forEach(function(x){ x.classList.remove('on'); });
+        c.classList.add('on');
+        S.filter = c.getAttribute('data-f');
+        renderLogsFull();
+      });
+    });
+    $('logAuto').addEventListener('change', function(){ $('autoState').textContent = this.checked ? '开' : '关'; });
+    $('logFollow').addEventListener('change', function(){ $('followState').textContent = this.checked ? '开' : '关'; });
+    $('logBox').addEventListener('scroll', function(){
+      if (nearBottom(this)) { S.logPending = 0; $('logPill').classList.remove('show'); }
+    });
+    window.addEventListener('resize', movePill);
+    window.addEventListener('hashchange', function(){ go((location.hash || '').replace('#', '')); });
+  }
+
+  function init(){
+    loadLocal();
+    initTheme();
+    bind();
+    renderNav();
+    renderNums();
+    renderAts();
+    renderHistory();
+    smsMeta();
+    go((location.hash || '').replace('#', '') || 'overview');
+    loadStatus(); loadConfig(); refreshLogs(true);
+    setInterval(function(){ if (!document.hidden) loadStatus(); }, 8000);
+    setInterval(function(){ refreshLogs(false); }, 3000);
+    setInterval(function(){
+      if (S.status.uptime_s != null) { S.status.uptime_s++; $('vUp').textContent = fmtUp(S.status.uptime_s); }
+    }, 1000);
+  }
+  document.addEventListener('DOMContentLoaded', init);
+})();
+
+</script>
+</body>
+</html>

@@ -159,6 +159,15 @@ static void sendsms_async(web_async_ctx_t *ctx, sbuf_t *out, const char **ctype)
     log_line("目标号码: %s", ctx->arg1);
     log_line("短信内容: %s", ctx->arg2);
     bool ok = modem_send_sms(ctx->arg1, ctx->arg2, 30000);
+    if (util_equals(ctx->arg3, "json")) {
+        *ctype = "application/json; charset=utf-8";
+        if (ok) {
+            json_ok(out, "短信已发送");
+        } else {
+            json_fail(out, "发送失败：请检查模组状态，或内容是否超过单条长度（70 个汉字）");
+        }
+        return;
+    }
     *ctype = "text/html; charset=utf-8";
     send_result_page(out, ok, ok ? "短信发送成功！"
                                   : "短信发送失败：请检查模组状态，或内容是否超过单条长度（70 个汉字）");
@@ -187,7 +196,10 @@ esp_err_t handler_sendsms(httpd_req_t *req)
         sbuf_free(&out);
         return ESP_OK;
     }
-    web_spawn_async(req, sendsms_async, phone, content);
+    char json_flag[8] = {0};
+    bool want_json = web_query_get(req, "json", json_flag, sizeof(json_flag)) &&
+                     strcmp(json_flag, "1") == 0;
+    web_spawn_async3(req, sendsms_async, phone, content, want_json ? "json" : "");
     return ESP_OK;
 }
 

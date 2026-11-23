@@ -1,664 +1,828 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SMS Forwarding</title>
-  <style>
-    :root {
-      --ink: #171717;
-      --body: #4d4d4d;
-      --mute: #888888;
-      --canvas: #ffffff;
-      --canvas-soft: #fafafa;
-      --canvas-soft-2: #f5f5f5;
-      --hairline: #ebebeb;
-      --hairline-strong: #a1a1a1;
-      --link: #0070f3;
-      --error: #ee0000;
-      --warning-soft: #ffefcf;
-      --sidebar-w: 220px;
-      --radius-sm: 6px;
-      --radius-md: 8px;
-      --radius-pill: 100px;
-      --shadow-card: 0 0 0 1px rgba(0,0,0,0.08), 0 1px 1px rgba(0,0,0,0.02), 0 2px 2px rgba(0,0,0,0.04);
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      font-size: 14px; font-weight: 400; line-height: 1.5;
-      color: var(--ink); background: var(--canvas-soft);
-      display: flex; min-height: 100vh;
-    }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<title>短信转发器</title>
+<style>
+:root{
+  --bg:#0e1116; --bg-soft:#131820; --surface:#171d26; --surface-2:#1e252f;
+  --line:#252d3a; --text:#e8edf5; --muted:#8b97a8; --dim:#5f6b7d;
+  --primary:#5b8cff; --primary-2:#8b6bff; --ok:#2ecc8f; --warn:#f5a623; --err:#ff5f6d;
+  --radius:16px; --shadow:0 10px 30px rgba(0,0,0,.28); --nav:220px;
+}
+html[data-theme="light"]{
+  --bg:#f4f6fb; --bg-soft:#eef1f8; --surface:#ffffff; --surface-2:#f6f8fc;
+  --line:#e2e7f0; --text:#1a2230; --muted:#5d6a7e; --dim:#94a0b4;
+  --shadow:0 10px 24px rgba(26,40,70,.08);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-size:14px;line-height:1.6;
+  font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;transition:background .3s ease,color .3s ease}
+body::before{content:"";position:fixed;inset:-20% -10% auto -10%;height:60vh;z-index:0;pointer-events:none;
+  background:radial-gradient(45% 55% at 20% 20%,rgba(91,140,255,.20),transparent 70%),radial-gradient(40% 50% at 85% 10%,rgba(139,107,255,.16),transparent 70%);
+  filter:blur(10px)}
+a{color:var(--primary);text-decoration:none}
+.app{position:relative;z-index:1;display:flex;min-height:100vh}
+.sidebar{width:var(--nav);flex:0 0 var(--nav);padding:22px 16px;display:flex;flex-direction:column;gap:18px;
+  border-right:1px solid var(--line);background:linear-gradient(180deg,var(--bg-soft),transparent);position:sticky;top:0;height:100vh}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 6px}
+.logo{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;color:#fff;font-weight:700;
+  background:linear-gradient(135deg,var(--primary),var(--primary-2));box-shadow:0 6px 16px rgba(91,140,255,.35)}
+.brand h1{font-size:15px;margin:0;font-weight:650;letter-spacing:.2px}
+.brand small{display:block;color:var(--muted);font-size:11px}
+nav{display:flex;flex-direction:column;gap:4px}
+.nav-btn{display:flex;align-items:center;gap:10px;padding:10px 12px;border:0;border-radius:12px;cursor:pointer;
+  background:transparent;color:var(--muted);font:inherit;text-align:left;transition:background .2s,color .2s,transform .15s}
+.nav-btn svg{width:17px;height:17px;flex:0 0 17px;opacity:.9}
+.nav-btn:hover{background:var(--surface);color:var(--text);transform:translateX(2px)}
+.nav-btn.active{color:#fff;background:linear-gradient(135deg,rgba(91,140,255,.95),rgba(139,107,255,.9));box-shadow:0 8px 20px rgba(91,140,255,.28)}
+.nav-btn.active:hover{transform:none}
+.side-foot{margin-top:auto;display:flex;flex-direction:column;gap:10px;font-size:12px;color:var(--muted)}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;background:var(--surface);
+  border:1px solid var(--line);font-size:12px;color:var(--muted)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--dim)}
+.dot.ok{background:var(--ok);animation:pulse 2.4s infinite}
+.dot.err{background:var(--err)}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(46,204,143,.5)}70%{box-shadow:0 0 0 8px rgba(46,204,143,0)}100%{box-shadow:0 0 0 0 rgba(46,204,143,0)}}
+.icon-btn{width:34px;height:34px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--muted);
+  display:grid;place-items:center;cursor:pointer;transition:.2s}
+.icon-btn:hover{color:var(--text);border-color:var(--primary);transform:translateY(-1px)}
+main{flex:1;min-width:0;padding:26px 30px 60px;max-width:1180px}
+.topbar{display:flex;align-items:center;gap:14px;margin-bottom:20px}
+.topbar h2{margin:0;font-size:20px;font-weight:650;letter-spacing:.2px}
+.topbar .sub{color:var(--muted);font-size:12px;margin-top:2px}
+.spacer{flex:1}
+.btn{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--text);font:inherit;
+  padding:9px 14px;border-radius:12px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;
+  transition:transform .12s,box-shadow .2s,background .2s,border-color .2s;user-select:none}
+.btn:hover{transform:translateY(-1px);border-color:var(--primary);box-shadow:0 8px 18px rgba(0,0,0,.18)}
+.btn:active{transform:scale(.97)}
+.btn svg{width:16px;height:16px}
+.btn.primary{border:0;color:#fff;background:linear-gradient(135deg,var(--primary),var(--primary-2));box-shadow:0 8px 22px rgba(91,140,255,.32)}
+.btn.danger{border-color:rgba(255,95,109,.35);color:var(--err)}
+.btn.danger:hover{background:rgba(255,95,109,.08);border-color:var(--err)}
+.btn.ghost{background:transparent}
+.btn.sm{padding:6px 10px;font-size:12px;border-radius:10px}
+.btn[disabled]{opacity:.55;cursor:not-allowed;transform:none!important;box-shadow:none}
+.spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:rot .7s linear infinite;display:none}
+.btn.loading .spin{display:inline-block}
+@keyframes rot{to{transform:rotate(360deg)}}
+.grid{display:grid;gap:16px}
+.stats{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px;
+  transition:transform .22s,box-shadow .22s,border-color .22s;position:relative;overflow:hidden}
+.card:hover{transform:translateY(-3px);box-shadow:var(--shadow);border-color:rgba(91,140,255,.35)}
+.card h3{margin:0 0 12px;font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.4px}
+.stat .label{color:var(--muted);font-size:12px;display:flex;align-items:center;gap:6px}
+.stat .value{font-size:24px;font-weight:650;margin-top:8px;letter-spacing:.3px;font-variant-numeric:tabular-nums}
+.stat .hint{color:var(--dim);font-size:11px;margin-top:4px}
+.stat.flash{animation:flash .8s ease}
+@keyframes flash{0%{background:rgba(91,140,255,.18)}100%{background:var(--surface)}}
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.field label{font-size:12px;color:var(--muted)}
+.field .tip{font-size:11px;color:var(--dim)}
+input,select,textarea{width:100%;font:inherit;color:var(--text);background:var(--surface-2);border:1px solid var(--line);
+  border-radius:12px;padding:10px 12px;outline:none;transition:border-color .2s,box-shadow .2s,background .2s}
+input:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(91,140,255,.18)}
+textarea{resize:vertical;min-height:80px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.switch{position:relative;width:44px;height:24px;flex:0 0 44px;display:inline-block}
+.switch input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
+.switch span{position:absolute;inset:0;border-radius:999px;background:var(--surface-2);border:1px solid var(--line);transition:.25s}
+.switch span::after{content:"";position:absolute;width:18px;height:18px;left:3px;top:2px;border-radius:50%;background:var(--muted);transition:.25s}
+.switch input:checked + span{background:linear-gradient(135deg,var(--primary),var(--primary-2));border-color:transparent}
+.switch input:checked + span::after{transform:translateX(20px);background:#fff}
+.chan{border-radius:var(--radius);border:1px solid var(--line);background:var(--surface);margin-bottom:12px;overflow:hidden;transition:border-color .2s,box-shadow .2s}
+.chan.on{border-color:rgba(91,140,255,.45);box-shadow:0 8px 24px rgba(91,140,255,.10)}
+.chan-head{display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer}
+.chan-head .name{font-weight:600}
+.chan-body{padding:0 16px;max-height:0;overflow:hidden;transition:max-height .32s ease,padding .3s}
+.chan.open .chan-body{max-height:900px;padding:0 16px 16px}
+.chev{transition:transform .3s;color:var(--dim)}
+.chan.open .chev{transform:rotate(180deg)}
+.badge{font-size:11px;padding:3px 8px;border-radius:999px;background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+.logbox{background:#0a0d12;border:1px solid var(--line);border-radius:14px;padding:12px;height:52vh;overflow:auto;
+  font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.55;white-space:pre-wrap;word-break:break-all}
+.logbox div{animation:fadeIn .25s ease}
+.log-err{color:#ff8a95}.log-ok{color:#6ee7b7}.log-warn{color:#fbbf24}.log-dim{color:#64748b}.log-info{color:#cbd5e1}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+#toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:10px;z-index:60}
+.toast{min-width:220px;max-width:340px;padding:12px 14px;border-radius:12px;background:var(--surface);border:1px solid var(--line);
+  box-shadow:var(--shadow);display:flex;gap:10px;align-items:flex-start;animation:slideIn .28s cubic-bezier(.2,.9,.3,1.2) both}
+.toast.out{animation:slideOut .22s ease forwards}
+.toast .t-ico{width:18px;height:18px;flex:0 0 18px;margin-top:2px}
+.toast.ok .t-ico{color:var(--ok)}.toast.err .t-ico{color:var(--err)}.toast.info .t-ico{color:var(--primary)}
+@keyframes slideIn{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes slideOut{to{opacity:0;transform:translateX(20px)}}
+#modal{position:fixed;inset:0;z-index:70;display:none;place-items:center;background:rgba(4,7,12,.55);backdrop-filter:blur(3px)}
+#modal.show{display:grid;animation:fadeIn .2s ease}
+.modal-card{width:min(400px,calc(100vw - 40px));background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px;box-shadow:var(--shadow);animation:pop .26s cubic-bezier(.2,.9,.3,1.2) both}
+@keyframes pop{from{opacity:0;transform:scale(.94) translateY(8px)}to{opacity:1;transform:none}}
+.modal-card h4{margin:0 0 8px;font-size:16px}
+.modal-card p{margin:0 0 18px;color:var(--muted);font-size:13px}
+.page{display:none}
+.page.active{display:block;animation:fadeUp .3s ease both}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.section{margin-bottom:22px}
+.section-head{display:flex;align-items:center;gap:10px;margin:0 0 10px}
+.section-head h3{margin:0;font-size:14px;color:var(--text);font-weight:600}
+.section-head .desc{color:var(--dim);font-size:12px}
+.empty{color:var(--dim);font-size:12px;padding:10px 0}
+table.info{width:100%;border-collapse:collapse;font-size:13px}
+table.info td{padding:8px 6px;border-bottom:1px solid var(--line)}
+table.info td:first-child{color:var(--muted);width:42%}
+table.info tr:last-child td{border-bottom:0}
+pre.out{margin:0;background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:12px;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+@media (max-width:880px){
+  .app{flex-direction:column}
+  .sidebar{position:fixed;left:0;right:0;bottom:0;top:auto;height:auto;width:auto;flex:auto;flex-direction:row;padding:8px 10px;gap:6px;border-right:0;border-top:1px solid var(--line);background:var(--bg-soft);backdrop-filter:blur(12px);z-index:50}
+  .brand,.side-foot{display:none}
+  nav{flex-direction:row;flex:1;justify-content:space-between}
+  .nav-btn{flex:1;flex-direction:column;gap:3px;font-size:10.5px;padding:6px 2px;justify-content:center}
+  main{padding:18px 14px 96px}
+  .two{grid-template-columns:1fr}
+  .topbar{position:sticky;top:0;z-index:20;padding:8px 0;background:linear-gradient(var(--bg) 70%,transparent)}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
-    /* Sidebar */
-    .sidebar {
-      position: fixed; top: 0; left: 0; bottom: 0; width: var(--sidebar-w);
-      background: var(--ink); display: flex; flex-direction: column;
-      z-index: 100; overflow-y: auto;
-    }
-    .sidebar-brand { padding: 22px 18px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
-    .sidebar-brand h2 { font-size: 17px; font-weight: 600; color: #fff; letter-spacing: -0.4px; }
-    .sidebar-brand span { font-size: 10px; color: rgba(255,255,255,0.4); display: block; margin-top: 1px; font-family: 'SF Mono','Cascadia Code','JetBrains Mono','Consolas',monospace; }
-    .sidebar-nav { flex: 1; padding: 10px; }
-    .sidebar-nav a {
-      display: flex; align-items: center; gap: 10px; padding: 9px 12px;
-      border-radius: var(--radius-sm); color: rgba(255,255,255,0.6);
-      font-size: 13px; font-weight: 500; text-decoration: none;
-      transition: all 0.12s; margin-bottom: 1px; cursor: pointer;
-    }
-    .sidebar-nav a:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.85); }
-    .sidebar-nav a.active { background: rgba(255,255,255,0.12); color: #fff; }
-    .sidebar-nav a .ico { font-size: 15px; width: 20px; text-align: center; flex-shrink: 0; }
-    .sidebar-divider { height: 1px; background: rgba(255,255,255,0.08); margin: 8px 12px; }
-    .sidebar-section-label { font-size: 10px; color: rgba(255,255,255,0.3); padding: 4px 16px 6px; text-transform: uppercase; letter-spacing: 0.6px; font-family: 'SF Mono','Cascadia Code','JetBrains Mono','Consolas',monospace; }
-    .sidebar-footer { padding: 12px 16px; border-top: 1px solid rgba(255,255,255,0.08); }
-    .sidebar-footer .btn { width: 100%; }
-
-    /* Main */
-    .main {
-      margin-left: var(--sidebar-w); flex: 1; padding: 32px;
-      max-width: 780px; width: 100%;
-    }
-    .page-title { font-size: 22px; font-weight: 600; color: var(--ink); letter-spacing: -0.5px; margin-bottom: 6px; }
-    .page-subtitle { font-size: 13px; color: var(--mute); margin-bottom: 24px; }
-
-    /* Card */
-    .card { background: var(--canvas); border-radius: var(--radius-md); box-shadow: var(--shadow-card); margin-bottom: 18px; }
-    .card-header { padding: 16px 22px 0; font-size: 14px; font-weight: 600; color: var(--ink); letter-spacing: -0.2px; display: flex; align-items: center; gap: 8px; }
-    .card-body { padding: 16px 22px 22px; }
-    .card-header + .card-body { padding-top: 12px; }
-
-    /* Panel hide/show */
-    .panel { display: none; }
-    .panel.active { display: block; }
-
-    /* Form */
-    .form-group { margin-bottom: 14px; }
-    .form-group:last-child { margin-bottom: 0; }
-    .form-label { display: block; font-size: 12px; font-weight: 500; color: var(--body); margin-bottom: 4px; letter-spacing: -0.1px; }
-    .form-input, .form-select, .form-textarea {
-      width: 100%; padding: 7px 11px; font-size: 13px; font-family: inherit;
-      border: 1px solid var(--hairline); border-radius: var(--radius-sm);
-      background: var(--canvas); color: var(--ink);
-      transition: border-color 0.15s, box-shadow 0.15s; outline: none;
-    }
-    .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
-    .form-select { cursor: pointer; }
-    .form-textarea { resize: vertical; min-height: 70px; line-height: 1.5; }
-    .form-hint { font-size: 11px; color: var(--mute); margin-top: 3px; line-height: 1.4; }
-    .form-warning { font-size: 11px; color: #ab570a; background: var(--warning-soft); padding: 9px 12px; border-radius: var(--radius-sm); margin-bottom: 14px; line-height: 1.5; }
-    .form-row { display: flex; gap: 14px; }
-    .form-row .form-group { flex: 1; }
-
-    /* Buttons */
-    .btn {
-      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-      padding: 7px 14px; font-size: 13px; font-weight: 500; font-family: inherit;
-      border-radius: var(--radius-pill); border: none; cursor: pointer;
-      transition: all 0.15s; line-height: 1.4; white-space: nowrap;
-    }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-primary { background: var(--ink); color: #fff; }
-    .btn-primary:hover { background: #2a2a2a; }
-    .btn-secondary { background: var(--canvas); color: var(--ink); box-shadow: 0 0 0 1px var(--hairline); }
-    .btn-secondary:hover { background: var(--canvas-soft-2); }
-    .btn-danger { background: var(--error); color: #fff; }
-    .btn-danger:hover { background: #c50000; }
-    .btn-sm { padding: 4px 10px; font-size: 12px; border-radius: var(--radius-sm); }
-    .btn-white { background: #fff; color: var(--ink); }
-    .btn-white:hover { background: #f0f0f0; }
-    .btn-block { width: 100%; justify-content: center; }
-    .btn-save { padding: 10px 20px; font-size: 14px; margin-top: 4px; }
-
-    /* Push Channel */
-    .push-channel { border: 1px solid var(--hairline); border-radius: var(--radius-md); padding: 14px; margin-bottom: 10px; background: var(--canvas-soft); transition: border-color 0.15s; }
-    .push-channel:hover { border-color: var(--hairline-strong); }
-    .push-channel-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-    .push-channel-header label { font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer; }
-    .push-channel-header input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--ink); }
-    .push-channel-body { display: none; }
-    .push-channel.enabled .push-channel-body { display: block; }
-    .push-channel.enabled { border-color: var(--hairline-strong); background: var(--canvas); }
-    .push-channel-body .form-group { margin-bottom: 12px; }
-    .push-channel-body .form-group:last-child { margin-bottom: 0; }
-    .push-channel-body label { display: block; font-size: 12px; font-weight: 500; color: var(--body); margin-bottom: 4px; letter-spacing: -0.1px; }
-    .push-channel-body input[type="text"], .push-channel-body input[type="password"], .push-channel-body select, .push-channel-body textarea {
-      width: 100%; padding: 7px 11px; font-size: 13px; font-family: inherit;
-      border: 1px solid var(--hairline); border-radius: var(--radius-sm);
-      background: var(--canvas); color: var(--ink);
-      transition: border-color 0.15s, box-shadow 0.15s; outline: none;
-    }
-    .push-channel-body input:focus, .push-channel-body select:focus, .push-channel-body textarea:focus { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
-    .push-channel-body select { cursor: pointer; }
-    .push-channel-body textarea { resize: vertical; min-height: 60px; line-height: 1.5; }
-    .push-type-hint { font-size: 11px; color: var(--body); margin-top: 4px; padding: 8px 12px; background: var(--canvas-soft-2); border-radius: var(--radius-sm); font-family: 'SF Mono','Cascadia Code','JetBrains Mono','Consolas',monospace; line-height: 1.5; }
-
-    /* Result Boxes */
-    .result-box { margin-top: 12px; padding: 10px 14px; border-radius: var(--radius-sm); display: none; font-size: 12px; line-height: 1.5; }
-    .result-success { background: #e8f5e9; color: #2e7d32; display: block; }
-    .result-error { background: #ffebee; color: #c62828; display: block; }
-    .result-loading { background: #fff3e0; color: #e65100; display: block; }
-    .result-info { background: #e3f2fd; color: #1565c0; display: block; }
-    .info-table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 12px; }
-    .info-table td { padding: 5px 8px; border-bottom: 1px solid var(--hairline); }
-    .info-table td:first-child { font-weight: 500; color: var(--body); width: 40%; }
-
-    /* Overview */
-    .overview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-    .overview-item { background: var(--canvas-soft); border-radius: var(--radius-sm); padding: 14px; }
-    .overview-item .label { font-size: 10px; color: var(--mute); text-transform: uppercase; letter-spacing: 0.4px; font-family: 'SF Mono','Cascadia Code','JetBrains Mono','Consolas',monospace; margin-bottom: 4px; }
-    .overview-item .value { font-size: 14px; font-weight: 600; color: var(--ink); }
-
-    /* Tools */
-    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
-    .btn-row .btn { flex: 1; min-width: 90px; }
-    .btn-row + .btn-row { margin-top: 8px; }
-    #atLog {
-      background: var(--ink); color: #50e3c2; font-family: 'SF Mono','Cascadia Code','JetBrains Mono','Consolas',monospace;
-      min-height: 130px; max-height: 260px; overflow-y: auto; padding: 12px 14px;
-      border-radius: var(--radius-sm); margin-bottom: 10px; font-size: 12px;
-      white-space: pre-wrap; word-break: break-all; line-height: 1.5;
-    }
-    .at-bar { display: flex; gap: 6px; }
-    .at-bar input { flex: 1; font-family: 'SF Mono','Cascadia Code','JetBrains Mono','Consolas',monospace; }
-    .at-bar .btn { min-width: 60px; }
-
-    /* Responsive */
-    @media (max-width: 700px) {
-      .sidebar { width: 50px; }
-      .sidebar-brand h2 { font-size: 0; }
-      .sidebar-brand h2::first-letter { font-size: 16px; }
-      .sidebar-brand span, .sidebar-section-label { display: none; }
-      .sidebar-nav a { padding: 10px; justify-content: center; }
-      .sidebar-nav a span:not(.ico) { display: none; }
-      .sidebar-nav a .ico { font-size: 16px; }
-      .sidebar-divider { margin: 6px 8px; }
-      .sidebar-footer { padding: 8px; }
-      .sidebar-footer .btn span { display: none; }
-      .sidebar-footer .btn { padding: 6px; font-size: 11px; }
-      .main { margin-left: 50px; padding: 18px 14px; }
-      :root { --sidebar-w: 50px; }
-      .overview-grid { grid-template-columns: 1fr; }
-    }
-  </style>
+</style>
 </head>
 <body>
+<div class="app">
   <aside class="sidebar">
-    <div class="sidebar-brand">
-      <h2>SMS FWD</h2>
-      <span>短信转发器</span>
+    <div class="brand">
+      <div class="logo">信</div>
+      <div>
+        <h1>短信转发器</h1>
+        <small id="deviceName">ESP32-C3</small>
+      </div>
     </div>
-    <nav class="sidebar-nav">
-      <div class="sidebar-section-label">配置</div>
-      <a data-panel="overview" class="active"><span class="ico">🏠</span> <span>系统概览</span></a>
-      <a data-panel="account"><span class="ico">🔐</span> <span>账号管理</span></a>
-      <a data-panel="email"><span class="ico">📧</span> <span>邮件通知</span></a>
-      <a data-panel="push"><span class="ico">🔗</span> <span>推送通道</span></a>
-      <a data-panel="admin"><span class="ico">👤</span> <span>管理员 &amp; 黑名单</span></a>
-      <div class="sidebar-divider"></div>
-      <div class="sidebar-section-label">工具</div>
-      <a data-panel="sendsms"><span class="ico">📤</span> <span>发送短信</span></a>
-      <a data-panel="diagnose"><span class="ico">📊</span> <span>模组诊断</span></a>
-      <a data-panel="network"><span class="ico">🌐</span> <span>网络测试</span></a>
-      <a data-panel="modem"><span class="ico">✈</span> <span>模组控制</span></a>
-      <a data-panel="atterm"><span class="ico">💻</span> <span>AT 终端</span></a>
-      <a data-panel="log"><span class="ico">📋</span> <span>系统日志</span></a>
+    <nav id="nav">
+      <button class="nav-btn active" data-page="overview">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>
+        <span>概览</span>
+      </button>
+      <button class="nav-btn" data-page="sms">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/></svg>
+        <span>发短信</span>
+      </button>
+      <button class="nav-btn" data-page="mail">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 8 8 5 8-5"/></svg>
+        <span>邮件</span>
+      </button>
+      <button class="nav-btn" data-page="push">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
+        <span>推送</span>
+      </button>
+      <button class="nav-btn" data-page="tools">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.7 6.3a4 4 0 0 0 5 5L21 21H3l1.3-9.7a4 4 0 0 0 5-5z"/></svg>
+        <span>工具</span>
+      </button>
+      <button class="nav-btn" data-page="log">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+        <span>日志</span>
+      </button>
     </nav>
-    <div class="sidebar-footer">
-      <button class="btn btn-white btn-sm btn-block" onclick="switchPanel('account')"><span>修改密码</span> 🔑</button>
+    <div class="side-foot">
+      <div class="row" style="justify-content:space-between">
+        <span class="pill"><i class="dot" id="netDot"></i><span id="netText">连接中</span></span>
+        <button class="icon-btn" id="themeBtn" title="切换主题">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        </button>
+      </div>
+      <div id="ipText">--</div>
     </div>
   </aside>
 
-  <main class="main">
+  <main>
+    <div class="topbar">
+      <div>
+        <h2 id="pageTitle">概览</h2>
+        <div class="sub" id="pageSub">设备与网络状态</div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn ghost sm" id="refreshBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
+        刷新
+      </button>
+    </div>
 
-    <!-- ===== Overview ===== -->
-    <div class="panel active" id="panel-overview">
-      <h1 class="page-title">系统概览</h1>
-      <p class="page-subtitle">设备状态与基本信息</p>
-      <div class="card">
-        <div class="card-header">📡 设备信息</div>
-        <div class="card-body">
-          <div class="overview-grid">
-            <div class="overview-item"><div class="label">Device IP</div><div class="value" id="ovIp">%IP%</div></div>
-            <div class="overview-item"><div class="label">WiFi SSID</div><div class="value" id="ovSsid">%WIFI_SSID%</div></div>
-            <div class="overview-item"><div class="label">Free Heap</div><div class="value" id="ovHeap">%FREE_HEAP%</div></div>
-            <div class="overview-item"><div class="label">Uptime</div><div class="value" id="ovUptime">%UPTIME%</div></div>
-          </div>
+    <section class="page active" id="page-overview">
+      <div class="grid stats">
+        <div class="card stat" id="statIp">
+          <div class="label">设备地址</div>
+          <div class="value" id="ovIp">--</div>
+          <div class="hint" id="ovName">--</div>
+        </div>
+        <div class="card stat" id="statUp">
+          <div class="label">运行时长</div>
+          <div class="value" id="ovUptime">--</div>
+          <div class="hint">自上次重启</div>
+        </div>
+        <div class="card stat" id="statHeap">
+          <div class="label">空闲内存</div>
+          <div class="value" id="ovHeap">--</div>
+          <div class="hint">堆剩余</div>
+        </div>
+        <div class="card stat" id="statModem">
+          <div class="label">4G 模组</div>
+          <div class="value" id="ovModem">--</div>
+          <div class="hint" id="ovModel">--</div>
         </div>
       </div>
-      <div class="card">
-        <div class="card-header">⚙ 配置状态</div>
-        <div class="card-body">
-          <table class="info-table">
-            <tr><td>模组状态</td><td id="cfgModem">%MODEM_CHECK%</td></tr>
-            <tr><td>邮件通知</td><td id="cfgEmail">%SMTP_CHECK%</td></tr>
-            <tr><td>推送通道</td><td id="cfgPush">%PUSH_COUNT% 个已启用</td></tr>
-            <tr><td>管理员号码</td><td>%ADMIN_PHONE%</td></tr>
+
+      <div class="grid two" style="margin-top:16px">
+        <div class="card">
+          <h3>通知配置</h3>
+          <table class="info">
+            <tr><td>邮件通知</td><td id="ovMail">--</td></tr>
+            <tr><td>推送通道</td><td id="ovPush">--</td></tr>
+            <tr><td>管理员号码</td><td id="ovAdmin">--</td></tr>
+            <tr><td>WiFi</td><td id="ovSsid">--</td></tr>
           </table>
         </div>
-      </div>
-      <div class="card">
-        <div class="card-header">🔄 系统控制</div>
-        <div class="card-body">
-          <button class="btn btn-danger" onclick="systemRestart()">重启系统</button>
-          <p class="form-hint">重启整个设备（ESP32 + 模组），期间无法接收短信和访问网页，约需 1 分钟恢复</p>
-          <div class="result-box" id="sysRestartResult"></div>
+        <div class="card">
+          <h3>快捷操作</h3>
+          <div class="actions">
+            <button class="btn primary" data-go="sms">发短信</button>
+            <button class="btn" data-act="signal">查信号</button>
+            <button class="btn" data-act="ping">Ping</button>
+            <button class="btn" data-go="log">看日志</button>
+          </div>
+          <div class="empty" id="quickOut">操作结果会显示在这里</div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- ===== Account ===== -->
-    <div class="panel" id="panel-account">
-      <h1 class="page-title">账号管理</h1>
-      <p class="page-subtitle">修改 Web 管理界面的登录凭据</p>
-      <form action="/save" method="POST" id="mainForm">
+    <section class="page" id="page-sms">
       <div class="card">
-        <div class="card-header">🔐 登录凭据</div>
-        <div class="card-body">
-          <div class="form-warning">首次使用请立即修改默认密码！默认: )rawliteral" DEFAULT_WEB_USER " / " DEFAULT_WEB_PASS R"rawliteral(</div>
-          <div class="form-row">
-            <div class="form-group"><label class="form-label">管理账号</label><input class="form-input" type="text" name="webUser" value="%WEB_USER%" placeholder="admin"></div>
-            <div class="form-group"><label class="form-label">管理密码</label><input class="form-input" type="password" name="webPass" value="%WEB_PASS%" placeholder="设置复杂密码"></div>
+        <h3>发送短信</h3>
+        <div class="two">
+          <div class="field">
+            <label>目标号码</label>
+            <input id="smsPhone" placeholder="如 17612345678 或 +8617612345678" inputmode="tel">
+          </div>
+          <div class="field">
+            <label>字数</label>
+            <div class="row" style="height:42px"><span class="badge" id="smsCount">0 / 70</span><span class="badge" id="smsMode">UCS2</span></div>
           </div>
         </div>
+        <div class="field">
+          <label>内容</label>
+          <textarea id="smsText" rows="4" placeholder="单条最多 70 个汉字（或 160 个英文字符）"></textarea>
+        </div>
+        <div class="actions">
+          <button class="btn primary" id="sendBtn"><span class="spin"></span>发送</button>
+          <button class="btn ghost" id="clearSms">清空</button>
+        </div>
       </div>
-      <button type="submit" class="btn btn-primary btn-block btn-save">保存配置</button>
-      </form>
-    </div>
+    </section>
 
-    <!-- ===== Email ===== -->
-    <div class="panel" id="panel-email">
-      <h1 class="page-title">邮件通知</h1>
-      <p class="page-subtitle">配置 SMTP 服务器以接收短信邮件通知</p>
-      <form action="/save" method="POST" id="mainForm2">
+    <section class="page" id="page-mail">
       <div class="card">
-        <div class="card-header">📧 SMTP 设置</div>
-        <div class="card-body">
-          <div class="form-row">
-            <div class="form-group"><label class="form-label">SMTP 服务器</label><input class="form-input" type="text" name="smtpServer" value="%SMTP_SERVER%" placeholder="smtp.qq.com"></div>
-            <div class="form-group"><label class="form-label">SMTP 端口</label><input class="form-input" type="number" name="smtpPort" value="%SMTP_PORT%" placeholder="465"></div>
+        <h3>SMTP 邮件</h3>
+        <div class="two">
+          <div class="field"><label>服务器</label><input id="smtpServer" placeholder="smtp.qq.com"></div>
+          <div class="field"><label>端口</label><input id="smtpPort" placeholder="465" inputmode="numeric"></div>
+        </div>
+        <div class="two">
+          <div class="field"><label>邮箱账号</label><input id="smtpUser" placeholder="you@qq.com"></div>
+          <div class="field"><label>密码 / 授权码</label><input id="smtpPass" type="password" placeholder="授权码"></div>
+        </div>
+        <div class="field"><label>收件地址</label><input id="smtpTo" placeholder="receiver@example.com"></div>
+        <div class="field"><span class="tip">465 端口走隐式 TLS；其他端口按明文处理（不支持 STARTTLS）</span></div>
+        <div class="actions"><button class="btn primary" data-save="mail"><span class="spin"></span>保存邮件设置</button></div>
+      </div>
+    </section>
+
+    <section class="page" id="page-push">
+      <div class="card" style="margin-bottom:16px">
+        <div class="row" style="justify-content:space-between">
+          <div>
+            <h3 style="margin:0">推送通道</h3>
+            <span class="tip">系统通知（启动、IP 变化、网络恢复）会发送到所有已启用通道</span>
           </div>
-          <div class="form-row">
-            <div class="form-group"><label class="form-label">邮箱账号</label><input class="form-input" type="text" name="smtpUser" value="%SMTP_USER%" placeholder="your@qq.com"></div>
-            <div class="form-group"><label class="form-label">密码 / 授权码</label><input class="form-input" type="password" name="smtpPass" value="%SMTP_PASS%" placeholder="授权码"></div>
+          <button class="btn primary sm" data-save="push"><span class="spin"></span>保存全部通道</button>
+        </div>
+      </div>
+      <div id="channels"></div>
+    </section>
+
+    <section class="page" id="page-tools">
+      <div class="grid two">
+        <div class="card">
+          <h3>管理账号</h3>
+          <div class="field"><label>账号</label><input id="webUser" placeholder="admin"></div>
+          <div class="field"><label>密码</label><input id="webPass" type="password" placeholder="至少 6 位"></div>
+          <div class="actions"><button class="btn primary" data-save="account"><span class="spin"></span>保存账号</button></div>
+        </div>
+        <div class="card">
+          <h3>管理员短信命令</h3>
+          <div class="field"><label>管理员号码</label><input id="adminPhone" placeholder="13800138000"></div>
+          <div class="field"><span class="tip">该号码发来的 SMS:号码:内容 会触发发送；RESET 会重启设备</span></div>
+          <div class="actions"><button class="btn primary" data-save="admin"><span class="spin"></span>保存</button></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <h3>号码黑名单</h3>
+        <div class="field"><textarea id="blacklist" rows="4" placeholder="每行一个号码"></textarea></div>
+        <div class="actions"><button class="btn primary" data-save="blacklist"><span class="spin"></span>保存黑名单</button></div>
+      </div>
+
+      <div class="grid two" style="margin-top:16px">
+        <div class="card">
+          <h3>模组信息</h3>
+          <div class="actions">
+            <button class="btn sm" data-act="ati">固件</button>
+            <button class="btn sm" data-act="signal">信号</button>
+            <button class="btn sm" data-act="siminfo">SIM</button>
+            <button class="btn sm" data-act="network">网络</button>
+            <button class="btn sm" data-act="wifi">WiFi</button>
           </div>
-          <div class="form-group"><label class="form-label">接收邮件地址</label><input class="form-input" type="text" name="smtpSendTo" value="%SMTP_SEND_TO%" placeholder="receiver@example.com"></div>
+          <div id="infoOut" class="empty" style="margin-top:12px">点按钮查询</div>
+        </div>
+        <div class="card">
+          <h3>AT 指令</h3>
+          <div class="field"><input id="atCmd" placeholder="AT+CSQ" style="font-family:ui-monospace,monospace"></div>
+          <div class="actions">
+            <button class="btn primary sm" data-act="at">执行</button>
+            <button class="btn sm" data-act="flight">飞行模式</button>
+            <button class="btn sm" data-act="imei">序列号</button>
+            <button class="btn sm" data-act="operator">运营商</button>
+          </div>
+          <pre class="out" id="atOut" style="margin-top:12px">等待指令…</pre>
         </div>
       </div>
-      <button type="submit" class="btn btn-primary btn-block btn-save">保存配置</button>
-      </form>
-    </div>
 
-    <!-- ===== Push Channels ===== -->
-    <div class="panel" id="panel-push">
-      <h1 class="page-title">推送通道</h1>
-      <p class="page-subtitle">最多 5 个独立推送通道，支持 POST JSON、Bark、钉钉、飞书、PushPlus、Server酱、Gotify、Telegram</p>
-      <form action="/save" method="POST" id="mainForm3">
-      <div class="card">
-        <div class="card-header">🔗 通道配置</div>
-        <div class="card-body">
-          %PUSH_CHANNELS%
+      <div class="card" style="margin-top:16px">
+        <h3>重启与维护</h3>
+        <div class="actions">
+          <button class="btn" data-act="modem_restart">软重启模组</button>
+          <button class="btn" data-act="modem_hardreset">硬重启模组</button>
+          <button class="btn" data-act="wifi_restart">重连 WiFi</button>
+          <button class="btn danger" data-act="system_restart">重启设备</button>
         </div>
       </div>
-      <button type="submit" class="btn btn-primary btn-block btn-save">保存配置</button>
-      </form>
-    </div>
+    </section>
 
-    <!-- ===== Admin & Blacklist ===== -->
-    <div class="panel" id="panel-admin">
-      <h1 class="page-title">管理员 &amp; 黑名单</h1>
-      <p class="page-subtitle">远程控制权限与短信过滤</p>
-      <form action="/save" method="POST" id="mainForm4">
-      <div class="card">
-        <div class="card-header">👤 管理员手机号</div>
-        <div class="card-body">
-          <div class="form-group">
-            <input class="form-input" type="text" name="adminPhone" value="%ADMIN_PHONE%" placeholder="13800138000">
-            <p class="form-hint">此号码可通过短信发送远程指令（SMS:号码:内容 发短信、RESET 重启）</p>
+    <section class="page" id="page-log">
+      <div class="card" style="padding:14px">
+        <div class="row" style="justify-content:space-between;margin-bottom:10px">
+          <div class="row">
+            <label class="switch"><input type="checkbox" id="logAuto" checked><span></span></label>
+            <span class="tip">自动刷新</span>
+            <label class="switch" style="margin-left:8px"><input type="checkbox" id="logFollow" checked><span></span></label>
+            <span class="tip">跟随最新</span>
+          </div>
+          <div class="row">
+            <input id="logFilter" placeholder="过滤关键字" style="width:160px">
+            <button class="btn sm ghost" id="logCopy">复制</button>
           </div>
         </div>
+        <div class="logbox" id="logBox"><div class="log-dim">加载中…</div></div>
       </div>
-      <div class="card">
-        <div class="card-header">🚫 号码黑名单</div>
-        <div class="card-body">
-          <div class="form-group">
-            <textarea class="form-textarea" name="numberBlackList" rows="5" placeholder="每行一个号码">%NUMBER_BLACK_LIST%</textarea>
-            <p class="form-hint">黑名单号码发来的短信将被自动忽略</p>
-          </div>
-        </div>
-      </div>
-      <button type="submit" class="btn btn-primary btn-block btn-save">保存配置</button>
-      </form>
-    </div>
-
-    <!-- ===== Send SMS ===== -->
-    <div class="panel" id="panel-sendsms">
-      <h1 class="page-title">发送短信</h1>
-      <p class="page-subtitle">通过模组直接发送短信</p>
-      <div class="card">
-        <div class="card-header">📤 新建短信</div>
-        <div class="card-body">
-          <form action="/sendsms" method="POST" target="_self">
-            <div class="form-group"><label class="form-label">目标号码</label><input class="form-input" type="text" name="phone" placeholder="13800138000" required></div>
-            <div class="form-group"><label class="form-label">短信内容</label><textarea class="form-textarea" name="content" placeholder="输入短信内容..." required oninput="updateCount(this)"></textarea><p class="form-hint">已输入 <span id="charCount">0</span> 字符</p></div>
-            <button type="submit" class="btn btn-primary" style="padding:9px 18px;">发送短信</button>
-          </form>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===== Diagnostics ===== -->
-    <div class="panel" id="panel-diagnose">
-      <h1 class="page-title">模组诊断</h1>
-      <p class="page-subtitle">查询模组状态、SIM 卡与网络信息</p>
-      <div class="card">
-        <div class="card-header">📊 查询</div>
-        <div class="card-body">
-          <div class="btn-row"><button class="btn btn-secondary" onclick="queryInfo('ati')">固件信息</button><button class="btn btn-secondary" onclick="queryInfo('signal')">信号质量</button></div>
-          <div class="btn-row"><button class="btn btn-secondary" onclick="queryInfo('siminfo')">SIM 卡信息</button><button class="btn btn-secondary" onclick="queryInfo('network')">网络状态</button><button class="btn btn-secondary" onclick="queryInfo('wifi')">WiFi 状态</button></div>
-          <div class="result-box" id="queryResult"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===== Network Test ===== -->
-    <div class="panel" id="panel-network">
-      <h1 class="page-title">网络测试</h1>
-      <p class="page-subtitle">通过模组数据连接测试网络连通性</p>
-      <div class="card">
-        <div class="card-header">🌐 Ping</div>
-        <div class="card-body">
-          <button class="btn btn-secondary" id="pingBtn" onclick="confirmPing()">Ping 8.8.8.8</button>
-          <p class="form-hint">通过模组执行 Ping，消耗极少流量</p>
-          <div class="result-box" id="pingResult"></div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-header">📡 WiFi 控制</div>
-        <div class="card-body">
-          <button class="btn btn-danger" onclick="wifiRestart()">重启 WiFi</button>
-          <p class="form-hint">断开当前 WiFi 连接并重新连接</p>
-          <div class="result-box" id="wifiResult"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===== Modem Control ===== -->
-    <div class="panel" id="panel-modem">
-      <h1 class="page-title">模组控制</h1>
-      <p class="page-subtitle">模组重启、飞行模式、信号查询等操作</p>
-      <div class="card">
-        <div class="card-header">🔄 模组重启</div>
-        <div class="card-body">
-          <div class="btn-row"><button class="btn btn-danger" onclick="modemAction('restart')">软重启 (AT+CFUN)</button><button class="btn btn-danger" onclick="modemAction('hardreset')">硬重启 (EN引脚)</button></div>
-          <p class="form-hint">软重启发送 AT+CFUN=1,1 指令（15s 超时）；硬重启通过 EN 引脚断电后重新上电</p>
-          <div class="result-box" id="modemRstResult"></div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-header">📶 信号查询</div>
-        <div class="card-body">
-          <div class="btn-row"><button class="btn btn-primary" onclick="modemAction('signal')">查询信号强度</button><button class="btn btn-primary" onclick="modemAction('operator')">查询运营商</button><button class="btn btn-primary" onclick="modemAction('imei')">查询 IMEI</button></div>
-          <div class="result-box" id="modemQueryResult"></div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-header">✈ 飞行模式</div>
-        <div class="card-body">
-          <div class="btn-row"><button class="btn btn-danger" id="flightBtn" onclick="toggleFlightMode()">切换飞行模式</button><button class="btn btn-secondary" onclick="queryFlightMode()">查询状态</button></div>
-          <p class="form-hint">飞行模式开启后模组射频关闭，无法收发短信</p>
-          <div class="result-box" id="flightResult"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===== AT Terminal ===== -->
-    <div class="panel" id="panel-atterm">
-      <h1 class="page-title">AT 指令终端</h1>
-      <p class="page-subtitle">直接向模组发送 AT 指令并接收响应</p>
-      <div class="card">
-        <div class="card-header">💻 终端</div>
-        <div class="card-body">
-          <div id="atLog">就绪 — 输入 AT 指令开始调试</div>
-          <div class="at-bar"><input class="form-input" type="text" id="atCmd" placeholder="AT+CSQ"><button class="btn btn-primary btn-sm" onclick="sendAT()" id="atBtn">发送</button></div>
-          <div class="btn-row" style="margin-top:8px;"><button class="btn btn-secondary btn-sm" onclick="clearATLog()">清空日志</button></div>
-          <p class="form-hint">直接向模组串口发送指令并接收响应，请谨慎操作</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===== System Log ===== -->
-    <div class="panel" id="panel-log">
-      <h1 class="page-title">系统日志</h1>
-      <p class="page-subtitle">实时查看设备串口日志输出 <span id="logStatus" style="color:#4CAF50;">● 自动刷新中</span></p>
-      <div class="card">
-        <div class="card-header">📋 日志输出</div>
-        <div class="card-body">
-          <div id="logView" style="background:#1e1e1e;color:#d4d4d4;padding:12px;border-radius:8px;font-family:'Cascadia Code','Fira Code',Consolas,monospace;font-size:12px;line-height:1.6;max-height:60vh;overflow-y:auto;white-space:pre-wrap;word-break:break-all;min-height:300px;">加载中...</div>
-          <div class="btn-row" style="margin-top:8px;">
-            <button class="btn btn-secondary btn-sm" onclick="clearLogUI()">清空显示</button>
-            <button class="btn btn-secondary btn-sm" onclick="refreshLog()">手动刷新</button>
-            <label style="margin-left:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="logAuto" checked onchange="toggleLogAuto()"> 自动刷新</label>
-          </div>
-          <p class="form-hint">显示设备运行时输出的日志信息，每2秒自动刷新。日志最多保留最近120条。</p>
-        </div>
-      </div>
-    </div>
-
+    </section>
   </main>
+</div>
 
-  <script>
-    // ---- Panel switching ----
-    function switchPanel(name) {
-      document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
-      document.getElementById('panel-' + name).classList.add('active');
-      document.querySelectorAll('.sidebar-nav a').forEach(function(a) { a.classList.remove('active'); });
-      document.querySelector('.sidebar-nav a[data-panel="' + name + '"]').classList.add('active');
-    }
-    document.querySelectorAll('.sidebar-nav a').forEach(function(a) {
-      a.addEventListener('click', function() { switchPanel(this.dataset.panel); });
+<div id="toasts"></div>
+<div id="modal">
+  <div class="modal-card">
+    <h4 id="mTitle">确认操作</h4>
+    <p id="mText"></p>
+    <div class="actions" style="justify-content:flex-end">
+      <button class="btn ghost" id="mCancel">取消</button>
+      <button class="btn danger" id="mOk">确定</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var $ = function(id){ return document.getElementById(id); };
+  var state = { cfg:null, page:'overview', logTimer:null, statTimer:null, uptime:0, logText:'' };
+
+  var TYPES = [
+    [1,'POST JSON','通用 JSON 推送'],
+    [2,'Bark','iOS 推送'],
+    [3,'GET','参数放在 URL'],
+    [4,'钉钉机器人','Webhook + 加签'],
+    [5,'PushPlus','token 必填'],
+    [6,'Server酱','sendkey 必填'],
+    [7,'自定义模板','占位符模板'],
+    [8,'飞书机器人','Webhook + 签名'],
+    [9,'Gotify','URL + token'],
+    [10,'Telegram Bot','chat_id + token']
+  ];
+  var NEED = {
+    1:{url:1,k1:0,k2:0,body:0}, 2:{url:1,k1:0,k2:0,body:0}, 3:{url:1,k1:0,k2:0,body:0},
+    4:{url:1,k1:1,k2:0,body:0}, 5:{url:0,k1:1,k2:1,body:0}, 6:{url:0,k1:1,k2:0,body:0},
+    7:{url:1,k1:0,k2:0,body:1}, 8:{url:1,k1:1,k2:0,body:0}, 9:{url:1,k1:1,k2:0,body:0},
+    10:{url:0,k1:1,k2:1,body:0}
+  };
+  var LABELS = {
+    1:{k1:'',k2:''}, 2:{k1:'',k2:''}, 3:{k1:'',k2:''},
+    4:{k1:'加签 secret（可空）',k2:''}, 5:{k1:'token',k2:'渠道：wechat / app / extension'},
+    6:{k1:'sendkey',k2:''}, 7:{k1:'',k2:''},
+    8:{k1:'签名 secret（可空）',k2:''}, 9:{k1:'token',k2:''},
+    10:{k1:'chat_id',k2:'bot token'}
+  };
+
+  function esc(s){
+    return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  function api(path, opts){
+    opts = opts || {};
+    opts.cache = 'no-store';
+    if (opts.body && !opts.headers) opts.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+    return fetch(path, opts).then(function(r){
+      var ct = r.headers.get('content-type') || '';
+      if (ct.indexOf('json') >= 0) return r.json();
+      return r.text().then(function(t){ return { success: r.ok, message: t }; });
     });
-
-    // ---- Push Channel JS ----
-    function toggleChannel(idx) {
-      var ch = document.getElementById('channel' + idx);
-      var cb = document.getElementById('push' + idx + 'en');
-      if (cb.checked) ch.classList.add('enabled'); else ch.classList.remove('enabled');
-    }
-    function updateTypeHint(idx) {
-      var sel = document.getElementById('push' + idx + 'type');
-      var hint = document.getElementById('hint' + idx);
-      var extra = document.getElementById('extra' + idx);
-      var custom = document.getElementById('custom' + idx);
-      var type = parseInt(sel.value);
-      // 按平台预填官方默认接口地址
-      // 替换规则：字段为空、或当前值恰好是某平台默认地址时才更新；用户手输的自定义地址不动
-      var urlInput = document.getElementById('url' + idx);
-      if (urlInput) {
-        var defUrls = {4:'https://oapi.dingtalk.com/robot/send',5:'http://www.pushplus.plus/send',8:'https://open.feishu.cn/open-apis/bot/v2/hook/',10:'https://api.telegram.org'};
-        var urlPhs = {1:'http://your-server.com/api',2:'https://api.day.app/你的Key（或自建服务器地址）',3:'http://your-server.com/api',6:'留空将自动用 SendKey 拼接官方接口',7:'http://your-server.com/api',9:'https://你的Gotify服务器地址'};
-        var cur = urlInput.value;
-        var isDefaultVal = false;
-        for (var k in defUrls) { if (defUrls[k] === cur) { isDefaultVal = true; break; } }
-        if ((!cur || isDefaultVal) && defUrls[type]) urlInput.value = defUrls[type];
-        urlInput.placeholder = urlPhs[type] || 'http://your-server.com/api 或 webhook地址';
+  }
+  function busy(btn, on){
+    if (!btn) return;
+    if (on) { btn.classList.add('loading'); btn.disabled = true; }
+    else { btn.classList.remove('loading'); btn.disabled = false; }
+  }
+  function toast(msg, type){
+    type = type || 'info';
+    var t = document.createElement('div');
+    t.className = 'toast ' + type;
+    t.innerHTML = '<span class="t-ico">' +
+      (type === 'ok' ? '&#10003;' : type === 'err' ? '&#10007;' : '&#9432;') + '</span><div>' + esc(msg) + '</div>';
+    $('toasts').appendChild(t);
+    setTimeout(function(){ t.classList.add('out'); setTimeout(function(){ t.remove(); }, 260); }, 3400);
+  }
+  function confirmDlg(title, text){
+    return new Promise(function(resolve){
+      $('mTitle').textContent = title;
+      $('mText').textContent = text;
+      $('modal').classList.add('show');
+      function done(ok){
+        $('modal').classList.remove('show');
+        $('mOk').onclick = null; $('mCancel').onclick = null;
+        resolve(ok);
       }
-      extra.style.display = 'none'; custom.style.display = 'none';
-      document.getElementById('key1label' + idx).innerText = '参数 1';
-      document.getElementById('key2label' + idx).innerText = '参数 2';
-      document.getElementById('key1' + idx).placeholder = '';
-      document.getElementById('key2' + idx).placeholder = '';
-      var kg = document.getElementById('key2group' + idx);
-      if (kg) kg.style.display = 'none';
-      if (type == 1) hint.innerHTML = 'POST JSON<br>{"sender":"+8613800138000","message":"...","timestamp":"2026-01-01 12:00:00"}';
-      else if (type == 2) hint.innerHTML = 'Bark (iOS)<br>POST {"title":"发送者","body":"短信内容"}';
-      else if (type == 3) hint.innerHTML = 'GET 请求<br>URL?sender=xxx&message=xxx&timestamp=xxx';
-      else if (type == 4) { hint.innerHTML = '钉钉机器人<br>填写 Webhook 地址，加签需填 Secret'; extra.style.display='block'; document.getElementById('key1label'+idx).innerText='Secret（加签密钥，可选）'; document.getElementById('key1'+idx).placeholder='SEC...'; }
-      else if (type == 5) { hint.innerHTML = 'PushPlus<br>填写 Token，URL 留空使用默认'; extra.style.display='block'; document.getElementById('key1label'+idx).innerText='Token'; document.getElementById('key1'+idx).placeholder='pushplus token'; if(kg)kg.style.display='block'; document.getElementById('key2label'+idx).innerText='发送渠道'; document.getElementById('key2'+idx).placeholder='wechat / extension / app'; }
-      else if (type == 6) { hint.innerHTML = 'Server酱<br>填写 SendKey，URL 留空使用默认'; extra.style.display='block'; document.getElementById('key1label'+idx).innerText='SendKey'; document.getElementById('key1'+idx).placeholder='SCT...'; }
-      else if (type == 7) { hint.innerHTML = '自定义模板<br>使用 {sender} {message} {timestamp} 占位符'; custom.style.display='block'; }
-      else if (type == 8) { hint.innerHTML = '飞书机器人<br>已预填官方地址，需在其末尾拼接你的 Hook Token；签名验证另填 Secret'; extra.style.display='block'; document.getElementById('key1label'+idx).innerText='Secret（签名密钥，可选）'; document.getElementById('key1'+idx).placeholder='飞书签名密钥'; }
-      else if (type == 9) { hint.innerHTML = 'Gotify<br>填写服务器地址 + 应用 Token'; extra.style.display='block'; document.getElementById('key1label'+idx).innerText='Token（应用 Token）'; document.getElementById('key1'+idx).placeholder='A...'; }
-      else if (type == 10) { hint.innerHTML = 'Telegram Bot<br>Chat ID（参数1）+ Bot Token（参数2）'; extra.style.display='block'; document.getElementById('key1label'+idx).innerText='Chat ID'; document.getElementById('key1'+idx).placeholder='123456789'; if(kg)kg.style.display='block'; document.getElementById('key2label'+idx).innerText='Bot Token'; document.getElementById('key2'+idx).placeholder='12345678:ABC...'; }
-    }
-    document.addEventListener('DOMContentLoaded', function() {
-      for (var i = 0; i < 5; i++) { toggleChannel(i); updateTypeHint(i); }
+      $('mOk').onclick = function(){ done(true); };
+      $('mCancel').onclick = function(){ done(false); };
     });
+  }
+  function fmtUptime(s){
+    s = Math.max(0, Math.floor(s));
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    if (h > 0) return h + 'h ' + (m < 10 ? '0' : '') + m + 'm';
+    if (m > 0) return m + 'm ' + (sec < 10 ? '0' : '') + sec + 's';
+    return sec + 's';
+  }
 
-    // ---- Send SMS ----
-    function updateCount(el) { document.getElementById('charCount').textContent = el.value.length; }
+  /* ---------- 页面切换 ---------- */
+  var TITLES = {
+    overview:['概览','设备与网络状态'], sms:['发短信','主动发送，最多 70 个汉字'],
+    mail:['邮件','SMTP 通知配置'], push:['推送','多通道 HTTP 推送'],
+    tools:['工具','账号、模组与维护'], log:['日志','最近 120 行运行日志']
+  };
+  function go(page){
+    if (!TITLES[page]) page = 'overview';
+    state.page = page;
+    var btns = document.querySelectorAll('.nav-btn');
+    for (var i = 0; i < btns.length; i++) btns[i].classList.toggle('active', btns[i].getAttribute('data-page') === page);
+    var pages = document.querySelectorAll('.page');
+    for (var j = 0; j < pages.length; j++) pages[j].classList.toggle('active', pages[j].id === 'page-' + page);
+    $('pageTitle').textContent = TITLES[page][0];
+    $('pageSub').textContent = TITLES[page][1];
+    if (location.hash !== '#' + page) history.replaceState(null, '', '#' + page);
+    if (page === 'log') refreshLog();
+  }
 
-    // ---- Query ----
-    function queryInfo(type) {
-      var r = document.getElementById('queryResult');
-      r.className = 'result-box result-loading'; r.textContent = '查询中...';
-      fetch('/query?type=' + type).then(function(rr){return rr.json()}).then(function(d){
-        if(d.success){r.className='result-box result-info';r.innerHTML=d.message;}
-        else{r.className='result-box result-error';r.innerHTML='查询失败: '+d.message;}
-      }).catch(function(e){r.className='result-box result-error';r.textContent='请求失败: '+e;});
-    }
+  /* ---------- 状态 ---------- */
+  function applyStatus(s){
+    if (!s || s.success === false) return;
+    var ip = s.ip || '--';
+    if ($('ovIp').textContent !== ip) { $('ovIp').textContent = ip; flash('statIp'); }
+    $('ipText').textContent = ip;
+    $('deviceName').textContent = s.device_name || 'ESP32-C3';
+    $('ovName').textContent = s.device_name ? s.device_name + '.local' : '--';
+    state.uptime = s.uptime_s || 0;
+    $('ovUptime').textContent = fmtUptime(state.uptime);
+    var heap = (s.heap_kb || 0) + ' KB';
+    if ($('ovHeap').textContent !== heap) { $('ovHeap').textContent = heap; flash('statHeap'); }
+    $('ovModem').textContent = s.modem_ready ? '已就绪' : '未就绪';
+    $('ovModel').textContent = s.model || '--';
+    $('ovModem').style.color = s.modem_ready ? 'var(--ok)' : 'var(--err)';
+    $('ovMail').textContent = s.email_ok ? '已配置' : '未配置';
+    $('ovPush').textContent = (s.push_count || 0) + ' 个已启用';
+    $('ovSsid').textContent = s.ssid || '--';
+    var dot = $('netDot');
+    dot.className = 'dot ' + (s.modem_ready ? 'ok' : 'err');
+    $('netText').textContent = s.ssid ? '在线' : '离线';
+    if (s.rssi) $('ovSsid').textContent = (s.ssid || '') + '（' + s.rssi + ' dBm）';
+  }
+  function flash(id){
+    var el = $(id);
+    el.classList.remove('flash');
+    void el.offsetWidth;
+    el.classList.add('flash');
+  }
+  function loadStatus(){
+    return api('/status').then(applyStatus).catch(function(){});
+  }
 
-    // ---- Ping ----
-    function confirmPing(){if(confirm('确定要执行 Ping 吗？将消耗少量流量。'))doPing();}
-    function doPing(){
-      var b=document.getElementById('pingBtn'),r=document.getElementById('pingResult');
-      b.disabled=true;b.textContent='Pinging...';
-      r.className='result-box result-loading';r.textContent='正在 Ping 8.8.8.8（最长 30 秒）...';
-      fetch('/ping',{method:'POST'}).then(function(rr){return rr.json()}).then(function(d){
-        b.disabled=false;b.textContent='Ping 8.8.8.8';
-        if(d.success){r.className='result-box result-success';r.innerHTML='Ping 成功 — '+d.message;}
-        else{r.className='result-box result-error';r.innerHTML='Ping 失败 — '+d.message;}
-      }).catch(function(e){b.disabled=false;b.textContent='Ping 8.8.8.8';r.className='result-box result-error';r.textContent='请求失败: '+e;});
+  /* ---------- 配置 ---------- */
+  function loadConfig(){
+    return api('/config').then(function(cfg){
+      if (!cfg || cfg.success === false) return;
+      state.cfg = cfg;
+      $('webUser').value = cfg.web_user || '';
+      $('webPass').value = cfg.web_pass || '';
+      $('smtpServer').value = cfg.smtp_server || '';
+      $('smtpPort').value = cfg.smtp_port || '';
+      $('smtpUser').value = cfg.smtp_user || '';
+      $('smtpPass').value = cfg.smtp_pass || '';
+      $('smtpTo').value = cfg.smtp_to || '';
+      $('adminPhone').value = cfg.admin_phone || '';
+      $('blacklist').value = cfg.blacklist || '';
+      $('ovAdmin').textContent = cfg.admin_phone || '未设置';
+      renderChannels(cfg.channels || []);
+    });
+  }
+  function typeOptions(cur){
+    var out = '';
+    for (var i = 0; i < TYPES.length; i++) {
+      out += '<option value="' + TYPES[i][0] + '"' + (TYPES[i][0] === cur ? ' selected' : '') + '>' + TYPES[i][1] + '</option>';
     }
+    return out;
+  }
+  function renderChannels(chs){
+    var host = $('channels');
+    host.innerHTML = '';
+    for (var i = 0; i < chs.length; i++) host.appendChild(channelCard(i, chs[i]));
+  }
+  function channelCard(i, ch){
+    var el = document.createElement('div');
+    el.className = 'chan' + (ch.enabled ? ' on' : '') + (i === 0 ? ' open' : '');
+    el.setAttribute('data-idx', i);
+    var opt = typeOptions(ch.type || 1);
+    el.innerHTML =
+      '<div class="chan-head">' +
+        '<label class="switch"><input type="checkbox" id="push' + i + 'en"' + (ch.enabled ? ' checked' : '') + '><span></span></label>' +
+        '<span class="name">' + esc(ch.name || ('通道' + (i + 1))) + '</span>' +
+        '<span class="badge" id="type-tag-' + i + '">' + esc(typeLabel(ch.type)) + '</span>' +
+        '<span class="spacer"></span>' +
+        '<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>' +
+      '</div>' +
+      '<div class="chan-body">' +
+        '<div class="field"><label>通道名称</label><input id="push' + i + 'name" value="' + esc(ch.name || '') + '" placeholder="通道' + (i + 1) + '"></div>' +
+        '<div class="field"><label>推送方式</label><select id="push' + i + 'type"' + '>' + opt + '</select></div>' +
+        '<div class="field"><label id="lbl-url-' + i + '">推送 URL</label><input id="push' + i + 'url" value="' + esc(ch.url || '') + '" placeholder="https://"></div>' +
+        '<div class="field" id="wrap-k1-' + i + '"><label id="lbl-k1-' + i + '">参数 1</label><input id="push' + i + 'key1" value="' + esc(ch.key1 || '') + '"></div>' +
+        '<div class="field" id="wrap-k2-' + i + '"><label id="lbl-k2-' + i + '">参数 2</label><input id="push' + i + 'key2" value="' + esc(ch.key2 || '') + '"></div>' +
+        '<div class="field" id="wrap-body-' + i + '"><label>请求体模板</label><textarea id="push' + i + 'body" rows="3" placeholder="{&quot;sender&quot;:&quot;{sender}&quot;,&quot;message&quot;:&quot;{message}&quot;}">' + esc(ch.custom_body || '') + '</textarea><span class="tip">支持 {sender} {message} {timestamp}</span></div>' +
+        '<div class="actions"><button class="btn primary sm" data-save="push"><span class="spin"></span>保存通道</button></div>' +
+      '</div>';
+    el.querySelector('.chan-head').addEventListener('click', function(ev){
+      if (ev.target.tagName === 'INPUT') return;
+      el.classList.toggle('open');
+    });
+    var sel = el.querySelector('#push' + i + 'type');
+    sel.addEventListener('change', function(){
+      ch.type = parseInt(sel.value, 10) || 1;
+      syncChannel(el, i, ch.type);
+      el.querySelector('#type-tag-' + i).textContent = typeLabel(ch.type);
+    });
+    var cb = el.querySelector('#push' + i + 'en');
+    cb.addEventListener('change', function(){ el.classList.toggle('on', cb.checked); });
+    syncChannel(el, i, ch.type || 1);
+    return el;
+  }
+  function typeLabel(t){
+    for (var i = 0; i < TYPES.length; i++) if (TYPES[i][0] === t) return TYPES[i][1];
+    return '未知';
+  }
+  function syncChannel(el, i, t){
+    var need = NEED[t] || NEED[1];
+    var lab = LABELS[t] || { k1:'', k2:'' };
+    el.querySelector('#wrap-k1-' + i).style.display = need.k1 ? '' : 'none';
+    el.querySelector('#wrap-k2-' + i).style.display = need.k2 ? '' : 'none';
+    el.querySelector('#wrap-body-' + i).style.display = need.body ? '' : 'none';
+    if (need.k1) el.querySelector('#lbl-k1-' + i).textContent = lab.k1 || '参数 1';
+    if (need.k2) el.querySelector('#lbl-k2-' + i).textContent = lab.k2 || '参数 2';
+    var urlLabel = need.url ? '推送 URL' : '推送 URL（可空，走默认地址）';
+    el.querySelector('#lbl-url-' + i).textContent = urlLabel;
+  }
 
-    // ---- System Control ----
-    var sysReloadTimer = null;
-    function scheduleSysReload(){
-      if (sysReloadTimer) return;
-      var left = 30, r = document.getElementById('sysRestartResult');
-      r.className = 'result-box result-success';
-      r.textContent = '系统重启中，' + left + ' 秒后自动刷新页面...';
-      sysReloadTimer = setInterval(function(){
-        left--;
-        if(left <= 0){ clearInterval(sysReloadTimer); location.reload(); }
-        else r.textContent = '系统重启中，' + left + ' 秒后自动刷新页面...';
-      }, 1000);
+  /* ---------- 保存 ---------- */
+  function collect(scope){
+    var p = new URLSearchParams();
+    if (scope === 'account') { p.append('webUser', $('webUser').value); p.append('webPass', $('webPass').value); }
+    if (scope === 'mail') {
+      p.append('smtpServer', $('smtpServer').value); p.append('smtpPort', $('smtpPort').value);
+      p.append('smtpUser', $('smtpUser').value); p.append('smtpPass', $('smtpPass').value);
+      p.append('smtpSendTo', $('smtpTo').value);
     }
-    function systemRestart(){
-      if(!confirm('确定要重启整个系统吗？重启期间将无法接收短信和访问网页。'))return;
-      var r=document.getElementById('sysRestartResult');
-      r.className='result-box result-loading';r.textContent='正在发送重启请求...';
-      fetch('/system?action=restart').then(function(rr){return rr.json()}).then(function(d){
-        scheduleSysReload();
-      }).catch(function(e){
-        // 重启导致连接中断属正常现象
-        scheduleSysReload();
-      });
+    if (scope === 'admin') p.append('adminPhone', $('adminPhone').value);
+    if (scope === 'blacklist') p.append('numberBlackList', $('blacklist').value);
+    if (scope === 'push') {
+      for (var i = 0; i < 5; i++) {
+        var en = $('push' + i + 'en');
+        if (!en) continue;
+        p.append('push' + i + 'en', en.checked ? 'on' : 'off');
+        p.append('push' + i + 'type', $('push' + i + 'type').value);
+        p.append('push' + i + 'name', $('push' + i + 'name').value);
+        p.append('push' + i + 'url', $('push' + i + 'url').value);
+        p.append('push' + i + 'key1', $('push' + i + 'key1').value);
+        p.append('push' + i + 'key2', $('push' + i + 'key2').value);
+        p.append('push' + i + 'body', $('push' + i + 'body').value);
+      }
     }
+    return p.toString();
+  }
+  function save(scope, btn){
+    busy(btn, true);
+    api('/save?json=1', { method:'POST', body: collect(scope) }).then(function(r){
+      busy(btn, false);
+      if (r && r.success) {
+        toast(scope === 'push' ? '推送通道已保存' : '已保存', 'ok');
+        loadConfig(); loadStatus();
+      } else {
+        toast((r && r.message) || '保存失败', 'err');
+      }
+    }).catch(function(){ busy(btn, false); toast('保存失败：网络错误', 'err'); });
+  }
 
-    // ---- WiFi Control ----
-    function wifiRestart(){
-      if(!confirm('确定要重启WiFi吗？网页将暂时不可用。'))return;
-      var r=document.getElementById('wifiResult');
-      r.className='result-box result-loading';r.textContent='WiFi 重启中（约5秒）...';
-      fetch('/wifi?action=restart').then(function(rr){return rr.json()}).then(function(d){
-        r.className=d.success?'result-box result-success':'result-box result-error';
-        r.textContent=d.message;
-      }).catch(function(e){r.className='result-box result-error';r.textContent='请求失败: '+e;});
-    }
+  /* ---------- 发短信 ---------- */
+  function smsCount(){
+    var v = $('smsText').value;
+    var n = v.length;
+    var ucs2 = /[^\x00-\x7f]/.test(v);
+    $('smsCount').textContent = n + ' / ' + (ucs2 ? 70 : 160);
+    $('smsCount').style.color = n > (ucs2 ? 70 : 160) ? 'var(--err)' : '';
+    $('smsMode').textContent = ucs2 ? 'UCS2' : 'GSM7';
+  }
+  function sendSms(){
+    var phone = $('smsPhone').value.trim();
+    var text = $('smsText').value.trim();
+    if (!phone) { toast('请填写目标号码', 'err'); return; }
+    if (!text) { toast('请填写短信内容', 'err'); return; }
+    var btn = $('sendBtn');
+    busy(btn, true);
+    var body = 'phone=' + encodeURIComponent(phone) + '&content=' + encodeURIComponent(text);
+    api('/sendsms?json=1', { method:'POST', body: body }).then(function(r){
+      busy(btn, false);
+      if (r && r.success) { toast(r.message || '短信已发送', 'ok'); }
+      else { toast((r && r.message) || '发送失败', 'err'); }
+    }).catch(function(){ busy(btn, false); toast('发送失败：网络错误', 'err'); });
+  }
 
-    // ---- Flight Mode ----
-    function queryFlightMode(){
-      var r=document.getElementById('flightResult');
-      r.className='result-box result-loading';r.textContent='查询中...';
-      fetch('/flight?action=query').then(function(rr){return rr.json()}).then(function(d){
-        if(d.success){r.className='result-box result-info';r.innerHTML=d.message;}
-        else{r.className='result-box result-error';r.innerHTML='查询失败: '+d.message;}
-      }).catch(function(e){r.className='result-box result-error';r.textContent='请求失败: '+e;});
-    }
-    function toggleFlightMode(){
-      if(!confirm('确定要切换飞行模式吗？'))return;
-      var b=document.getElementById('flightBtn'),r=document.getElementById('flightResult');
-      b.disabled=true;r.className='result-box result-loading';r.textContent='切换中...';
-      fetch('/flight?action=toggle').then(function(rr){return rr.json()}).then(function(d){
-        b.disabled=false;
-        if(d.success){r.className='result-box result-success';r.innerHTML=d.message;}
-        else{r.className='result-box result-error';r.innerHTML='切换失败: '+d.message;}
-      }).catch(function(e){b.disabled=false;r.className='result-box result-error';r.textContent='请求失败: '+e;});
-    }
-
-    // ---- Modem Control ----
-    function modemAction(action){
-      var names={'restart':'软重启','hardreset':'硬重启','signal':'信号查询','operator':'运营商查询','imei':'IMEI查询'};
-      var name=names[action]||action;
-      var resultEl=null;
-      if(action==='restart'||action==='hardreset') resultEl=document.getElementById('modemRstResult');
-      else resultEl=document.getElementById('modemQueryResult');
-      if(action==='hardreset'){
-        if(!confirm('硬重启将断电重启模组，确定继续？'))return;
-        resultEl.className='result-box result-loading';resultEl.textContent='硬重启中（约10秒）...';
-        fetch('/modem?action=hardreset').then(function(rr){return rr.json()}).then(function(d){
-          resultEl.className='result-box result-success';resultEl.textContent=d.message+' — 稍后请手动查询信号确认恢复';
-        }).catch(function(e){resultEl.className='result-box result-error';resultEl.textContent='请求失败: '+e;});
+  /* ---------- 工具动作 ---------- */
+  function showInfo(html){
+    $('infoOut').classList.remove('empty');
+    $('infoOut').innerHTML = html;
+  }
+  function act(name, btn){
+    busy(btn, true);
+    var done = function(r){
+      busy(btn, false);
+      if (!r) { toast('无响应', 'err'); return; }
+      if (name === 'at') {
+        $('atOut').textContent = r.message || '(空)';
         return;
       }
-      resultEl.className='result-box result-loading';resultEl.textContent=name+'中...';
-      fetch('/modem?action='+action).then(function(rr){return rr.json()}).then(function(d){
-        if(d.success){resultEl.className='result-box result-success';resultEl.innerHTML=name+'成功: '+d.message;}
-        else{resultEl.className='result-box result-error';resultEl.innerHTML=name+'失败: '+d.message;}
-      }).catch(function(e){resultEl.className='result-box result-error';resultEl.textContent='请求失败: '+e;});
-    }
-
-    // ---- AT Terminal ----
-    function addLog(msg,type){
-      type=type||'resp';var log=document.getElementById('atLog'),div=document.createElement('div'),b=document.createElement('b');
-      if(type==='user'){b.style.color='#fff';b.textContent='> ';}
-      else if(type==='error'){b.style.color='#f44336';b.textContent='! ';}
-      else{b.style.color='#50e3c2';b.textContent='';}
-      div.appendChild(b);div.appendChild(document.createTextNode(msg));
-      log.appendChild(div);log.scrollTop=log.scrollHeight;
-    }
-    function sendAT(){
-      var inp=document.getElementById('atCmd'),cmd=inp.value.trim();if(!cmd)return;
-      var btn=document.getElementById('atBtn');btn.disabled=true;btn.textContent='...';
-      addLog(cmd,'user');inp.value='';
-      fetch('/at?cmd='+encodeURIComponent(cmd)).then(function(rr){return rr.json()}).then(function(d){
-        addLog(d.message,d.success?'resp':'error');
-      }).catch(function(e){addLog('网络错误: '+e,'error')}).finally(function(){btn.disabled=false;btn.textContent='发送';});
-    }
-    function clearATLog(){var l=document.getElementById('atLog');l.innerHTML='';addLog('日志已清空','resp');}
-    document.getElementById('atCmd').addEventListener('keydown',function(e){if(e.key==='Enter')sendAT();});
-
-    // ---- Log Viewer ----
-    var logTimer = null;
-    function startLogPoll() {
-      if (logTimer) return;
-      logTimer = setInterval(refreshLog, 2000);
-    }
-    function stopLogPoll() {
-      if (logTimer) { clearInterval(logTimer); logTimer = null; }
-    }
-    function toggleLogAuto() {
-      if (document.getElementById('logAuto').checked) startLogPoll();
-      else stopLogPoll();
-    }
-    function clearLogUI() { document.getElementById('logView').textContent = ''; }
-    function refreshLog() {
-      var el = document.getElementById('logView');
-      fetch('/log').then(function(r) { return r.json(); }).then(function(lines) {
-        if (!Array.isArray(lines)) return;
-        el.textContent = lines.join('\n');
-        el.scrollTop = el.scrollHeight;
-      }).catch(function() { if (el.textContent === '加载中...') el.textContent = '无法获取日志'; });
-    }
-    var _origSwitchPanel = switchPanel;
-    switchPanel = function(name) {
-      _origSwitchPanel(name);
-      if (name === 'log') { refreshLog(); startLogPoll(); }
-      else stopLogPoll();
+      if (['ati','signal','siminfo','network','wifi'].indexOf(name) >= 0) {
+        if (r.success) showInfo(r.message);
+        else toast(r.message || '查询失败', 'err');
+        return;
+      }
+      if (r.success) toast(r.message || '操作已提交', 'ok');
+      else toast(r.message || '操作失败', 'err');
     };
-    document.addEventListener('DOMContentLoaded', function() { refreshLog(); startLogPoll(); });
-  </script>
+    var fail = function(){ busy(btn, false); toast('请求失败', 'err'); };
+
+    if (name === 'signal' && state.page === 'overview') {
+      api('/modem?action=signal').then(done).catch(fail); return;
+    }
+    if (name === 'at') { api('/at?cmd=' + encodeURIComponent($('atCmd').value)).then(done).catch(fail); return; }
+    if (name === 'ping') { api('/ping', { method:'POST' }).then(done).catch(fail); return; }
+    if (name === 'flight') { api('/flight?action=toggle').then(done).catch(fail); return; }
+    if (name === 'imei' || name === 'operator') { api('/modem?action=' + name).then(done).catch(fail); return; }
+    if (['ati','siminfo','network','wifi'].indexOf(name) >= 0) { api('/query?type=' + name).then(done).catch(fail); return; }
+    if (name === 'modem_restart' || name === 'modem_hardreset' || name === 'system_restart' || name === 'wifi_restart') {
+      var tips = {
+        modem_restart:['软重启模组','模组会重新注册网络，约 15 秒不可收发短信'],
+        modem_hardreset:['硬重启模组','断电重启模组，约 20 秒不可收发短信'],
+        system_restart:['重启设备','设备将整机重启，网页会短暂中断'],
+        wifi_restart:['重连 WiFi','断开并重新连接当前 WiFi']
+      };
+      confirmDlg(tips[name][0], tips[name][1]).then(function(ok){
+        if (!ok) { busy(btn, false); return; }
+        var url = '/modem?action=' + (name === 'modem_restart' ? 'restart' : 'hardreset');
+        if (name === 'system_restart') url = '/system?action=restart';
+        if (name === 'wifi_restart') url = '/wifi?action=restart';
+        api(url).then(done).catch(fail);
+      });
+      return;
+    }
+    busy(btn, false);
+  }
+
+  /* ---------- 日志 ---------- */
+  function refreshLog(){
+    if (state.page !== 'log' || !$('logAuto').checked) return;
+    api('/log').then(renderLog).catch(function(){});
+  }
+  function renderLog(lines){
+    if (!Array.isArray(lines)) return;
+    var filter = $('logFilter').value.trim();
+    var box = $('logBox');
+    var html = '';
+    var count = 0;
+    for (var i = 0; i < lines.length; i++) {
+      var l = lines[i];
+      if (filter && l.indexOf(filter) < 0) continue;
+      var cls = 'log-info';
+      if (/失败|错误|超时|异常|未响应/.test(l)) cls = 'log-err';
+      else if (/成功|已就绪|已恢复|已连接|已保存/.test(l)) cls = 'log-ok';
+      else if (/重试|警告|未配置|跳过/.test(l)) cls = 'log-warn';
+      else if (l.indexOf('模组>') === 0) cls = 'log-dim';
+      html += '<div class="' + cls + '">' + esc(l) + '</div>';
+      count++;
+    }
+    if (count === 0) html = '<div class="log-dim">没有匹配的日志</div>';
+    box.innerHTML = html;
+    state.logText = lines.join(String.fromCharCode(10));
+    if ($('logFollow').checked) box.scrollTop = box.scrollHeight;
+  }
+
+  /* ---------- 主题 ---------- */
+  function initTheme(){
+    var saved = localStorage.getItem('theme');
+    if (saved) document.documentElement.setAttribute('data-theme', saved);
+    $('themeBtn').addEventListener('click', function(){
+      var cur = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', cur);
+      localStorage.setItem('theme', cur);
+    });
+  }
+
+  /* ---------- 事件绑定 ---------- */
+  function bind(){
+    var nav = document.querySelectorAll('.nav-btn');
+    for (var i = 0; i < nav.length; i++) {
+      nav[i].addEventListener('click', function(){ go(this.getAttribute('data-page')); });
+    }
+    var goes = document.querySelectorAll('[data-go]');
+    for (var g = 0; g < goes.length; g++) {
+      goes[g].addEventListener('click', function(){ go(this.getAttribute('data-go')); });
+    }
+    var saves = document.querySelectorAll('[data-save]');
+    for (var s = 0; s < saves.length; s++) {
+      saves[s].addEventListener('click', function(){ save(this.getAttribute('data-save'), this); });
+    }
+    var acts = document.querySelectorAll('[data-act]');
+    for (var a = 0; a < acts.length; a++) {
+      acts[a].addEventListener('click', function(){ act(this.getAttribute('data-act'), this); });
+    }
+    $('refreshBtn').addEventListener('click', function(){
+      loadStatus(); loadConfig();
+      if (state.page === 'log') refreshLog();
+      toast('已刷新', 'ok');
+    });
+    $('sendBtn').addEventListener('click', sendSms);
+    $('clearSms').addEventListener('click', function(){ $('smsText').value = ''; smsCount(); });
+    $('smsText').addEventListener('input', smsCount);
+    $('logFilter').addEventListener('input', function(){ refreshLog(); });
+    $('logCopy').addEventListener('click', function(){
+      if (!navigator.clipboard) { toast('浏览器不支持复制', 'err'); return; }
+      navigator.clipboard.writeText(state.logText).then(function(){ toast('日志已复制', 'ok'); });
+    });
+    window.addEventListener('hashchange', function(){ go((location.hash || '').replace('#', '')); });
+  }
+
+  function init(){
+    initTheme();
+    bind();
+    go((location.hash || '').replace('#', '') || 'overview');
+    loadStatus(); loadConfig();
+    state.statTimer = setInterval(function(){
+      if (state.page === 'overview') loadStatus();
+      if (state.uptime) { state.uptime++; $('ovUptime').textContent = fmtUptime(state.uptime); }
+    }, 5000);
+    state.logTimer = setInterval(refreshLog, 2000);
+    smsCount();
+  }
+  document.addEventListener('DOMContentLoaded', init);
+})();
+
+</script>
 </body>
 </html>

@@ -15,6 +15,7 @@
 #include "freertos/task.h"
 #include "mbedtls/base64.h"
 #include "modem/modem.h"
+#include "net/mdns.h"
 #include "net/wifi.h"
 #include "notify/notify.h"
 #include "web/web_ui.h"
@@ -216,7 +217,8 @@ static void async_task(void *arg)
     vTaskDelete(NULL);
 }
 
-esp_err_t web_spawn_async(httpd_req_t *req, web_async_fn fn, const char *arg1, const char *arg2)
+esp_err_t web_spawn_async3(httpd_req_t *req, web_async_fn fn, const char *arg1, const char *arg2,
+                           const char *arg3)
 {
     httpd_req_t *copy = NULL;
     esp_err_t err = httpd_req_async_handler_begin(req, &copy);
@@ -233,6 +235,7 @@ esp_err_t web_spawn_async(httpd_req_t *req, web_async_fn fn, const char *arg1, c
     ctx->fn = fn;
     snprintf(ctx->arg1, sizeof(ctx->arg1), "%s", arg1 ? arg1 : "");
     snprintf(ctx->arg2, sizeof(ctx->arg2), "%s", arg2 ? arg2 : "");
+    snprintf(ctx->arg3, sizeof(ctx->arg3), "%s", arg3 ? arg3 : "");
     if (xTaskCreate(async_task, "web_async", 10240, ctx, 4, NULL) != pdPASS) {
         httpd_req_async_handler_complete(copy);
         free(ctx);
@@ -367,7 +370,14 @@ esp_err_t handler_save(httpd_req_t *req)
     config_unlock();
     free(body);
 
-    web_send_html_redirect(req, SAVE_OK_HTML);
+    char json_flag[8] = {0};
+    bool want_json = web_query_get(req, "json", json_flag, sizeof(json_flag)) &&
+                     strcmp(json_flag, "1") == 0;
+    if (want_json) {
+        web_send_json(req, true, "配置已保存");
+    } else {
+        web_send_html_redirect(req, SAVE_OK_HTML);
+    }
 
     if (config_any_valid()) {
         char url[48];
@@ -388,6 +398,97 @@ esp_err_t handler_log(httpd_req_t *req)
     log_append_json(&out);
     httpd_resp_set_type(req, "application/json; charset=utf-8");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+    httpd_resp_send(req, sbuf_cstr(&out), out.len);
+    sbuf_free(&out);
+    return ESP_OK;
+}
+
+/* ---- 实时状态（前端轮询，不碰 AT）---- */
+esp_err_t handler_status(httpd_req_t *req)
+{
+    if (!web_require_auth(req)) {
+        return ESP_OK;
+    }
+    wifi_info_t info;
+    wifi_get_info(&info);
+
+    char host[33];
+    net_device_name(host, sizeof(host));
+
+    sbuf_t out;
+    sbuf_init(&out);
+    sbuf_append(&out, "{\"ip\":\"");
+    util_json_escape(&out, wifi_ip());
+    sbuf_append(&out, "\",\"ssid\":\"");
+    util_json_escape(&out, info.ssid);
+    sbuf_printf(&out, "\",\"rssi\":%d,\"heap_kb\":%u,\"uptime_s\":%lld,", info.rssi,
+                (unsigned)(esp_get_free_heap_size() / 1024),
+                (long long)(esp_timer_get_time() / 1000000));
+    sbuf_printf(&out, "\"modem_ready\":%s,", modem_ready() ? "true" : "false");
+
+    app_config_t *cfg = config_lock();
+    bool email_ok = config_email_valid(cfg);
+    int push_count = 0;
+    for (int i = 0; i < PUSH_CHANNEL_MAX; i++) {
+        if (config_push_channel_valid(&cfg->channels[i])) {
+            push_count++;
+        }
+    }
+    config_unlock();
+
+    sbuf_printf(&out, "\"email_ok\":%s,\"push_count\":%d,\"device_name\":\"%s\",\"model\":\"%s\"}",
+                email_ok ? "true" : "false", push_count, host, modem_model());
+    httpd_resp_set_type(req, "application/json; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_send(req, sbuf_cstr(&out), out.len);
+    sbuf_free(&out);
+    return ESP_OK;
+}
+
+/* ---- 配置快照（前端渲染表单）---- */
+static void append_str_field(sbuf_t *out, const char *key, const char *value, bool comma)
+{
+    sbuf_printf(out, "\"%s\":\"", key);
+    util_json_escape(out, value ? value : "");
+    sbuf_append(out, comma ? "\"," : "\"");
+}
+
+esp_err_t handler_config(httpd_req_t *req)
+{
+    if (!web_require_auth(req)) {
+        return ESP_OK;
+    }
+    sbuf_t out;
+    sbuf_init(&out);
+    app_config_t *cfg = config_lock();
+
+    sbuf_append(&out, "{");
+    append_str_field(&out, "web_user", cfg->web_user, true);
+    append_str_field(&out, "web_pass", cfg->web_pass, true);
+    append_str_field(&out, "smtp_server", cfg->smtp_server, true);
+    sbuf_printf(&out, "\"smtp_port\":%u,", (unsigned)cfg->smtp_port);
+    append_str_field(&out, "smtp_user", cfg->smtp_user, true);
+    append_str_field(&out, "smtp_pass", cfg->smtp_pass, true);
+    append_str_field(&out, "smtp_to", cfg->smtp_to, true);
+    append_str_field(&out, "admin_phone", cfg->admin_phone, true);
+    append_str_field(&out, "blacklist", cfg->blacklist, true);
+    sbuf_append(&out, "\"channels\":[");
+    for (int i = 0; i < PUSH_CHANNEL_MAX; i++) {
+        const push_channel_t *ch = &cfg->channels[i];
+        sbuf_printf(&out, "%s{\"enabled\":%s,\"type\":%u,", i ? "," : "",
+                    ch->enabled ? "true" : "false", (unsigned)ch->type);
+        append_str_field(&out, "name", ch->name, true);
+        append_str_field(&out, "url", ch->url, true);
+        append_str_field(&out, "key1", ch->key1, true);
+        append_str_field(&out, "key2", ch->key2, true);
+        append_str_field(&out, "body", ch->custom_body, false);
+        sbuf_append(&out, "}");
+    }
+    sbuf_append(&out, "]}");
+    config_unlock();
+
+    httpd_resp_set_type(req, "application/json; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_send(req, sbuf_cstr(&out), out.len);
     sbuf_free(&out);
     return ESP_OK;
@@ -438,6 +539,8 @@ esp_err_t web_server_start(void)
     register_uri(s_server, "/at", HTTP_POST, handler_at);
     register_uri(s_server, "/log", HTTP_GET, handler_log);
     register_uri(s_server, "/decode", HTTP_GET, handler_decode);
+    register_uri(s_server, "/status", HTTP_GET, handler_status);
+    register_uri(s_server, "/config", HTTP_GET, handler_config);
     register_uri(s_server, "/selftest", HTTP_GET, handler_selftest);
     register_uri(s_server, "/modem", HTTP_GET, handler_modem);
     register_uri(s_server, "/modem", HTTP_POST, handler_modem);
@@ -448,4 +551,9 @@ esp_err_t web_server_start(void)
 
     log_line("HTTP 服务器已启动: http://%s/", wifi_ip());
     return ESP_OK;
+}
+
+esp_err_t web_spawn_async(httpd_req_t *req, web_async_fn fn, const char *arg1, const char *arg2)
+{
+    return web_spawn_async3(req, fn, arg1, arg2, "");
 }

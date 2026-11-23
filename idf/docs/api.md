@@ -41,6 +41,19 @@
 
 返回 3 秒后跳回首页的提示页。
 
+### GET /status
+
+前端轮询用的轻量状态（不碰 AT，毫秒级）：`ip/ssid/rssi/heap_kb/uptime_s/modem_ready/email_ok/push_count/device_name/model`。
+
+### GET /config
+
+返回完整配置快照（含 5 个推送通道），前端据此渲染表单，避免服务端拼 HTML。
+密码等敏感字段也在其中，接口本身受 Basic 认证保护。
+
+### POST /save?json=1
+
+与 `/save` 相同，但返回 JSON 而不是跳转页，供前端 AJAX 使用（只更新请求里出现的字段）。
+
 ## 短信
 
 ### POST /sendsms
@@ -49,6 +62,8 @@
 |---|---|
 | `phone` | 目标号码 |
 | `content` | 内容（UTF-8） |
+
+加 `?json=1` 时返回 JSON（`{"success":..,"message":..}`），否则返回 HTML 结果页。
 
 返回 HTML 结果页（3 秒后跳回 `/sms`）。单条上限 70 个汉字 / 160 个英文字符。
 

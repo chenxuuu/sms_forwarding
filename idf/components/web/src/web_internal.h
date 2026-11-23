@@ -33,15 +33,22 @@ struct web_async_ctx {
     web_async_fn fn;
     char arg1[512];  /* 可能承载整条 PDU（最长约 350 字符） */
     char arg2[1024]; /* 短信正文 */
+    char arg3[16];   /* 附加模式，例如 "json" */
 };
 
 /** 把当前请求转为异步处理，工作函数在独立任务中执行。 */
 esp_err_t web_spawn_async(httpd_req_t *req, web_async_fn fn, const char *arg1, const char *arg2);
 
+/** 同上，额外带一个模式参数（如 "json" 表示返回 JSON）。 */
+esp_err_t web_spawn_async3(httpd_req_t *req, web_async_fn fn, const char *arg1, const char *arg2,
+                           const char *arg3);
+
 /* ---- 路由处理器 ---- */
 esp_err_t handler_root(httpd_req_t *req);
 esp_err_t handler_save(httpd_req_t *req);
 esp_err_t handler_log(httpd_req_t *req);
+esp_err_t handler_status(httpd_req_t *req);
+esp_err_t handler_config(httpd_req_t *req);
 esp_err_t handler_decode(httpd_req_t *req);
 esp_err_t handler_selftest(httpd_req_t *req);
 esp_err_t handler_favicon(httpd_req_t *req);

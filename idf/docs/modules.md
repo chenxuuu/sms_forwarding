@@ -82,14 +82,18 @@ EN 引脚（GPIO5，低电平断电）与板载 LED（GPIO8，低电平点亮）
 - `wifi_reconnect()`：供 Web “重启 WiFi” 使用；
 - `wifi_kick()`：非阻塞踢一次重连，供心跳使用；
 - `time_sync_start()`：SNTP（ntp.ntsc.ac.cn / ntp.aliyun.com / pool.ntp.org）；
-- `heartbeat_start(cb)`：周期自检（本机 Web + 外网），失败时重连/重启，并通过回调
+- `heartbeat_start(cb, current_ip)`：周期自检（本机 Web + 外网），失败时重连/重启，并通过回调
   通知「IP 变化」「网络恢复」；配置项 `CONFIG_HEARTBEAT_HOST/PORT/INTERVAL_S`。
+- `net_mdns_start()`：发布 `_http._tcp` 服务；设备名 `net_device_name()` 默认 `sms-<MAC 后两字节>`，
+  可用 `CONFIG_MDNS_NAME` 覆盖（多设备需各自不同）。
 
 ## notify
 
 - 队列 + 工作任务的异步通知模型，调用方只投递；
-- `notify_sms()`：一条短信 → 邮件 + 所有有效推送通道；
-- `notify_email()`：仅邮件（启动通知、命令结果）；
+- `notify_sms()`：一条短信 → 邮件 + 所有有效推送通道（文案"📱短信通知"）；
+- `notify_system()`：系统事件 → 邮件 + 所有有效推送通道（文案"🔔 标题"）；
+  用于启动、IP 变化、网络恢复、配置更新；
+- `notify_email()`：仅邮件（管理员命令结果）；
 - `notify_drain()`：重启前等待队列清空。
 
 ### email（SMTP）

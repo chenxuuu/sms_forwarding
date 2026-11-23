@@ -33,6 +33,8 @@ idf.py build                 # 首次会自动按 sdkconfig.defaults 生成 sdkc
 - 修改 `sdkconfig.defaults` 后必须删除 `sdkconfig` 再编译，否则新默认值不会生效。
 - 产物：`idf/build/sms_forwarder.bin`（约 1.2MB，app 分区 3MB）。
 - 工程路径不能含中文（Arduino 版本同样的限制）；本仓库路径为纯 ASCII。
+- 首次构建会从组件仓库拉取 `espressif/mdns`（版本记录在 `dependencies.lock`），
+  需要能访问 `components.espressif.com`；离线环境会构建失败。
 
 ## 3. 烧录
 
@@ -114,6 +116,8 @@ idf.py build flash
 | 事务期间收短信 | 在 `AT+CMGL` 事务进行中到达的短信，经 URC 队列仍被正确解析并转发 |
 | 过夜运行 | 连续运行 10 小时，WiFi 掉线 9 次均自动重连；期间 DHCP 把 IP 从 .8 换成 .6 |
 | 心跳（外网不可达） | 3 次告警后重连 WiFi、6 次后仅告警不重启，130 秒观察期内 0 次重启 |
+| 系统通知 | 启动/心跳事件走「邮件 + 所有推送通道」，日志为 `开始多通道推送（N 个，系统通知）` |
+| mDNS | 发布 `http://sms-9e3c.local/`；跨网段（本机在 192.168.31.x，设备在 192.168.1.x）无法解析，属链路本地限制 |
 | HTTPS 自检 | `https://www.baidu.com` 200、`https://p.papapoi.com` 200、`https://api.telegram.org` 连接被重置（该网络不可达） |
 | 配置保存 / 重启 | `/save` 落盘并回显；`/system?action=restart` 重启后自动重连、模组重新就绪 |
 

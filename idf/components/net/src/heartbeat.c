@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "core/config.h"
 #include "core/log.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -87,6 +88,7 @@ static void report_ip(const char *ip)
     }
     bool first = s_last_ip[0] == '\0';
     snprintf(s_last_ip, sizeof(s_last_ip), "%s", ip);
+    config_state_set_last_ip(ip);
     log_line("设备 IP: %s", ip);
     if (!first && s_cb) {
         s_cb(HB_EVENT_IP_CHANGED, ip);
@@ -156,10 +158,12 @@ static void heartbeat_task(void *arg)
     }
 }
 
-void heartbeat_start(heartbeat_cb_t cb)
+void heartbeat_start(heartbeat_cb_t cb, const char *current_ip)
 {
     s_cb = cb;
-    s_last_ip[0] = '\0';
+    /* 基线由调用方给出（启动时的变化已在 app_main 里通知过，避免重复） */
+    snprintf(s_last_ip, sizeof(s_last_ip), "%s", current_ip ? current_ip : "");
+    config_state_set_last_ip(s_last_ip);
     s_inet_fail = 0;
     s_self_fail = 0;
     s_ok_count = 0;

@@ -17,6 +17,14 @@ menu "短信转发器配置"
         help
             设备启动时连接的路由器密码。留空表示开放网络。
 
+    config MDNS_NAME
+        string "mDNS 设备名（留空则按 MAC 自动生成）"
+        default ""
+        help
+            留空时设备名形如 sms-9e3c（MAC 后两字节），同一内网多台设备不会冲突，
+            访问地址：http://sms-9e3c.local/
+            如果填了固定名称，请给每台设备用不同的名字，否则 mDNS 会冲突。
+
     config HEARTBEAT_HOST
         string "网络自检目标主机"
         default "www.baidu.com"

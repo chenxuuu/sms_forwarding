@@ -79,6 +79,11 @@ bool config_push_channel_valid(const push_channel_t *ch);
 /** 至少配置了邮件或任一推送通道。 */
 bool config_any_valid(void);
 
+/* ---- 设备运行状态（不随配置重置，用于"地址变化"提醒）---- */
+/** 读取上次成功联网时记录的 IP，没有则返回 false。 */
+bool config_state_get_last_ip(char *out, size_t cap);
+void config_state_set_last_ip(const char *ip);
+
 /** 发送者是否为管理员（忽略 +86 前缀）。 */
 bool config_sender_is_admin(const char *sender);
 /** 发送者是否在号码黑名单中。 */

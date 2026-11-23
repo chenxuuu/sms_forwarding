@@ -18,5 +18,8 @@ typedef enum {
 
 typedef void (*heartbeat_cb_t)(heartbeat_event_t ev, const char *ip);
 
-/** 启动心跳任务（建议 WiFi 连上后调用）。 */
-void heartbeat_start(heartbeat_cb_t cb);
+/**
+ * 启动心跳任务（WiFi 连上后调用）。
+ * @param current_ip 当前地址，作为"变化检测"的基线；启动时的地址变化由调用方负责通知。
+ */
+void heartbeat_start(heartbeat_cb_t cb, const char *current_ip);

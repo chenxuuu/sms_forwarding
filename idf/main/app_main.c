@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 
 #include "core/config.h"
 #include "core/log.h"
@@ -9,6 +10,7 @@
 #include "freertos/task.h"
 #include "modem/modem.h"
 #include "net/heartbeat.h"
+#include "net/mdns.h"
 #include "net/time_sync.h"
 #include "net/wifi.h"
 #include "notify/notify.h"
@@ -63,15 +65,28 @@ void app_main(void)
 
     web_server_start();
     time_sync_start();
-    heartbeat_start(on_net_event);
+    net_mdns_start();
+
+    /* 重启后的地址变化也能发现：和上次记录的地址比一比 */
+    const char *ip = wifi_ip();
+    char last_ip[16];
+    bool had_last = config_state_get_last_ip(last_ip, sizeof(last_ip));
+    bool ip_changed = had_last && strcmp(last_ip, ip) != 0;
+
+    heartbeat_start(on_net_event, ip);
     modem_start();
 
-    if (config_any_valid()) {
-        char url[48];
-        snprintf(url, sizeof(url), "http://%s/", wifi_ip());
+    char url[48];
+    snprintf(url, sizeof(url), "http://%s/", ip);
+    if (ip_changed) {
+        char detail[96];
+        snprintf(detail, sizeof(detail), "地址已变化：%s → %s", last_ip, ip);
+        log_line("%s", detail);
+        forwarder_notify_device("设备网络地址已变化", detail, url);
+    } else if (config_any_valid()) {
         log_line("配置有效，发送启动通知，设备地址 %s", url);
         forwarder_notify_device("短信转发器已启动", "设备已启动", url);
     } else {
-        log_line("尚未配置通知方式，请访问 http://%s/ 完成配置", wifi_ip());
+        log_line("尚未配置通知方式，请访问 %s 完成配置", url);
     }
 }

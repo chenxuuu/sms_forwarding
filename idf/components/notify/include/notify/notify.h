@@ -16,8 +16,11 @@ void notify_init(void);
 /** 推送一条短信（邮件 + 所有已启用通道）。 */
 void notify_sms(const char *sender, const char *message, const char *timestamp);
 
-/** 仅发送邮件（启动通知、命令结果等）。 */
+/** 仅发送邮件（管理员命令结果等）。 */
 void notify_email(const char *subject, const char *body);
+
+/** 系统通知：邮件 + 所有已启用推送通道（启动、IP 变化、网络恢复、配置更新）。 */
+void notify_system(const char *title, const char *body);
 
 /** 等待队列清空（重启前调用），返回是否已清空。 */
 bool notify_drain(uint32_t timeout_ms);

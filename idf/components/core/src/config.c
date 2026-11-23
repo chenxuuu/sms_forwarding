@@ -14,7 +14,9 @@
 
 static app_config_t s_config;
 static nvs_handle_t s_nvs;
+static nvs_handle_t s_state_nvs;
 static bool s_nvs_ready;
+static bool s_state_ready;
 static SemaphoreHandle_t s_mutex;
 
 static void load_str(const char *key, char *dst, size_t cap, const char *def)
@@ -128,6 +130,9 @@ void config_init(void)
     }
 
     s_nvs_ready = true;
+    if (nvs_open("sms_state", NVS_READWRITE, &s_state_nvs) == ESP_OK) {
+        s_state_ready = true;
+    }
     load_all();
     log_line("配置已加载（用户: %s, 推送通道: %d 个）", s_config.web_user, PUSH_CHANNEL_MAX);
 }
@@ -178,6 +183,33 @@ void config_save_locked(void)
     }
     nvs_commit(s_nvs);
     log_line("配置已保存");
+}
+
+bool config_state_get_last_ip(char *out, size_t cap)
+{
+    if (!out || cap == 0) {
+        return false;
+    }
+    out[0] = '\0';
+    if (!s_state_ready) {
+        return false;
+    }
+    size_t len = cap;
+    if (nvs_get_str(s_state_nvs, "lastIp", out, &len) != ESP_OK || out[0] == '\0') {
+        out[0] = '\0';
+        return false;
+    }
+    out[cap - 1] = '\0';
+    return true;
+}
+
+void config_state_set_last_ip(const char *ip)
+{
+    if (!s_state_ready || !ip) {
+        return;
+    }
+    nvs_set_str(s_state_nvs, "lastIp", ip);
+    nvs_commit(s_state_nvs);
 }
 
 bool config_email_valid(const app_config_t *cfg)

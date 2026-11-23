@@ -149,5 +149,5 @@ void forwarder_notify_device(const char *title, const char *detail, const char *
     char body[256];
     snprintf(body, sizeof(body), "%s\n设备地址: %s", detail ? detail : "",
              device_url ? device_url : "");
-    notify_email(title, body);
+    notify_system(title, body);
 }

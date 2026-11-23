@@ -995,10 +995,10 @@ body.chan-dirty main{padding-bottom:150px}
     { id:'overview', name:'概览', sub:'设备、网络与最近动态', hue:224 },
     { id:'push', name:'推送通道', sub:'邮件、推送通道与号码黑名单', hue:268 },
     { id:'device', name:'设备', sub:'选网、模组信息与维护', hue:186 },
-    { id:'ota', name:'固件升级', sub:'版本检查与手动上传固件', hue:24 },
     { id:'keepalive', name:'保号与发送', nav:'保号发送', sub:'发送短信、Ping 与 HTTP 访问', hue:206 },
     { id:'admin', name:'后台管理', sub:'后台账号与管理员号码', hue:280 },
     { id:'logs', name:'日志', sub:'实时日志与 AT 指令（可过滤、可暂停跟随）', hue:340 },
+    { id:'ota', name:'固件升级', sub:'版本检查与手动上传固件', hue:220, mono:true },
     { id:'about', name:'关于项目', sub:'项目信息与开源地址', hue:300 }
   ];
   var TYPES = [
@@ -1144,7 +1144,16 @@ body.chan-dirty main{padding-bottom:150px}
     var meta = PAGES.filter(function(p){ return p.id === page; })[0] || PAGES[0];
     $('pageTitle').textContent = meta.name;
     $('pageSub').textContent = meta.sub;
-    document.documentElement.style.setProperty('--hue', meta.hue);
+    var root = document.documentElement;
+    root.style.setProperty('--hue', meta.hue);
+    /* mono：整页强调色用黑色（侧边栏高亮、按钮、进度条统一变深） */
+    if (meta.mono) {
+      root.style.setProperty('--pri', '#14181f');
+      root.style.setProperty('--pri2', '#3b465c');
+    } else {
+      root.style.removeProperty('--pri');
+      root.style.removeProperty('--pri2');
+    }
     if (location.hash !== '#' + page) history.replaceState(null, '', '#' + page);
     movePill();
     if (page === 'logs') { jumpToLogBottom(); refreshLogs(true); }

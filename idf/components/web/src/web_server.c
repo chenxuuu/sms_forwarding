@@ -510,7 +510,11 @@ static esp_err_t register_uri(httpd_handle_t server, const char *uri, httpd_meth
         .method = method,
         .handler = handler,
     };
-    return httpd_register_uri_handler(server, &item);
+    esp_err_t err = httpd_register_uri_handler(server, &item);
+    if (err != ESP_OK) {
+        log_line("注册路由失败 %s: %s", uri, esp_err_to_name(err));
+    }
+    return err;
 }
 
 esp_err_t web_server_start(void)
@@ -523,7 +527,7 @@ esp_err_t web_server_start(void)
     cfg.lru_purge_enable = true;
     cfg.recv_wait_timeout = 10;
     cfg.send_wait_timeout = 10;
-    cfg.max_uri_handlers = 20;
+    cfg.max_uri_handlers = 32;
 
     esp_err_t err = httpd_start(&s_server, &cfg);
     if (err != ESP_OK) {

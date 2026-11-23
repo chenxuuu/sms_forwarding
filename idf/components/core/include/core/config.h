@@ -51,6 +51,8 @@ typedef struct {
 } push_channel_t;
 
 typedef struct {
+    /* 邮件通道开关：可关闭；NVS 缺少 mailEnable 键时视为开启，兼容老配置 */
+    bool mail_enabled;
     char smtp_server[CFG_MED_LEN];
     uint16_t smtp_port;
     char smtp_user[96];
@@ -62,7 +64,21 @@ typedef struct {
     char web_user[CFG_SMALL_LEN];
     char web_pass[CFG_SMALL_LEN];
     char blacklist[CFG_BLACKLIST_LEN];
+    /* 选网（键名与 Arduino 版一致：operatorMode / operatorCode，新增 operatorAct） */
+    uint8_t operator_mode; /* 0=自动，1=手动 */
+    uint8_t operator_act;  /* 0=2G / 2=3G / 7=LTE */
+    char operator_code[8]; /* PLMN，5~6 位数字，如 46000 */
 } app_config_t;
+
+/* ---- 选网配置 ---- */
+/* <mode>：0=自动选网，1=手动指定 PLMN */
+#define OPERATOR_MODE_AUTO 0
+#define OPERATOR_MODE_MANUAL 1
+/* <AcT>：3GPP TS 27.007 规定的接入技术码 */
+#define OPERATOR_ACT_2G 0   /* GSM */
+#define OPERATOR_ACT_3G 2   /* UTRAN */
+#define OPERATOR_ACT_LTE 7  /* E-UTRAN */
+#define OPERATOR_ACT_DEFAULT OPERATOR_ACT_LTE
 
 #define DEFAULT_WEB_USER "admin"
 #define DEFAULT_WEB_PASS "admin123"
@@ -78,6 +94,8 @@ void config_unlock(void);
 void config_save_locked(void);
 
 bool config_email_valid(const app_config_t *cfg);
+/** 邮件通道真正可用：开关打开且 SMTP 配置完整。 */
+bool config_mail_active(const app_config_t *cfg);
 bool config_push_channel_valid(const push_channel_t *ch);
 /** 调整通道数量（1..PUSH_CHANNEL_MAX），需在持锁状态下调用。 */
 bool config_set_channel_count(int count);

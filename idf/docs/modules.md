@@ -20,6 +20,8 @@
 - NVS 命名空间 `sms_config`，键名与 Arduino 版本逐一对应（升级不掉配置）；
 - 全部访问都必须 `config_lock()` / `config_unlock()`（递归锁）；
 - 修改后调用 `config_save_locked()` 落盘；
+- 选网字段：`operator_mode`（0 自动/1 手动）、`operator_code`（PLMN）、`operator_act`（0=2G/2=3G/7=LTE）；
+  NVS 键 `operatorMode`/`operatorCode`/`operatorAct`，前两个与 Arduino 版同名，升级可直接沿用；
 - 提供 `config_push_channel_valid()`、`config_sender_is_admin()`、`config_sender_blocked()` 等语义接口。
 
 ### sbuf
@@ -71,7 +73,7 @@ JSON 转义、URL 编码、Base64、HMAC-SHA256→Base64（钉钉/飞书签名�
 
 - 作业队列（初始化 / 发送短信 / 原始 AT / ping / HTTP 访问 / 软重启 / 硬重启），作业对象在堆上传递；
 - 初始化流程：EN 断电重启 → `AT` 握手 → `ATI` 识别型号 → `AT+CGACT=0,1`（ML307Y 跳过）
-  → `AT+CNMI=2,2,0,0,0` → `AT+CMGF=0` → `AT+CEREG?` 等注册；
+  → `AT+CNMI=2,2,0,0,0` → `AT+CMGF=0` → `AT+COPS`（按配置选网）→ `AT+CEREG?` 等注册；
 - `modem_ping_ip(ip)`：`AT+MPING="<ip>",30,1` → 解析延迟/TTL；默认目标 `qq.com`，
   `modem_ping()` 是其兼容包装。**不执行 CGACT**（见下方说明）；
 - `modem_http_get(url)`：保号流量操作——`AT+MHTTPDEL=0` → `AT+MHTTPCREATE="<scheme>://<host>"`
@@ -80,14 +82,17 @@ JSON 转义、URL 编码、Base64、HMAC-SHA256→Base64（钉钉/飞书签名�
   返回收到的 body 字节数。公网可达性取决于 SIM 运营商（默认 cloudflare 网址在国内蜂窝网络下常不可达）。
 - **ML307Y 禁止 CGACT**：这颗模组执行 `AT+CGACT=1,1` / `CGACT=0,1` 会触发重启，
   重启后可能长时间搜不到网。保号操作直接依赖注册后可用的数据连接，不手动开关。
-- 初始化时打开 `AT+CREG=2` / `AT+CEREG=2`，注册状态变化会以 URC 出现在日志里（相同状态去重）。
+- 初始化时打开 `AT+CREG=2` / `AT+CEREG=2`，注册状态变化会以 URC 出现在日志里（相同状态去重）；
+- 初始化末尾 `apply_operator_selection()`：自动模式 `AT+COPS=0`；手动模式
+  `AT+COPS=1,2,"<PLMN>",<AcT>`（Act：0=2G / 2=3G / 7=LTE），最多等 60 秒；失败只记日志、继续等注册。
 
 ### netmon（蜂窝网络守护）
 
 - 每 60 秒用 `AT`、`AT+CPIN?`、`AT+CREG?`、`AT+CEREG?`、`AT+CSQ`、`AT+CFUN?` 检查一次，
   全部是**信令查询，不发短信、不激活数据连接，零资费**；
 - 连续 2 次确认未注册才判定掉线；已注册但连续 3 次 `CSQ=99`（读不到信号）同样视为射频卡死；
-- 自愈阶梯：`AT+CFUN=4 → AT+CFUN=1 → AT+COPS=0,0`（射频重启 + 自动选网）
+- 自愈阶梯：`AT+CFUN=4 → AT+CFUN=1 → AT+COPS`（射频重启 + 按配置重新选网；
+  自动模式 `AT+COPS=0`，手动模式重发 `AT+COPS=1,2,"<PLMN>",<AcT>`，不会把手动配置覆盖成自动）
   → `AT+CFUN=1,1`（软重启，不再断电）→ EN 引脚断电（硬重启）；
 - 三级都失败算一轮，冷却 5 分钟后从第 1 级重来，避免无 SIM 卡时无休止断电；
 - 日常掉线自动重连**只写日志**；只有整轮（射频+软+硬重启）都失败时才发一次通知，
@@ -122,6 +127,8 @@ EN 引脚（GPIO5，低电平断电）与板载 LED（GPIO8，低电平点亮）
 - 队列 + 工作任务的异步通知模型，调用方只投递；
 - `notify_sms()`：一条短信 → 邮件 + 所有有效推送通道（文案"📱短信通知"）；
 - `notify_system()`：系统事件 → 邮件 + 所有有效推送通道（文案"🔔 标题"）；
+- 邮件是否发送由 `config_mail_active()` 判定：邮件开关 `mail_enabled` 打开 **且** SMTP 四项齐全；
+  关闭开关后短信照常转发到推送通道，只是不再发邮件；
   用于启动、IP 变化、网络恢复、配置更新；
 - `notify_email()`：仅邮件（管理员命令结果）；
 - `notify_drain()`：重启前等待队列清空。
@@ -191,5 +198,10 @@ EN 引脚（GPIO5，低电平断电）与板载 LED（GPIO8，低电平点亮）
   过滤 chip「全部/错误/短信/网络/通知/AT指令」，原始 AT 交互以 `AT>` 开头统一弱显示
 - 开/关飞行模式后立即把模组就绪状态同步为 false，首页不再误报「已就绪」；
   关飞行模式后由 netmon 检测到重新注册再置 true
+- 侧栏固定 7 个页面：概览 / 推送通道（邮件、推送通道、号码黑名单）/ 设备（选网配置、模组信息查询、维护）/
+  保号发送（发短信、Ping、HTTP 访问）/ 后台管理（账号、管理员号码）/ 日志（日志 + AT 指令）/ 关于项目；
+  「发短信」并入保号页，「AT 指令」并入日志页，避免功能分散
+- 邮件通道可关闭：邮件卡片右上角「启用」开关，关闭后 notify_sms/notify_system 只发推送通道，
+  状态标签显示「已关闭」；NVS 键 `mailEnable` 缺失时按开启处理，老配置升级后行为不变
 - 主题：深色 / 浅色 / 跟随系统（默认跟随），偏好存 localStorage
 - 「关于」页展示项目开源地址（https://github.com/chenxuuu/sms_forwarding）、固件版本与设备信息

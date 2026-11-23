@@ -307,8 +307,8 @@ body.chan-dirty main{padding-bottom:150px}
           <div class="sec" style="margin:14px 0 0">
             <h3>下一步</h3>
             <div class="row">
-              <button class="btn pri sm" data-go="messages">去发短信</button>
-              <button class="btn sm" data-go="notify">配置通知</button>
+              <button class="btn pri sm" data-go="keepalive">去发短信</button>
+              <button class="btn sm" data-go="push">配置通知</button>
               <button class="btn sm" data-go="logs">查看日志</button>
             </div>
           </div>
@@ -316,7 +316,7 @@ body.chan-dirty main{padding-bottom:150px}
       </div>
     </section>
 
-    <section class="page" id="p-messages">
+    <section class="page" id="p-keepalive">
       <div class="card">
         <div class="head">发送短信</div>
         <div class="field" style="margin-top:12px">
@@ -334,14 +334,39 @@ body.chan-dirty main{padding-bottom:150px}
         </div>
       </div>
       <div class="card" style="margin-top:14px">
+        <div class="head">保号操作</div>
+        <div class="tip" style="margin:6px 0 12px">通过模组主动联网，用于保持 SIM 卡在线；执行时会短暂激活数据连接</div>
+        <div class="grid two">
+          <div>
+            <div class="field"><label>Ping 目标</label><input id="keepPingHost" value="qq.com" placeholder="IP 或域名"></div>
+            <div class="row" style="margin-top:8px"><button class="btn pri sm" id="keepPingBtn"><span class="spinner"></span>执行 Ping</button></div>
+            <div class="outbox" id="keepPingOut"><span class="empty">结果会显示在这里</span></div>
+          </div>
+          <div>
+            <div class="field"><label>访问网址</label><input id="keepHttpUrl" value="https://speed.cloudflare.com/__down?bytes=10" placeholder="https://..."></div>
+            <div class="tip" style="margin:4px 0 8px">默认网址末尾 bytes=10 表示只下载 10 字节 body，流量非常可控；若当前网络访问失败（如模组错误码 5），可换成其他网址重试</div>
+            <div class="row" style="margin-top:8px"><button class="btn pri sm" id="keepHttpBtn"><span class="spinner"></span>访问网址</button></div>
+            <div class="outbox" id="keepHttpOut"><span class="empty">结果会显示在这里</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
         <div class="head">本次会话发送记录</div>
         <div class="feed" id="mHistory" style="margin-top:8px"><div class="empty">暂无记录</div></div>
       </div>
     </section>
 
-    <section class="page" id="p-notify">
+    <section class="page" id="p-push">
       <div class="card">
-        <div class="head">邮件通知 <span class="chip" id="mailState">--</span></div>
+        <div class="row" style="justify-content:space-between">
+          <div class="head">邮件通知 <span class="chip" id="mailState">--</span></div>
+          <span class="row" style="gap:8px">
+            <label class="sw"><input type="checkbox" id="mailEnable"><i></i></label>
+            <span class="tip">启用</span>
+          </span>
+        </div>
+        <div class="tip" id="mailOffTip" style="display:none;margin-top:6px">已关闭邮件通道：短信与系统通知只发送到推送通道</div>
         <div class="two" style="margin-top:12px">
           <div class="field"><label>SMTP 服务器</label><input id="smtpServer" placeholder="smtp.qq.com"></div>
           <div class="field"><label>端口</label><input id="smtpPort" inputmode="numeric" placeholder="465"></div>
@@ -366,9 +391,15 @@ body.chan-dirty main{padding-bottom:150px}
         <div class="tip" style="margin:6px 0 12px">启动、IP 变化、网络恢复、配置更新会发送到所有已启用通道；修改后必须点击「保存全部通道」才会生效</div>
         <div id="channels"><div class="empty">加载中…</div></div>
       </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="head">号码黑名单</div>
+        <div class="field" style="margin-top:10px"><textarea id="blacklist" rows="3" placeholder="每行一个号码"></textarea></div>
+        <div class="row"><button class="btn pri" data-save="blacklist"><span class="spinner"></span>保存黑名单</button></div>
+      </div>
     </section>
 
-    <section class="page" id="p-device">
+        <section class="page" id="p-admin">
       <div class="grid two">
         <div class="card"><div class="head">管理账号</div>
           <div class="field" style="margin-top:10px"><label>账号</label><input id="webUser"></div>
@@ -382,54 +413,49 @@ body.chan-dirty main{padding-bottom:150px}
         </div>
       </div>
 
-      <div class="card" style="margin-top:14px">
-        <div class="head">号码黑名单</div>
-        <div class="field" style="margin-top:10px"><textarea id="blacklist" rows="3" placeholder="每行一个号码"></textarea></div>
-        <div class="row"><button class="btn pri" data-save="blacklist"><span class="spinner"></span>保存黑名单</button></div>
+    </section>
+
+<section class="page" id="p-device">
+      <div class="card">
+        <div class="head">选网配置</div>
+        <div class="grid two" style="margin-top:10px">
+          <div class="field"><label>选网模式</label>
+            <select id="operMode">
+              <option value="0">自动选择</option>
+              <option value="1">手动指定</option>
+            </select>
+          </div>
+          <div class="field" id="operActRow"><label>网络类型</label>
+            <select id="operAct">
+              <option value="7">LTE（4G）</option>
+              <option value="2">3G（WCDMA）</option>
+              <option value="0">2G（GSM）</option>
+            </select>
+          </div>
+        </div>
+        <div class="field" id="operPlmnRow" style="margin-top:10px">
+          <label>PLMN（MCC + MNC）</label>
+          <input id="operCode" placeholder="例如 46000" inputmode="numeric" maxlength="6">
+          <div class="tip" style="margin-top:4px">中国移动 46000 / 中国联通 46001 / 中国电信 46011；仅手动模式需要</div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn pri" data-save="operator"><span class="spinner"></span>保存选网配置</button>
+        </div>
+        <div class="tip" style="margin-top:8px">默认自动选网；保存后需重启设备生效</div>
       </div>
 
-      <div class="grid two" style="margin-top:14px">
-        <div class="card">
-          <div class="head">模组信息查询</div>
-          <div class="row" style="margin-top:10px">
-            <button class="btn sm" data-act="ati">查询固件</button>
-            <button class="btn sm" data-act="siminfo">查询 SIM</button>
-            <button class="btn sm" data-act="network">查询网络</button>
-            <button class="btn sm" data-act="wifi">查询 WiFi</button>
-            <button class="btn sm" data-act="signal">查询信号</button>
-          </div>
-          <div class="outbox" id="infoOut"><span class="empty">查询结果会显示在这里</span></div>
+      <div class="card" style="margin-top:14px">
+        <div class="head">模组信息查询</div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn sm" data-act="ati">查询固件</button>
+          <button class="btn sm" data-act="siminfo">查询 SIM</button>
+          <button class="btn sm" data-act="network">查询网络</button>
+          <button class="btn sm" data-act="wifi">查询 WiFi</button>
+          <button class="btn sm" data-act="signal">查询信号</button>
         </div>
-        <div class="card">
-          <div class="head">AT 指令</div>
-          <div class="row" style="margin-top:10px">
-            <input id="atCmd" placeholder="AT+CSQ" style="flex:1;min-width:110px">
-            <button class="btn pri sm" id="atRun">执行指令</button>
-          </div>
-          <div class="field" style="margin-top:10px"><label>最近执行过的指令</label>
-            <select id="atPick"><option value="">选择后可填入输入框</option></select>
-          </div>
-          <pre class="raw" id="atOut">等待指令…</pre>
-        </div>
+        <div class="outbox" id="infoOut"><span class="empty">查询结果会显示在这里</span></div>
       </div>
 
-      <div class="card" style="margin-top:14px">
-        <div class="head">保号操作</div>
-        <div class="tip" style="margin:6px 0 12px">通过模组主动联网，用于保持 SIM 卡在线；执行时会短暂激活数据连接</div>
-        <div class="grid two">
-          <div>
-            <div class="field"><label>Ping 目标</label><input id="keepPingHost" value="qq.com" placeholder="IP 或域名"></div>
-            <div class="row" style="margin-top:8px"><button class="btn pri sm" id="keepPingBtn"><span class="spinner"></span>执行 Ping</button></div>
-            <div class="outbox" id="keepPingOut"><span class="empty">结果会显示在这里</span></div>
-          </div>
-          <div>
-            <div class="field"><label>访问网址</label><input id="keepHttpUrl" value="https://speed.cloudflare.com/__down?bytes=10" placeholder="https://..."></div>
-            <div class="tip" style="margin:4px 0 8px">默认网址末尾 bytes=10 表示只下载 10 字节 body，流量非常可控；若当前网络访问失败（如模组错误码 5），可换成其他网址重试</div>
-            <div class="row" style="margin-top:8px"><button class="btn pri sm" id="keepHttpBtn"><span class="spinner"></span>访问网址</button></div>
-            <div class="outbox" id="keepHttpOut"><span class="empty">结果会显示在这里</span></div>
-          </div>
-        </div>
-      </div>
 
       <div class="card" style="margin-top:14px">
         <div class="head">维护</div>
@@ -475,6 +501,17 @@ body.chan-dirty main{padding-bottom:150px}
           <div class="pillnew" id="logPill">有新日志 · 点击查看</div>
         </div>
       </div>
+      <div class="card" style="margin-top:14px">
+        <div class="head">AT 指令</div>
+        <div class="row" style="margin-top:10px">
+          <input id="atCmd" placeholder="AT+CSQ" style="flex:1;min-width:110px">
+          <button class="btn pri sm" id="atRun">执行指令</button>
+        </div>
+        <div class="field" style="margin-top:10px"><label>最近执行过的指令</label>
+          <select id="atPick"><option value="">选择后可填入输入框</option></select>
+        </div>
+        <pre class="raw" id="atOut">等待指令…</pre>
+      </div>
     </section>
 
     <section class="page" id="p-about">
@@ -516,7 +553,7 @@ body.chan-dirty main{padding-bottom:150px}
   <button class="btn sm ghost" id="pushDiscard">放弃修改</button>
   <button class="btn pri" id="pushSaveNow"><span class="spinner"></span>立即保存</button>
 </div>
-<div id="modal"><div class="mcard"><h4 id="mTitle">确认</h4><p id="mText"></p>
+<div id="modal"><div class="mcard"><h4 id="mTitle">确认</h4><p id="mBody"></p>
   <div class="row" style="justify-content:flex-end"><button class="btn" id="mNo">取消</button><button class="btn danger" id="mYes">确定</button></div>
 </div></div>
 <div id="toasts"></div>
@@ -528,11 +565,12 @@ body.chan-dirty main{padding-bottom:150px}
   var LS = window.localStorage;
   var PAGES = [
     { id:'overview', name:'概览', sub:'设备、网络与最近动态', hue:224 },
-    { id:'messages', name:'发短信', sub:'主动发送并按结果反馈', hue:206 },
-    { id:'notify', name:'通知', sub:'邮件与推送通道配置', hue:268 },
-    { id:'device', name:'设备', sub:'账号、模组查询与维护', hue:186 },
-    { id:'logs', name:'日志', sub:'实时日志（可过滤、可暂停跟随）', hue:340 },
-    { id:'about', name:'关于', sub:'项目信息与开源地址', hue:300 }
+    { id:'push', name:'推送通道', sub:'邮件、推送通道与号码黑名单', hue:268 },
+    { id:'device', name:'设备', sub:'选网、模组信息与维护', hue:186 },
+    { id:'keepalive', name:'保号与发送', nav:'保号发送', sub:'发送短信、Ping 与 HTTP 访问', hue:206 },
+    { id:'admin', name:'后台管理', sub:'后台账号与管理员号码', hue:280 },
+    { id:'logs', name:'日志', sub:'实时日志与 AT 指令（可过滤、可暂停跟随）', hue:340 },
+    { id:'about', name:'关于项目', sub:'项目信息与开源地址', hue:300 }
   ];
   var TYPES = [
     [1,'POST JSON'], [2,'Bark'], [3,'GET 请求'], [4,'钉钉机器人'], [5,'PushPlus'],
@@ -592,7 +630,7 @@ body.chan-dirty main{padding-bottom:150px}
   function confirmDlg(title, text, yesText, noText, yesClass, noClass){
     return new Promise(function(resolve){
       $('mTitle').textContent = title;
-      $('mText').textContent = text;
+      $('mBody').textContent = text;
       $('mYes').textContent = yesText || '确定';
       $('mNo').textContent = noText || '取消';
       $('mYes').className = yesClass || 'btn danger';
@@ -627,7 +665,7 @@ body.chan-dirty main{padding-bottom:150px}
       var b = document.createElement('button');
       b.className = 'nav-btn' + (p.id === S.page ? ' on' : '');
       b.setAttribute('data-page', p.id);
-      b.textContent = p.name;
+      b.textContent = p.nav || p.name;
       b.addEventListener('click', function(){ go(p.id); });
       nav.appendChild(b);
     });
@@ -696,10 +734,10 @@ body.chan-dirty main{padding-bottom:150px}
       sigTxt = s.net_csq === 99 ? ' · 无信号' : ' · 信号 ' + s.net_csq;
     }
     $('subModem').textContent = (s.model || '--') + sigTxt;
-    $('kMail').textContent = s.email_ok ? '已配置' : '未配置';
+    $('kMail').textContent = mailText(s);
     $('kPush').textContent = (s.push_count || 0) + ' 个已启用';
     $('kWifi').textContent = (s.ssid || '--') + (s.rssi ? '（' + s.rssi + ' dBm）' : '');
-    $('mailState').textContent = s.email_ok ? '已配置' : '未配置';
+    $('mailState').textContent = mailText(s);
     $('pushStat').textContent = (s.push_count || 0) + ' 个启用';
     $('netDot').className = 'dot ' + (s.modem_ready ? 'ok' : '');
     $('netText').textContent = s.modem_ready ? '在线' : '离线';
@@ -708,13 +746,30 @@ body.chan-dirty main{padding-bottom:150px}
     if (s.admin_phone) $('kAdmin').textContent = s.admin_phone;
   }
   function loadStatus(){ return api('/status').then(applyStatus).catch(function(){}); }
+  /* 邮件通道状态：关闭 / 已配置 / 未配置（mail_enabled 缺失时按开启处理） */
+  function mailText(s){
+    if (s && s.mail_enabled === false) return '已关闭';
+    return (s && s.email_ok) ? '已配置' : '未配置';
+  }
+  function syncMailForm(){
+    var on = $('mailEnable').checked;
+    $('mailOffTip').style.display = on ? 'none' : '';
+  }
 
   /* ---------- 配置 ---------- */
+  /* ---------- 选网配置：手动模式才显示 PLMN / 网络类型 ---------- */
+  function syncOperatorForm(){
+    var manual = $('operMode').value === '1';
+    $('operPlmnRow').style.display = manual ? '' : 'none';
+    $('operActRow').style.display = manual ? '' : 'none';
+  }
   function loadConfig(keepChannels){
     return api('/config').then(function(cfg){
       if (!cfg || cfg.success === false) return;
       $('webUser').value = cfg.web_user || '';
       $('webPass').value = cfg.web_pass || '';
+      $('mailEnable').checked = cfg.mail_enabled !== false;
+      syncMailForm();
       $('smtpServer').value = cfg.smtp_server || '';
       $('smtpPort').value = cfg.smtp_port || '';
       $('smtpUser').value = cfg.smtp_user || '';
@@ -722,6 +777,11 @@ body.chan-dirty main{padding-bottom:150px}
       $('smtpTo').value = cfg.smtp_to || '';
       $('adminPhone').value = cfg.admin_phone || '';
       $('blacklist').value = cfg.blacklist || '';
+      $('operMode').value = cfg.operator_mode === 1 ? '1' : '0';
+      $('operCode').value = cfg.operator_code || '';
+      $('operAct').value = (cfg.operator_act === 0 || cfg.operator_act === 2 || cfg.operator_act === 7)
+        ? String(cfg.operator_act) : '7';
+      syncOperatorForm();
       if (cfg.admin_phone) $('kAdmin').textContent = cfg.admin_phone;
       /* 保存其它分区（邮件/账号等）时不能把用户正在编辑的通道冲掉 */
       if (!(keepChannels && S.chanDirty)) {
@@ -850,12 +910,18 @@ body.chan-dirty main{padding-bottom:150px}
     var p = new URLSearchParams();
     if (scope === 'account') { p.append('webUser', $('webUser').value); p.append('webPass', $('webPass').value); }
     if (scope === 'mail') {
+      p.append('mailEnabled', $('mailEnable').checked ? 'on' : 'off');
       p.append('smtpServer', $('smtpServer').value); p.append('smtpPort', $('smtpPort').value);
       p.append('smtpUser', $('smtpUser').value); p.append('smtpPass', $('smtpPass').value);
       p.append('smtpSendTo', $('smtpTo').value);
     }
     if (scope === 'admin') p.append('adminPhone', $('adminPhone').value);
     if (scope === 'blacklist') p.append('numberBlackList', $('blacklist').value);
+    if (scope === 'operator') {
+      p.append('operatorMode', $('operMode').value);
+      p.append('operatorCode', ($('operCode').value || '').trim());
+      p.append('operatorAct', $('operAct').value);
+    }
     if (scope === 'push') {
       var list = snapshotChannels();
       p.append('pushCount', String(list.length));
@@ -872,11 +938,15 @@ body.chan-dirty main{padding-bottom:150px}
     return p.toString();
   }
   function save(scope, btn){
+    if (scope === 'operator' && $('operMode').value === '1') {
+      var pcode = ($('operCode').value || '').trim();
+      if (!/^[0-9]{5,6}$/.test(pcode)) { toast('手动选网需填写 5~6 位数字 PLMN', 'err'); return; }
+    }
     busy(btn, true);
     api('/save?json=1', { method:'POST', body: collect(scope) }).then(function(r){
       busy(btn, false);
       if (r && r.success) {
-        toast((r.message || '已保存'), 'ok');
+        toast(scope === 'operator' ? '选网配置已保存，重启设备后生效' : (r.message || '已保存'), 'ok');
         /* 保存通道：以设备回读为准并清除未保存标记；保存其它分区：保留正在编辑的通道 */
         loadConfig(scope !== 'push');
         loadStatus();
@@ -1237,6 +1307,8 @@ body.chan-dirty main{padding-bottom:150px}
     $('atRun').addEventListener('click', function(){ runAt(this); });
     $('atPick').addEventListener('change', function(){ if (this.value) $('atCmd').value = this.value; });
     $('flightSw').addEventListener('change', toggleFlight);
+    $('operMode').addEventListener('change', syncOperatorForm);
+    $('mailEnable').addEventListener('change', syncMailForm);
     $('keepPingBtn').addEventListener('click', function(){ keepPing(this); });
     $('keepHttpBtn').addEventListener('click', function(){ keepHttp(this); });
     $('logPill').addEventListener('click', scrollBottom);

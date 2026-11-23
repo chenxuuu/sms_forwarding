@@ -84,7 +84,7 @@ static void enqueue(notify_job_t *job)
 void notify_sms(const char *sender, const char *message, const char *timestamp)
 {
     app_config_t *cfg = config_lock();
-    bool do_email = config_email_valid(cfg);
+    bool do_email = config_mail_active(cfg);
     bool do_push = false;
     for (int i = 0; i < cfg->channel_count && !do_push; i++) {
         do_push = config_push_channel_valid(&cfg->channels[i]);
@@ -116,7 +116,7 @@ void notify_sms(const char *sender, const char *message, const char *timestamp)
 void notify_system(const char *title, const char *body)
 {
     app_config_t *cfg = config_lock();
-    bool do_email = config_email_valid(cfg);
+    bool do_email = config_mail_active(cfg);
     bool do_push = false;
     for (int i = 0; i < cfg->channel_count && !do_push; i++) {
         do_push = config_push_channel_valid(&cfg->channels[i]);
@@ -153,7 +153,7 @@ void notify_system(const char *title, const char *body)
 void notify_email(const char *subject, const char *body)
 {
     app_config_t *cfg = config_lock();
-    bool do_email = config_email_valid(cfg);
+    bool do_email = config_mail_active(cfg);
     config_unlock();
     if (!do_email) {
         log_line("邮件配置不完整，跳过发送");

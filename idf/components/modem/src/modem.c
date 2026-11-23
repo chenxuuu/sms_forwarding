@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "core/config.h"
 #include "core/log.h"
 #include "core/util.h"
 #include "esp_check.h"
@@ -232,6 +233,37 @@ static bool wait_registered(void)
  * @param power_cycle true=硬复位（EN 断电）；false=仅软复位后的重新配置，
  *                    用于 AT+CFUN=1,1 之后的重新初始化。
  */
+/** 按配置应用选网：自动 AT+COPS=0；手动 AT+COPS=1,2,"PLMN",<AcT>。 */
+static void apply_operator_selection(void)
+{
+    uint8_t mode;
+    uint8_t act;
+    char plmn[sizeof(((app_config_t *)0)->operator_code)];
+    app_config_t *cfg = config_lock();
+    mode = cfg->operator_mode;
+    act = cfg->operator_act;
+    snprintf(plmn, sizeof(plmn), "%s", cfg->operator_code);
+    config_unlock();
+
+    if (mode == OPERATOR_MODE_MANUAL && plmn[0] != '\0') {
+        char cmd[64];
+        snprintf(cmd, sizeof(cmd), "AT+COPS=1,2,\"%s\",%u", plmn, (unsigned)act);
+        log_line("应用选网配置：手动 PLMN %s（%s）", plmn,
+                 act == OPERATOR_ACT_2G ? "2G" : act == OPERATOR_ACT_3G ? "3G" : "LTE");
+        if (!at_command_ok(cmd, 60000)) {
+            log_line("手动选网命令未成功，等待网络自行注册");
+        }
+    } else {
+        if (mode == OPERATOR_MODE_MANUAL) {
+            log_line("手动选网模式但未填写 PLMN，回退为自动选网");
+        }
+        log_line("应用选网配置：自动选择（AT+COPS=0）");
+        if (!at_command_ok("AT+COPS=0", 60000)) {
+            log_line("自动选网命令未成功，继续等待注册");
+        }
+    }
+}
+
 static void do_init(bool power_cycle)
 {
     s_ready = false;
@@ -289,6 +321,9 @@ static void do_init(bool power_cycle)
     at_command_ok("AT+CREG=2", 2000);
     at_command_ok("AT+CEREG=2", 2000);
     log_line("注册状态上报已开启（CREG=2 / CEREG=2）");
+
+    /* 应用持久化的选网配置（默认自动选择） */
+    apply_operator_selection();
 
     if (wait_registered()) {
         log_line("网络已注册，模组就绪");

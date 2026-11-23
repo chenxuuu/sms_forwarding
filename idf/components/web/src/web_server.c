@@ -288,6 +288,7 @@ static uint32_t hash_section(const app_config_t *c, int section)
         h = fnv1a(c->web_pass, sizeof(c->web_pass), h);
         break;
     case 1:
+        h = fnv1a(&c->mail_enabled, sizeof(c->mail_enabled), h);
         h = fnv1a(c->smtp_server, sizeof(c->smtp_server), h);
         h = fnv1a(&c->smtp_port, sizeof(c->smtp_port), h);
         h = fnv1a(c->smtp_user, sizeof(c->smtp_user), h);
@@ -300,7 +301,15 @@ static uint32_t hash_section(const app_config_t *c, int section)
     case 3:
         h = fnv1a(c->blacklist, sizeof(c->blacklist), h);
         break;
+    case 4:
+        h = fnv1a(c->channels, (size_t)c->channel_count * sizeof(push_channel_t), h);
+        h = fnv1a(&c->channel_count, sizeof(c->channel_count), h);
+        break;
     default:
+        h = fnv1a(&c->operator_mode, sizeof(c->operator_mode), h);
+        h = fnv1a(&c->operator_act, sizeof(c->operator_act), h);
+        h = fnv1a(c->operator_code, sizeof(c->operator_code), h);
+        break;
         h = fnv1a(c->channels, (size_t)c->channel_count * sizeof(push_channel_t), h);
         h = fnv1a(&c->channel_count, sizeof(c->channel_count), h);
         break;
@@ -323,8 +332,8 @@ esp_err_t handler_save(httpd_req_t *req)
     char value[1024];
     app_config_t *cfg = config_lock();
 
-    uint32_t h_before[5];
-    for (int sc = 0; sc < 5; sc++) {
+    uint32_t h_before[6];
+    for (int sc = 0; sc < 6; sc++) {
         h_before[sc] = hash_section(cfg, sc);
     }
 
@@ -335,6 +344,9 @@ esp_err_t handler_save(httpd_req_t *req)
     if (web_form_get(body, "webPass", value, sizeof(value))) {
         snprintf(cfg->web_pass, sizeof(cfg->web_pass), "%s",
                  value[0] ? value : DEFAULT_WEB_PASS);
+    }
+    if (web_form_get(body, "mailEnabled", value, sizeof(value))) {
+        cfg->mail_enabled = strcmp(value, "on") == 0 || strcmp(value, "1") == 0;
     }
     if (web_form_get(body, "smtpServer", value, sizeof(value))) {
         snprintf(cfg->smtp_server, sizeof(cfg->smtp_server), "%s", value);
@@ -357,6 +369,52 @@ esp_err_t handler_save(httpd_req_t *req)
     }
     if (web_form_get(body, "numberBlackList", value, sizeof(value))) {
         snprintf(cfg->blacklist, sizeof(cfg->blacklist), "%s", value);
+    }
+
+    /* 选网配置：先完整校验再落盘，避免存进半套配置 */
+    char op_mode_str[8] = {0}, op_code[16] = {0}, op_act_str[8] = {0};
+    bool has_op_mode = web_form_get(body, "operatorMode", op_mode_str, sizeof(op_mode_str));
+    bool has_op_code = web_form_get(body, "operatorCode", op_code, sizeof(op_code));
+    bool has_op_act = web_form_get(body, "operatorAct", op_act_str, sizeof(op_act_str));
+    if (has_op_mode || has_op_code || has_op_act) {
+        int mode = has_op_mode ? atoi(op_mode_str) : cfg->operator_mode;
+        int act = has_op_act ? atoi(op_act_str) : cfg->operator_act;
+        if (has_op_code) {
+            util_trim(op_code);
+        }
+        if (mode != OPERATOR_MODE_AUTO && mode != OPERATOR_MODE_MANUAL) {
+            config_unlock();
+            free(body);
+            web_send_json(req, false, "选网模式无效");
+            return ESP_OK;
+        }
+        if (act != OPERATOR_ACT_2G && act != OPERATOR_ACT_3G && act != OPERATOR_ACT_LTE) {
+            config_unlock();
+            free(body);
+            web_send_json(req, false, "网络类型无效");
+            return ESP_OK;
+        }
+        const char *code = has_op_code ? op_code : cfg->operator_code;
+        if (mode == OPERATOR_MODE_MANUAL) {
+            size_t clen = strlen(code);
+            bool digits = clen >= 5 && clen <= 6;
+            for (size_t k = 0; digits && k < clen; k++) {
+                if (code[k] < '0' || code[k] > '9') {
+                    digits = false;
+                }
+            }
+            if (!digits) {
+                config_unlock();
+                free(body);
+                web_send_json(req, false, "手动选网需填写 5~6 位数字 PLMN（如 46000）");
+                return ESP_OK;
+            }
+        }
+        cfg->operator_mode = (uint8_t)mode;
+        cfg->operator_act = (uint8_t)act;
+        if (has_op_code) {
+            snprintf(cfg->operator_code, sizeof(cfg->operator_code), "%s", op_code);
+        }
     }
 
     char cnt_str[8] = {0};
@@ -426,7 +484,8 @@ esp_err_t handler_save(httpd_req_t *req)
     bool ch_admin = h_before[2] != hash_section(cfg, 2);
     bool ch_black = h_before[3] != hash_section(cfg, 3);
     bool ch_push = h_before[4] != hash_section(cfg, 4);
-    bool changed = ch_creds || ch_mail || ch_admin || ch_black || ch_push;
+    bool ch_oper = h_before[5] != hash_section(cfg, 5);
+    bool changed = ch_creds || ch_mail || ch_admin || ch_black || ch_push || ch_oper;
 
     config_save_locked();
     config_unlock();
@@ -460,12 +519,18 @@ esp_err_t handler_save(httpd_req_t *req)
     if (ch_black) {
         sbuf_append(&items, "\n· 号码黑名单");
     }
+    if (ch_oper) {
+        sbuf_append(&items, "\n· 选网配置（重启设备后生效）");
+    }
 
     sbuf_t text;
     sbuf_init(&text);
     sbuf_printf(&text, "以下配置已更新：%s\n设备地址: http://%s/", sbuf_cstr(&items), wifi_ip());
     if (ch_creds) {
         sbuf_append(&text, "\n\n管理账号已修改，请使用新账号密码登录。");
+    }
+    if (ch_oper) {
+        sbuf_append(&text, "\n\n选网配置已保存，重启设备后生效。");
     }
     notify_system("短信转发器配置已更新", sbuf_cstr(&text));
     log_line("配置已更新：%s", sbuf_cstr(&items));
@@ -517,7 +582,8 @@ esp_err_t handler_status(httpd_req_t *req)
                 reg.sim_ready ? "true" : "false");
 
     app_config_t *cfg = config_lock();
-    bool email_ok = config_email_valid(cfg);
+    bool email_ok = config_mail_active(cfg);
+    bool mail_enabled = cfg->mail_enabled;
     int push_count = 0;
     for (int i = 0; i < cfg->channel_count; i++) {
         if (config_push_channel_valid(&cfg->channels[i])) {
@@ -526,8 +592,9 @@ esp_err_t handler_status(httpd_req_t *req)
     }
     config_unlock();
 
-    sbuf_printf(&out, "\"email_ok\":%s,\"push_count\":%d,\"device_name\":\"%s\",\"model\":\"%s\"}",
-                email_ok ? "true" : "false", push_count, host, modem_model());
+    sbuf_printf(&out, "\"email_ok\":%s,\"mail_enabled\":%s,\"push_count\":%d,\"device_name\":\"%s\",\"model\":\"%s\"}",
+                email_ok ? "true" : "false", mail_enabled ? "true" : "false", push_count, host,
+                modem_model());
     httpd_resp_set_type(req, "application/json; charset=utf-8");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_send(req, sbuf_cstr(&out), out.len);
@@ -555,6 +622,7 @@ esp_err_t handler_config(httpd_req_t *req)
     sbuf_append(&out, "{");
     append_str_field(&out, "web_user", cfg->web_user, true);
     append_str_field(&out, "web_pass", cfg->web_pass, true);
+    sbuf_printf(&out, "\"mail_enabled\":%s,", cfg->mail_enabled ? "true" : "false");
     append_str_field(&out, "smtp_server", cfg->smtp_server, true);
     sbuf_printf(&out, "\"smtp_port\":%u,", (unsigned)cfg->smtp_port);
     append_str_field(&out, "smtp_user", cfg->smtp_user, true);
@@ -562,6 +630,9 @@ esp_err_t handler_config(httpd_req_t *req)
     append_str_field(&out, "smtp_to", cfg->smtp_to, true);
     append_str_field(&out, "admin_phone", cfg->admin_phone, true);
     append_str_field(&out, "blacklist", cfg->blacklist, true);
+    sbuf_printf(&out, "\"operator_mode\":%u,\"operator_act\":%u,",
+                (unsigned)cfg->operator_mode, (unsigned)cfg->operator_act);
+    append_str_field(&out, "operator_code", cfg->operator_code, true);
     sbuf_append(&out, "\"channels\":[");
     for (int i = 0; i < cfg->channel_count; i++) {
         const push_channel_t *ch = &cfg->channels[i];

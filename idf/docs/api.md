@@ -25,7 +25,8 @@ HTTP 服务本身不受影响，页面还能正常打开和刷新。
 | GET | `/`、`/tools`、`/sms` | 管理界面（单页，标签页切换） |
 | GET | `/favicon.ico` | 空响应，避免日志噪声 |
 
-单页内含 6 个标签页：概览、发短信、通知、设备、日志、关于。关于页为纯前端页面，
+单页内含 7 个标签页：概览、推送通道、设备、保号发送（发短信 + Ping + HTTP 访问）、
+后台管理、日志（含 AT 指令）、关于项目。关于页为纯前端页面，
 展示项目开源地址（https://github.com/chenxuuu/sms_forwarding）、固件版本、设备型号与设备名，
 不新增后端接口。
 
@@ -38,16 +39,23 @@ HTTP 服务本身不受影响，页面还能正常打开和刷新。
 | 字段 | 说明 |
 |---|---|
 | `webUser` / `webPass` | 管理账号（留空恢复默认 `admin/admin123`） |
+| `mailEnabled` | 邮件通道开关：`on`/`off`（不传则保持原值） |
 | `smtpServer` / `smtpPort` / `smtpUser` / `smtpPass` / `smtpSendTo` | 邮件通知 |
 | `adminPhone` | 管理员号码（可下发 `SMS:`/`RESET` 命令） |
 | `numberBlackList` | 号码黑名单，换行分隔 |
+| `operatorMode` | 选网模式：0=自动（默认）/ 1=手动 |
+| `operatorCode` | 手动模式的 PLMN，5~6 位数字（如 46000） |
+| `operatorAct` | 手动模式网络类型：0=2G(GSM) / 2=3G(UTRAN) / 7=LTE（默认） |
 | `pushNen` / `pushNtype` / `pushNname` / `pushNurl` / `pushNkey1` / `pushNkey2` / `pushNbody` | 第 N 个推送通道（N=0..4） |
 
-返回 3 秒后跳回首页的提示页。
+返回 3 秒后跳回首页的提示页。手动选网若 PLMN 非 5~6 位数字、或网络类型非法，
+接口直接返回 JSON 错误且不落盘。保存选网配置后需重启设备，在模组初始化时通过 `AT+COPS` 生效。
 
 ### GET /status
 
-前端轮询用的轻量状态（不碰 AT，毫秒级）：`ip/ssid/rssi/heap_kb/uptime_s/modem_ready/email_ok/push_count/device_name/model`。
+前端轮询用的轻量状态（不碰 AT，毫秒级）：`ip/ssid/rssi/heap_kb/uptime_s/modem_ready/email_ok/mail_enabled/push_count/device_name/model`。
+`mail_enabled` 是邮件通道开关；`email_ok` 表示「开关打开且 SMTP 四项配置齐全」（即 config_mail_active），
+关闭后即便 SMTP 填好也不再发邮件。
 
 模组字段来自网络守护的最近一次检测（每 60 秒）：
 `net_stat`（0 未注册未搜索 / 1 已注册本地 / 2 搜索中 / 3 被拒绝 / 4 未知 / 5 漫游 / -1 查询失败）、
@@ -57,6 +65,7 @@ HTTP 服务本身不受影响，页面还能正常打开和刷新。
 ### GET /config
 
 返回完整配置快照（含 5 个推送通道），前端据此渲染表单，避免服务端拼 HTML。
+另含邮件开关 `mail_enabled`（布尔，缺省视为开启），以及选网字段 `operator_mode`（0 自动/1 手动）、`operator_code`（PLMN）、`operator_act`（0=2G/2=3G/7=LTE）。
 密码等敏感字段也在其中，接口本身受 Basic 认证保护。
 
 ### POST /save?json=1
@@ -137,7 +146,7 @@ cfun=1 全功能、cfun=4 飞行模式（射频关闭）。
 
 ## 配置变更通知
 
-/save 保存前对 5 个分区做 FNV-1a 哈希：账号密码 / 邮件设置 / 管理员号码 / 号码黑名单 / 推送通道，
+/save 保存前对 6 个分区做 FNV-1a 哈希：账号密码 / 邮件设置 / 管理员号码 / 号码黑名单 / 推送通道 / 选网配置，
 保存后逐项比对：
 
 | 结果 | 行为 |
@@ -145,6 +154,7 @@ cfun=1 全功能、cfun=4 飞行模式（射频关闭）。
 | 什么都没变 | 不发通知；JSON 返回「配置未变化」 |
 | 有分区变化 | 发送「短信转发器配置已更新」，正文列出变更项，如「· 推送通道（当前 6 个）」 |
 | 账号或密码变化 | 正文追加「管理账号已修改，请使用新账号密码登录。」 |
+| 选网配置变化 | 正文追加「选网配置已保存，重启设备后生效。」 |
 
 通知通过 notify_system() 发送到邮件 + 所有已启用推送通道。
 

@@ -6,7 +6,7 @@
  * 不上网、不发短信，因此不产生流量与话费；也不需要 SIM 卡支持任何增值业务。
  *
  * 自愈阶梯（仅在连续 2 次确认掉线后触发）：
- *   1. 射频重启：AT+CFUN=4 → AT+CFUN=1 → AT+COPS=0,0（重新搜网，最轻量）
+ *   1. 射频重启：AT+CFUN=4 → AT+CFUN=1 → AT+COPS（按配置重新选网，最轻量）
  *   2. 软重启：AT+CFUN=1,1，等模组自己重启后重新初始化
  *   3. 硬重启：EN 引脚断电，彻底复位模组
  * 三级都失败 → 5 分钟后从第 1 级重新开始，避免无 SIM 卡时无休止地断电。
@@ -22,6 +22,7 @@
 
 #include <time.h>
 
+#include "core/config.h"
 #include "core/log.h"
 #include "core/util.h"
 #include "esp_timer.h"
@@ -192,8 +193,23 @@ static bool rf_cycle(void)
     }
     vTaskDelay(pdMS_TO_TICKS(2000));
 
-    /* 恢复自动选网；部分运营商锁网/手动选网后不会自己回到自动模式 */
-    char *resp = modem_at("AT+COPS=0,0", 30000);
+    /* 恢复选网：自动 -> AT+COPS=0；手动 -> 按 PLMN 重新锁定。
+     * 不能无条件 COPS=0，否则会覆盖用户保存的手动选网配置。 */
+    uint8_t op_mode, op_act;
+    char op_plmn[8] = {0};
+    app_config_t *cfg = config_lock();
+    op_mode = cfg->operator_mode;
+    op_act = cfg->operator_act;
+    snprintf(op_plmn, sizeof(op_plmn), "%s", cfg->operator_code);
+    config_unlock();
+    char *resp;
+    if (op_mode == OPERATOR_MODE_MANUAL && op_plmn[0] != '\0') {
+        char cops[64];
+        snprintf(cops, sizeof(cops), "AT+COPS=1,2,\"%s\",%u", op_plmn, (unsigned)op_act);
+        resp = modem_at(cops, 60000);
+    } else {
+        resp = modem_at("AT+COPS=0", 30000);
+    }
     free(resp);
 
     /* CFUN 循环可能丢掉运行期设置：短信直报、PDU 模式、禁用数据连接 */

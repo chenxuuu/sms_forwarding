@@ -79,10 +79,26 @@ static void load_all(void)
     load_str("smtpUser", s_config.smtp_user, sizeof(s_config.smtp_user), "");
     load_str("smtpPass", s_config.smtp_pass, sizeof(s_config.smtp_pass), "");
     load_str("smtpSendTo", s_config.smtp_to, sizeof(s_config.smtp_to), "");
+    /* 邮件开关：新键 mailEnable；老配置没有该键，缺省开启以保持原行为 */
+    uint8_t mail_en = 1;
+    nvs_get_u8(s_nvs, "mailEnable", &mail_en);
+    s_config.mail_enabled = (mail_en != 0);
     load_str("adminPhone", s_config.admin_phone, sizeof(s_config.admin_phone), "");
     load_str("webUser", s_config.web_user, sizeof(s_config.web_user), DEFAULT_WEB_USER);
     load_str("webPass", s_config.web_pass, sizeof(s_config.web_pass), DEFAULT_WEB_PASS);
     load_str("numBlkList", s_config.blacklist, sizeof(s_config.blacklist), "");
+
+    /* 选网：operatorMode/operatorCode 沿用 Arduino 版键名，operatorAct 为新增 */
+    uint8_t op_mode = OPERATOR_MODE_AUTO;
+    nvs_get_u8(s_nvs, "operatorMode", &op_mode);
+    s_config.operator_mode = (op_mode == OPERATOR_MODE_MANUAL) ? OPERATOR_MODE_MANUAL : OPERATOR_MODE_AUTO;
+    uint8_t op_act = OPERATOR_ACT_DEFAULT;
+    if (nvs_get_u8(s_nvs, "operatorAct", &op_act) != ESP_OK ||
+        (op_act != OPERATOR_ACT_2G && op_act != OPERATOR_ACT_3G && op_act != OPERATOR_ACT_LTE)) {
+        op_act = OPERATOR_ACT_DEFAULT;
+    }
+    s_config.operator_act = op_act;
+    load_str("operatorCode", s_config.operator_code, sizeof(s_config.operator_code), "");
 
     uint8_t cnt = 0;
     bool has_cnt = nvs_get_u8(s_nvs, "pushCount", &cnt) == ESP_OK &&
@@ -143,6 +159,9 @@ void config_init(void)
         snprintf(s_config.web_user, sizeof(s_config.web_user), DEFAULT_WEB_USER);
         snprintf(s_config.web_pass, sizeof(s_config.web_pass), DEFAULT_WEB_PASS);
         s_config.smtp_port = 465;
+        s_config.mail_enabled = true;
+        s_config.operator_mode = OPERATOR_MODE_AUTO;
+        s_config.operator_act = OPERATOR_ACT_DEFAULT;
         s_config.channel_count = PUSH_CHANNEL_DEFAULT;
         s_config.channels = calloc(PUSH_CHANNEL_DEFAULT, sizeof(push_channel_t));
         for (int i = 0; i < s_config.channel_count; i++) {
@@ -181,10 +200,15 @@ void config_save_locked(void)
     nvs_set_str(s_nvs, "smtpUser", s_config.smtp_user);
     nvs_set_str(s_nvs, "smtpPass", s_config.smtp_pass);
     nvs_set_str(s_nvs, "smtpSendTo", s_config.smtp_to);
+    nvs_set_u8(s_nvs, "mailEnable", s_config.mail_enabled ? 1 : 0);
     nvs_set_str(s_nvs, "adminPhone", s_config.admin_phone);
     nvs_set_str(s_nvs, "webUser", s_config.web_user);
     nvs_set_str(s_nvs, "webPass", s_config.web_pass);
     nvs_set_str(s_nvs, "numBlkList", s_config.blacklist);
+
+    nvs_set_u8(s_nvs, "operatorMode", s_config.operator_mode);
+    nvs_set_u8(s_nvs, "operatorAct", s_config.operator_act);
+    nvs_set_str(s_nvs, "operatorCode", s_config.operator_code);
 
     nvs_set_u8(s_nvs, "pushCount", (uint8_t)s_config.channel_count);
     for (int i = 0; i < s_config.channel_count; i++) {
@@ -278,6 +302,11 @@ bool config_email_valid(const app_config_t *cfg)
     return cfg->smtp_server[0] && cfg->smtp_user[0] && cfg->smtp_pass[0] && cfg->smtp_to[0];
 }
 
+bool config_mail_active(const app_config_t *cfg)
+{
+    return cfg->mail_enabled && config_email_valid(cfg);
+}
+
 bool config_push_channel_valid(const push_channel_t *ch)
 {
     if (!ch->enabled) {
@@ -306,7 +335,7 @@ bool config_push_channel_valid(const push_channel_t *ch)
 bool config_any_valid(void)
 {
     app_config_t *cfg = config_lock();
-    bool ok = config_email_valid(cfg);
+    bool ok = config_mail_active(cfg);
     for (int i = 0; !ok && i < cfg->channel_count; i++) {
         ok = config_push_channel_valid(&cfg->channels[i]);
     }

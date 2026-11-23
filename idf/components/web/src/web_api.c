@@ -594,6 +594,25 @@ static void flight_async(web_async_ctx_t *ctx, sbuf_t *out, const char **ctype)
     free(resp);
 }
 
+static void flight_state_async(web_async_ctx_t *ctx, sbuf_t *out, const char **ctype)
+{
+    (void)ctx;
+    *ctype = "application/json; charset=utf-8";
+    char *resp = modem_at("AT+CFUN?", 3000);
+    const char *line = find_line(resp, "+CFUN:");
+    if (!line) {
+        json_fail(out, "查询失败");
+        free(resp);
+        return;
+    }
+    char f[16];
+    take_after(line, ':', f, sizeof(f));
+    int mode = atoi(f);
+    free(resp);
+    sbuf_printf(out, "{\"success\":true,\"cfun\":%d,\"flight\":%s}", mode,
+                mode == 4 ? "true" : "false");
+}
+
 esp_err_t handler_flight(httpd_req_t *req)
 {
     if (!web_require_auth(req)) {
@@ -607,6 +626,10 @@ esp_err_t handler_flight(httpd_req_t *req)
             web_form_get(body, "action", action, sizeof(action));
             free(body);
         }
+    }
+    if (strcmp(action, "state") == 0) {
+        web_spawn_async(req, flight_state_async, "", "");
+        return ESP_OK;
     }
     web_spawn_async(req, flight_async, action, "");
     return ESP_OK;

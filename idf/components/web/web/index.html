@@ -217,6 +217,13 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
+.outbox{margin-top:12px;max-height:240px;overflow:auto}
+.outbox table.kv{font-size:13px}
+.outbox .empty{color:var(--dim);font-size:12px}
+.chan .spacer{flex:1}
+@media (max-width:640px){ .chan-h{flex-wrap:wrap} }
+
+
 </style>
 </head>
 <body>
@@ -228,10 +235,10 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     <div class="side-foot">
       <div class="row" style="justify-content:space-between">
         <span class="chip" id="netChip"><i class="dot" id="netDot"></i><span id="netText">连接中</span></span>
-        <button class="btn sm ghost" id="themeBtn" title="切换主题">◐</button>
+        <button class="btn sm ghost" id="themeBtn" title="切换深浅色">切换主题</button>
       </div>
-      <div class="row"><span class="chip" id="ipChip" title="点击复制"><span id="ipText">--</span></span></div>
-      <div><span class="chip" id="paletteBtn" style="width:100%">⌘ 命令面板 <span style="margin-left:auto;color:var(--dim)">Ctrl+K</span></span></div>
+      <div><button class="btn sm" id="copyBtn" style="width:100%">复制设备地址</button></div>
+      <div class="tip" id="ipText">--</div>
     </div>
   </aside>
 
@@ -239,52 +246,37 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     <div class="top">
       <div><h1 id="pageTitle">概览</h1><p id="pageSub">设备、网络与最近动态</p></div>
       <div class="grow"></div>
-      <button class="btn sm ghost" id="refreshBtn"><span class="spinner"></span>刷新</button>
+      <button class="btn sm" id="refreshBtn"><span class="spinner"></span>刷新状态</button>
     </div>
 
     <section class="page on" id="p-overview">
-      <div class="grid stats" id="statGrid">
-        <div class="card tilt" data-open="ip">
-          <div class="head">设备地址 <button class="more">›</button></div>
-          <div class="val" id="vIp">--</div>
-          <div class="sub" id="subIp">--</div>
-          <div class="detail"><div class="row"><button class="btn sm" id="copyIp">复制地址</button><span class="chip" id="mdnsHint">--</span></div></div>
-        </div>
-        <div class="card tilt" data-open="up">
-          <div class="head">运行时长 <button class="more">›</button></div>
-          <div class="val" id="vUp">--</div>
-          <div class="sub">自上次重启</div>
-          <div class="detail"><svg class="spark" id="sparkUp" viewBox="0 0 300 68" preserveAspectRatio="none"></svg><div class="row"><span class="chip" id="bootInfo">--</span></div></div>
-        </div>
-        <div class="card tilt" data-open="heap">
-          <div class="head">空闲内存 <button class="more">›</button></div>
-          <div class="val" id="vHeap">--</div>
-          <div class="sub">堆剩余</div>
-          <div class="detail"><svg class="spark" id="sparkHeap" viewBox="0 0 300 68" preserveAspectRatio="none"></svg><div class="row"><span class="tip">近 20 次采样</span></div></div>
-        </div>
-        <div class="card tilt" data-open="modem">
-          <div class="head">4G 模组 <button class="more">›</button></div>
-          <div class="val" id="vModem">--</div>
-          <div class="sub" id="subModem">--</div>
-          <div class="detail"><div class="row"><button class="btn sm" data-act="signal">信号</button><button class="btn sm" data-act="operator">运营商</button><button class="btn sm" data-act="imei">序列号</button></div><div class="empty" id="modemOut" style="margin-top:8px">点按钮查询</div></div>
-        </div>
+      <div class="grid stats">
+        <div class="card"><div class="head">设备地址</div><div class="val" id="vIp">--</div><div class="sub" id="subIp">--</div></div>
+        <div class="card"><div class="head">运行时长</div><div class="val" id="vUp">--</div><div class="sub">自上次重启</div></div>
+        <div class="card"><div class="head">空闲内存</div><div class="val" id="vHeap">--</div><div class="sub">堆剩余</div></div>
+        <div class="card"><div class="head">4G 模组</div><div class="val" id="vModem">--</div><div class="sub" id="subModem">--</div></div>
       </div>
 
       <div class="grid two" style="margin-top:14px">
         <div class="card">
-          <div class="head">最近动态 <span class="chip" style="margin-left:auto" id="feedCount">0</span></div>
+          <div class="head">最近动态 <span class="chip" id="feedCount">0</span></div>
           <div class="feed" id="feed"><div class="empty">暂无事件</div></div>
         </div>
         <div class="card">
-          <div class="head">常用操作</div>
-          <div class="row" id="quickActions" style="margin-top:10px"></div>
-          <div class="sec" style="margin:14px 0 0"><h3>通知链路</h3>
-            <table class="kv">
-              <tr><td>邮件</td><td id="kMail">--</td></tr>
-              <tr><td>推送通道</td><td id="kPush">--</td></tr>
-              <tr><td>管理员</td><td id="kAdmin">--</td></tr>
-              <tr><td>WiFi</td><td id="kWifi">--</td></tr>
-            </table>
+          <div class="head">通知链路</div>
+          <table class="kv" style="margin-top:6px">
+            <tr><td>邮件通知</td><td id="kMail">--</td></tr>
+            <tr><td>推送通道</td><td id="kPush">--</td></tr>
+            <tr><td>管理员号码</td><td id="kAdmin">--</td></tr>
+            <tr><td>WiFi</td><td id="kWifi">--</td></tr>
+          </table>
+          <div class="sec" style="margin:14px 0 0">
+            <h3>下一步</h3>
+            <div class="row">
+              <button class="btn pri sm" data-go="messages">去发短信</button>
+              <button class="btn sm" data-go="notify">配置通知</button>
+              <button class="btn sm" data-go="logs">查看日志</button>
+            </div>
           </div>
         </div>
       </div>
@@ -292,40 +284,48 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
 
     <section class="page" id="p-messages">
       <div class="card">
-        <div class="head">发送短信 <span class="chip" style="margin-left:auto" id="mMode">GSM7</span></div>
-        <div class="field" style="margin-top:12px"><label>目标号码</label><input id="mPhone" inputmode="tel" placeholder="17612345678 或 +8617612345678"></div>
-        <div class="row" id="mChips" style="margin:-6px 0 12px"></div>
-        <div class="field"><label>内容 <span class="tip" id="mCount">0 / 160</span></label><textarea id="mText" rows="4" placeholder="单条最多 70 个汉字（160 个英文字符）"></textarea></div>
+        <div class="head">发送短信</div>
+        <div class="field" style="margin-top:12px">
+          <label>目标号码</label>
+          <input id="mPhone" list="numList" inputmode="tel" placeholder="17612345678">
+          <datalist id="numList"></datalist>
+        </div>
+        <div class="field"><label>内容 <span class="tip" id="mCount">0 / 160</span></label>
+          <textarea id="mText" rows="4" placeholder="单条最多 70 个汉字（160 个英文字符）"></textarea>
+        </div>
         <div class="row">
-          <button class="btn pri" id="mSend"><span class="spinner"></span><span id="mSendLabel">发送</span></button>
-          <button class="btn ghost sm" id="mClear">清空</button>
-          <span class="tip" id="mHint">发送失败会提示原因</span>
+          <button class="btn pri" id="mSend"><span class="spinner"></span><span id="mSendLabel">发送短信</span></button>
+          <button class="btn sm" id="mClear">清空内容</button>
+          <span class="tip" id="mResult">未发送</span>
         </div>
       </div>
       <div class="card" style="margin-top:14px">
-        <div class="head">最近发送</div>
-        <div class="feed" id="mHistory" style="margin-top:8px"><div class="empty">还没有发送记录</div></div>
+        <div class="head">本次会话发送记录</div>
+        <div class="feed" id="mHistory" style="margin-top:8px"><div class="empty">暂无记录</div></div>
       </div>
     </section>
 
     <section class="page" id="p-notify">
       <div class="card">
-        <div class="head">邮件通知 <span class="chip" style="margin-left:auto" id="mailState">--</span></div>
+        <div class="head">邮件通知 <span class="chip" id="mailState">--</span></div>
         <div class="two" style="margin-top:12px">
           <div class="field"><label>SMTP 服务器</label><input id="smtpServer" placeholder="smtp.qq.com"></div>
           <div class="field"><label>端口</label><input id="smtpPort" inputmode="numeric" placeholder="465"></div>
         </div>
         <div class="two">
           <div class="field"><label>账号</label><input id="smtpUser" placeholder="you@qq.com"></div>
-          <div class="field"><label>密码 / 授权码</label><input id="smtpPass" type="password"></div>
+          <div class="field"><label>密码/授权码</label><input id="smtpPass" type="password"></div>
         </div>
         <div class="field"><label>收件地址</label><input id="smtpTo" placeholder="receiver@example.com"></div>
-        <div class="actions"><button class="btn pri" data-save="mail"><span class="spinner"></span>保存</button><span class="tip">465 为隐式 TLS；其它端口按明文处理</span></div>
+        <div class="row"><button class="btn pri" data-save="mail"><span class="spinner"></span>保存邮件设置</button><span class="tip">465 端口为 SSL；其它端口明文</span></div>
       </div>
 
       <div class="card" style="margin-top:14px">
-        <div class="row" style="justify-content:space-between"><div class="head">推送通道 <span class="chip" id="pushStat">--</span></div><button class="btn sm pri" data-save="push"><span class="spinner"></span>保存全部</button></div>
-        <div class="tip" style="margin:6px 0 12px">系统通知（启动 / IP 变化 / 网络恢复 / 配置更新）会发送到所有已启用通道</div>
+        <div class="row" style="justify-content:space-between">
+          <div class="head">推送通道 <span class="chip" id="pushStat">--</span></div>
+          <button class="btn pri sm" data-save="push"><span class="spinner"></span>保存全部通道</button>
+        </div>
+        <div class="tip" style="margin:6px 0 12px">启动、IP 变化、网络恢复、配置更新会发送到所有已启用通道</div>
         <div id="channels"><div class="empty">加载中…</div></div>
       </div>
     </section>
@@ -335,39 +335,59 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
         <div class="card"><div class="head">管理账号</div>
           <div class="field" style="margin-top:10px"><label>账号</label><input id="webUser"></div>
           <div class="field"><label>密码</label><input id="webPass" type="password"></div>
-          <div class="actions"><button class="btn pri" data-save="account"><span class="spinner"></span>保存</button></div>
+          <div class="row"><button class="btn pri" data-save="account"><span class="spinner"></span>保存账号</button></div>
         </div>
         <div class="card"><div class="head">管理员号码</div>
           <div class="field" style="margin-top:10px"><label>手机号</label><input id="adminPhone" placeholder="13800138000"></div>
-          <div class="tip" style="margin-bottom:10px">该号码发 SMS:号码:内容 可远程发短信；RESET 重启设备</div>
-          <div class="actions"><button class="btn pri" data-save="admin"><span class="spinner"></span>保存</button></div>
+          <div class="tip" style="margin-bottom:10px">该号码发送 SMS:号码:内容 可远程发短信；RESET 重启设备</div>
+          <div class="row"><button class="btn pri" data-save="admin"><span class="spinner"></span>保存号码</button></div>
         </div>
       </div>
-      <div class="card" style="margin-top:14px"><div class="head">号码黑名单</div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="head">号码黑名单</div>
         <div class="field" style="margin-top:10px"><textarea id="blacklist" rows="3" placeholder="每行一个号码"></textarea></div>
-        <div class="actions"><button class="btn pri" data-save="blacklist"><span class="spinner"></span>保存</button></div>
+        <div class="row"><button class="btn pri" data-save="blacklist"><span class="spinner"></span>保存黑名单</button></div>
       </div>
+
       <div class="grid two" style="margin-top:14px">
-        <div class="card"><div class="head">模组信息</div>
+        <div class="card">
+          <div class="head">模组信息查询</div>
           <div class="row" style="margin-top:10px">
-            <button class="btn sm" data-act="ati">固件</button><button class="btn sm" data-act="siminfo">SIM</button>
-            <button class="btn sm" data-act="network">网络</button><button class="btn sm" data-act="wifi">WiFi</button>
-            <button class="btn sm" data-act="signal">信号</button>
+            <button class="btn sm" data-act="ati">查询固件</button>
+            <button class="btn sm" data-act="siminfo">查询 SIM</button>
+            <button class="btn sm" data-act="network">查询网络</button>
+            <button class="btn sm" data-act="wifi">查询 WiFi</button>
+            <button class="btn sm" data-act="signal">查询信号</button>
           </div>
-          <div class="empty" id="infoOut" style="margin-top:10px">点按钮查询</div>
+          <div class="outbox" id="infoOut"><span class="empty">查询结果会显示在这里</span></div>
         </div>
-        <div class="card"><div class="head">AT 控制台</div>
-          <div class="row" style="margin-top:10px"><input id="atCmd" placeholder="AT+CSQ" style="flex:1;min-width:120px"><button class="btn pri sm" data-act="at">执行</button></div>
-          <div class="row" id="atChips" style="margin-top:8px"></div>
+        <div class="card">
+          <div class="head">AT 指令</div>
+          <div class="row" style="margin-top:10px">
+            <input id="atCmd" placeholder="AT+CSQ" style="flex:1;min-width:110px">
+            <button class="btn pri sm" id="atRun">执行指令</button>
+          </div>
+          <div class="field" style="margin-top:10px"><label>最近执行过的指令</label>
+            <select id="atPick"><option value="">选择后可填入输入框</option></select>
+          </div>
           <pre class="raw" id="atOut">等待指令…</pre>
         </div>
       </div>
-      <div class="card" style="margin-top:14px"><div class="head">维护</div>
-        <div class="actions" style="margin-top:10px">
-          <button class="btn sm" data-act="flight">切换飞行模式</button>
+
+      <div class="card" style="margin-top:14px">
+        <div class="head">维护</div>
+        <div class="row" style="margin-top:10px;gap:14px">
+          <span class="row" style="gap:8px">
+            <label class="sw"><input type="checkbox" id="flightSw"><i></i></label>
+            <span>飞行模式 <b id="flightState" style="color:var(--muted)">读取中…</b></span>
+          </span>
+          <span class="tip">开启后射频关闭，无法收发短信</span>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn sm" data-act="wifi_restart">重连 WiFi</button>
           <button class="btn sm" data-act="modem_restart">软重启模组</button>
           <button class="btn sm" data-act="modem_hardreset">硬重启模组</button>
-          <button class="btn sm" data-act="wifi_restart">重连 WiFi</button>
           <button class="btn sm danger" data-act="system_restart">重启设备</button>
         </div>
       </div>
@@ -384,11 +404,14 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
             <button class="fchip" data-f="notify">通知</button>
           </div>
           <div class="row">
-            <input id="logSearch" placeholder="搜索" style="width:130px">
-            <button class="btn sm ghost" id="logCopy">复制</button>
-            <label class="sw" title="自动刷新"><input type="checkbox" id="logAuto" checked><i></i></label>
-            <label class="sw" title="跟随最新"><input type="checkbox" id="logFollow" checked><i></i></label>
+            <input id="logSearch" placeholder="搜索日志" style="width:120px">
+            <button class="btn sm" id="logCopy">复制日志</button>
           </div>
+        </div>
+        <div class="row" style="margin-top:10px;gap:16px">
+          <span class="row" style="gap:8px"><label class="sw"><input type="checkbox" id="logAuto" checked><i></i></label><span>自动刷新 <b id="autoState">开</b></span></span>
+          <span class="row" style="gap:8px"><label class="sw"><input type="checkbox" id="logFollow" checked><i></i></label><span>跟随最新 <b id="followState">开</b></span></span>
+          <span class="tip">向上翻看时会自动停止跟随，不会把你拉回底部</span>
         </div>
         <div class="logwrap" style="margin-top:10px">
           <div class="logbox" id="logBox"><div class="l-dim">加载中…</div></div>
@@ -399,20 +422,9 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
   </main>
 </div>
 
-<div class="overlay" id="palette"><div class="panel">
-  <input id="palSearch" placeholder="搜索页面或操作…">
-  <div class="list" id="palList"></div>
-</div></div>
-
-<div class="overlay" id="typePick"><div class="panel">
-  <input id="typeSearch" placeholder="搜索推送方式…">
-  <div class="list" id="typeList"></div>
-</div></div>
-
 <div id="modal"><div class="mcard"><h4 id="mTitle">确认</h4><p id="mText"></p>
-  <div class="actions" style="justify-content:flex-end"><button class="btn ghost" id="mNo">取消</button><button class="btn danger" id="mYes">确定</button></div>
+  <div class="row" style="justify-content:flex-end"><button class="btn" id="mNo">取消</button><button class="btn danger" id="mYes">确定</button></div>
 </div></div>
-
 <div id="toasts"></div>
 
 <script>
@@ -420,68 +432,36 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
   'use strict';
   var $ = function(id){ return document.getElementById(id); };
   var LS = window.localStorage;
-
   var PAGES = [
-    { id:'overview', name:'概览', sub:'设备、网络与最近动态', hue:224, icon:'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z' },
-    { id:'messages', name:'消息', sub:'主动发送与最近记录', hue:206, icon:'M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z' },
-    { id:'notify', name:'通知', sub:'邮件与多通道推送', hue:268, icon:'M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8M10 20a2 2 0 0 0 4 0' },
-    { id:'device', name:'设备', sub:'账号、模组与维护', hue:186, icon:'M14.7 6.3a4 4 0 0 0 5 5L21 21H3l1.3-9.7a4 4 0 0 0 5-5z' },
-    { id:'logs', name:'日志', sub:'实时运行日志', hue:340, icon:'M4 6h16M4 12h16M4 18h10' }
+    { id:'overview', name:'概览', sub:'设备、网络与最近动态', hue:224 },
+    { id:'messages', name:'发短信', sub:'主动发送并按结果反馈', hue:206 },
+    { id:'notify', name:'通知', sub:'邮件与推送通道配置', hue:268 },
+    { id:'device', name:'设备', sub:'账号、模组查询与维护', hue:186 },
+    { id:'logs', name:'日志', sub:'实时日志（可过滤、可暂停跟随）', hue:340 }
   ];
   var TYPES = [
-    [1,'POST JSON','通用 JSON（sender/message/timestamp）'],
-    [2,'Bark','iOS 推送'],
-    [3,'GET','参数拼在 URL'],
-    [4,'钉钉机器人','Webhook + 加签'],
-    [5,'PushPlus','token 必填'],
-    [6,'Server酱','sendkey 必填'],
-    [7,'自定义模板','{sender} {message} {timestamp}'],
-    [8,'飞书机器人','Webhook + 签名'],
-    [9,'Gotify','URL + token'],
-    [10,'Telegram','chat_id + token，可填反代']
+    [1,'POST JSON'], [2,'Bark'], [3,'GET 请求'], [4,'钉钉机器人'], [5,'PushPlus'],
+    [6,'Server酱'], [7,'自定义模板'], [8,'飞书机器人'], [9,'Gotify'], [10,'Telegram Bot']
   ];
   var NEED = {1:[1,0,0,0],2:[1,0,0,0],3:[1,0,0,0],4:[1,1,0,0],5:[0,1,1,0],6:[0,1,0,0],7:[1,0,0,1],8:[1,1,0,0],9:[1,1,0,0],10:[0,1,1,0]};
-  var LABEL = {4:['加签 secret'],5:['token','渠道 wechat/app/extension'],6:['sendkey'],8:['签名 secret（可空）'],9:['token'],10:['chat_id','bot token']};
+  var LABEL = {4:['加签 secret',''],5:['token','渠道 wechat/app/extension'],6:['sendkey',''],7:['',''],8:['签名 secret（可空）',''],9:['token',''],10:['chat_id','bot token']};
 
-  var S = {
-    page: 'overview', status: {}, cfg: null, usage: { pages:{}, acts:{}, nums:[], ats:[] },
-    logs: [], logKey: '', logPending: 0, logFilter: 'all', logSearch: '', seen: {}, hist: { heap:[], up:[] },
-    sent: []
-  };
+  var S = { page:'overview', status:{}, logs:[], logKey:'', logPending:0, filter:'all', search:'', hist:{}, sent:[], nums:[], ats:[] };
 
-  /* ---------------- 基础 ---------------- */
   function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-  function saveUsage(){ try { LS.setItem('usage', JSON.stringify(S.usage)); } catch(e){} }
-  function loadUsage(){
-    try {
-      var raw = LS.getItem('usage');
-      if (raw) { var u = JSON.parse(raw); S.usage.pages = u.pages || {}; S.usage.acts = u.acts || {}; S.usage.nums = u.nums || []; S.usage.ats = u.ats || []; }
-    } catch(e){}
-  }
-  function bump(kind, key){
-    if (!key) return;
-    var bag = kind === 'page' ? S.usage.pages : S.usage.acts;
-    bag[key] = (bag[key] || 0) + 1;
-    saveUsage();
-  }
   function api(path, opts){
-    opts = opts || {};
-    opts.cache = 'no-store';
+    opts = opts || {}; opts.cache = 'no-store';
     if (opts.body && !opts.headers) opts.headers = {'Content-Type':'application/x-www-form-urlencoded'};
     return fetch(path, opts).then(function(r){
       var ct = r.headers.get('content-type') || '';
       if (ct.indexOf('json') >= 0) return r.json();
-      return r.text().then(function(t){ return { success: r.ok, message: t }; });
+      return r.text().then(function(t){ return { success:r.ok, message:t }; });
     });
   }
-  function busy(btn, on, label){
+  function busy(btn, on){
     if (!btn) return;
     btn.classList.toggle('loading', !!on);
     btn.disabled = !!on;
-    if (label) {
-      var t = btn.querySelector('[data-label]');
-      if (t) t.textContent = on ? label : label.replace('中…','');
-    }
   }
   function toast(msg, type){
     type = type || 'info';
@@ -489,7 +469,7 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     el.className = 'toast ' + type;
     el.innerHTML = '<span class="ic">' + (type === 'ok' ? '✓' : type === 'err' ? '✕' : 'i') + '</span><div>' + esc(msg) + '</div>';
     $('toasts').appendChild(el);
-    setTimeout(function(){ el.classList.add('out'); setTimeout(function(){ el.remove(); }, 240); }, 3200);
+    setTimeout(function(){ el.classList.add('out'); setTimeout(function(){ el.remove(); }, 250); }, 3000);
   }
   function confirmDlg(title, text){
     return new Promise(function(resolve){
@@ -502,62 +482,51 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
   function fmtUp(sec){
     sec = Math.max(0, Math.floor(sec));
     var d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
-    if (d) return d + '天 ' + h + '小时';
-    if (h) return h + 'h ' + (m < 10 ? '0' : '') + m + 'm';
-    if (m) return m + 'm ' + (s < 10 ? '0' : '') + s + 's';
-    return s + 's';
+    if (d) return d + ' 天 ' + h + ' 小时';
+    if (h) return h + ' 小时 ' + m + ' 分';
+    if (m) return m + ' 分 ' + s + ' 秒';
+    return s + ' 秒';
   }
-  function ago(t){
-    var d = Math.floor((Date.now() - t) / 1000);
-    if (d < 10) return '刚刚';
-    if (d < 60) return d + ' 秒前';
-    if (d < 3600) return Math.floor(d / 60) + ' 分钟前';
-    return Math.floor(d / 3600) + ' 小时前';
+  function loadLocal(){
+    try {
+      S.nums = JSON.parse(LS.getItem('nums') || '[]');
+      S.ats = JSON.parse(LS.getItem('ats') || '[]');
+    } catch(e){}
   }
+  function saveLocal(){ LS.setItem('nums', JSON.stringify(S.nums)); LS.setItem('ats', JSON.stringify(S.ats)); }
 
-  /* ---------------- 导航 ---------------- */
-  function orderedPages(){
-    var arr = PAGES.slice();
-    arr.sort(function(a,b){
-      var ua = S.usage.pages[a.id] || 0, ub = S.usage.pages[b.id] || 0;
-      if (ua !== ub) return ub - ua;
-      return PAGES.indexOf(a) - PAGES.indexOf(b);
-    });
-    return arr;
-  }
+  /* ---------- 导航（固定顺序，不按使用频率重排） ---------- */
   function renderNav(){
-    var nav = $('nav');
-    var pill = $('navPill');
-    var keep = [pill];
-    nav.innerHTML = '';
-    nav.appendChild(pill);
-    orderedPages().forEach(function(p){
+    var nav = $('nav'), pill = $('navPill');
+    nav.innerHTML = ''; nav.appendChild(pill);
+    PAGES.forEach(function(p){
       var b = document.createElement('button');
       b.className = 'nav-btn' + (p.id === S.page ? ' on' : '');
       b.setAttribute('data-page', p.id);
-      b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="' + p.icon + '"/></svg><span>' + p.name + '</span>';
+      b.textContent = p.name;
       b.addEventListener('click', function(){ go(p.id); });
       nav.appendChild(b);
     });
     movePill();
   }
   function movePill(){
-    var cur = document.querySelector('.nav-btn.on');
-    var pill = $('navPill');
+    var cur = document.querySelector('.nav-btn.on'), pill = $('navPill');
     if (!cur || !pill) return;
-    pill.style.transform = 'translateY(' + cur.offsetTop + 'px)';
-    pill.style.height = cur.offsetHeight + 'px';
-    if (window.innerWidth <= 900) {
+    var mobile = window.innerWidth <= 900;
+    if (mobile) {
       pill.style.transform = 'translateX(' + cur.offsetLeft + 'px)';
       pill.style.width = cur.offsetWidth + 'px';
       pill.style.height = cur.offsetHeight + 'px';
+      pill.style.top = cur.offsetTop + 'px';
     } else {
+      pill.style.transform = 'translateY(' + cur.offsetTop + 'px)';
       pill.style.width = cur.offsetWidth + 'px';
+      pill.style.height = cur.offsetHeight + 'px';
+      pill.style.top = '0px';
     }
   }
   function go(page){
     if (!PAGES.some(function(p){ return p.id === page; })) page = 'overview';
-    if (page !== S.page) bump('page', page);
     S.page = page;
     var btns = document.querySelectorAll('.nav-btn');
     for (var i = 0; i < btns.length; i++) btns[i].classList.toggle('on', btns[i].getAttribute('data-page') === page);
@@ -569,92 +538,38 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     document.documentElement.style.setProperty('--hue', meta.hue);
     if (location.hash !== '#' + page) history.replaceState(null, '', '#' + page);
     movePill();
-    if (page === 'logs') { refreshLogs(true); scrollLogToBottom(); }
-    if (page === 'notify') loadConfig();
+    if (page === 'logs') { refreshLogs(true); }
+    if (page === 'device') loadFlightState();
   }
 
-  /* ---------------- 状态 ---------------- */
+  /* ---------- 状态 ---------- */
   function applyStatus(s){
     if (!s || s.success === false) return;
     S.status = s;
     $('vIp').textContent = s.ip || '--';
     $('subIp').textContent = (s.device_name || '') + '.local';
-    $('mdnsHint').textContent = (s.device_name || '') + '.local';
     $('devName').textContent = s.device_name || 'ESP32-C3';
-    $('ipText').textContent = s.ip || '--';
+    $('ipText').textContent = 'http://' + (s.ip || '') + '/';
     $('vUp').textContent = fmtUp(s.uptime_s || 0);
     $('vHeap').textContent = (s.heap_kb || 0) + ' KB';
     $('vModem').textContent = s.modem_ready ? '已就绪' : '未就绪';
     $('vModem').style.color = s.modem_ready ? 'var(--ok)' : 'var(--err)';
     $('subModem').textContent = s.model || '--';
-    $('bootInfo').textContent = '堆 ' + (s.heap_kb || 0) + ' KB';
     $('kMail').textContent = s.email_ok ? '已配置' : '未配置';
     $('kPush').textContent = (s.push_count || 0) + ' 个已启用';
     $('kWifi').textContent = (s.ssid || '--') + (s.rssi ? '（' + s.rssi + ' dBm）' : '');
     $('mailState').textContent = s.email_ok ? '已配置' : '未配置';
     $('pushStat').textContent = (s.push_count || 0) + ' 个启用';
-    var dot = $('netDot');
-    dot.className = 'dot ' + (s.modem_ready ? 'ok' : '');
+    $('netDot').className = 'dot ' + (s.modem_ready ? 'ok' : '');
     $('netText').textContent = s.modem_ready ? '在线' : '离线';
-    S.hist.heap.push(s.heap_kb || 0); if (S.hist.heap.length > 20) S.hist.heap.shift();
-    S.hist.up.push(s.uptime_s || 0); if (S.hist.up.length > 20) S.hist.up.shift();
-    spark('sparkHeap', S.hist.heap, 'var(--pri)');
-    spark('sparkUp', S.hist.up, 'var(--pri2)');
     if (s.admin_phone) $('kAdmin').textContent = s.admin_phone;
-    if (s.ip) LS.setItem('lastIp', s.ip);
-  }
-  function spark(id, data, color){
-    var svg = $(id);
-    if (!svg || !data.length) return;
-    var max = Math.max.apply(null, data), min = Math.min.apply(null, data);
-    var span = Math.max(1, max - min);
-    var pts = data.map(function(v, i){
-      var x = data.length > 1 ? i * 300 / (data.length - 1) : 0;
-      var y = 64 - (v - min) / span * 52;
-      return x.toFixed(1) + ',' + y.toFixed(1);
-    }).join(' ');
-    svg.innerHTML = '<polyline fill="none" stroke="' + color + '" stroke-width="2" stroke-linejoin="round" points="' + pts + '"/>';
   }
   function loadStatus(){ return api('/status').then(applyStatus).catch(function(){}); }
 
-  /* ---------------- 卡片变形 ---------------- */
-  function bindCards(){
-    var cards = document.querySelectorAll('.card[data-open]');
-    for (var i = 0; i < cards.length; i++) {
-      cards[i].addEventListener('click', function(ev){
-        if (ev.target.closest('button') && !ev.target.closest('.more')) return;
-        var open = this.classList.contains('open');
-        for (var k = 0; k < cards.length; k++) cards[k].classList.remove('open');
-        if (!open) {
-          this.classList.add('open');
-          bump('acts', 'card:' + this.getAttribute('data-open'));
-          var self = this;
-          setTimeout(function(){ self.scrollIntoView({behavior:'smooth', block:'nearest'}); }, 60);
-        }
-      });
-    }
-    var tilts = document.querySelectorAll('.tilt');
-    for (var t = 0; t < tilts.length; t++) {
-      (function(el){
-        el.addEventListener('pointermove', function(ev){
-          var r = el.getBoundingClientRect();
-          var dx = (ev.clientX - r.left) / r.width - .5;
-          var dy = (ev.clientY - r.top) / r.height - .5;
-          el.style.setProperty('--tx', (dx * 4).toFixed(1));
-          el.style.setProperty('--ty', (dy * 3).toFixed(1));
-          el.style.setProperty('--mx', ((ev.clientX - r.left) / r.width * 100).toFixed(0) + '%');
-          el.style.setProperty('--my', ((ev.clientY - r.top) / r.height * 100).toFixed(0) + '%');
-        });
-        el.addEventListener('pointerleave', function(){ el.style.setProperty('--tx', 0); el.style.setProperty('--ty', 0); });
-      })(tilts[t]);
-    }
-  }
-
-  /* ---------------- 配置与通道 ---------------- */
+  /* ---------- 配置 ---------- */
   function loadConfig(){
     return api('/config').then(function(cfg){
       if (!cfg || cfg.success === false) return;
-      S.cfg = cfg;
       $('webUser').value = cfg.web_user || '';
       $('webPass').value = cfg.web_pass || '';
       $('smtpServer').value = cfg.smtp_server || '';
@@ -668,10 +583,6 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
       renderChannels(cfg.channels || []);
     });
   }
-  function typeName(t){
-    for (var i = 0; i < TYPES.length; i++) if (TYPES[i][0] === t) return TYPES[i][1];
-    return '未知';
-  }
   function renderChannels(chs){
     var host = $('channels');
     host.innerHTML = '';
@@ -680,77 +591,49 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
   function channelRow(i, ch){
     var el = document.createElement('div');
     el.className = 'chan' + (ch.enabled ? ' on' : '');
+    var opts = TYPES.map(function(t){ return '<option value="' + t[0] + '"' + (t[0] === (ch.type || 1) ? ' selected' : '') + '>' + t[1] + '</option>'; }).join('');
     el.innerHTML =
       '<div class="chan-h">' +
         '<label class="sw"><input type="checkbox" id="c' + i + 'en"' + (ch.enabled ? ' checked' : '') + '><i></i></label>' +
-        '<b>' + esc(ch.name || ('通道 ' + (i + 1))) + '</b>' +
-        '<span class="tag" id="c' + i + 'tag">' + typeName(ch.type) + '</span>' +
-        '<svg class="arrow" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>' +
+        '<b id="c' + i + 'title">' + esc(ch.name || ('通道 ' + (i + 1))) + '</b>' +
+        '<span class="chip" id="c' + i + 'state">' + (ch.enabled ? '已启用' : '已停用') + '</span>' +
+        '<span class="spacer" style="flex:1"></span>' +
+        '<button class="btn sm" id="c' + i + 'toggle">展开设置</button>' +
       '</div>' +
-      '<div class="chan-b">' +
-        '<div class="two" style="margin-top:4px">' +
-          '<div class="field"><label>名称</label><input id="c' + i + 'name" value="' + esc(ch.name || '') + '"></div>' +
-          '<div class="field"><label>类型</label><button class="btn" id="c' + i + 'type" style="justify-content:space-between"><span id="c' + i + 'typeName">' + typeName(ch.type) + '</span><span style="color:var(--dim)">选择</span></button></div>' +
+      '<div class="chan-b" id="c' + i + 'body">' +
+        '<div class="two">' +
+          '<div class="field"><label>通道名称</label><input id="c' + i + 'name" value="' + esc(ch.name || '') + '"></div>' +
+          '<div class="field"><label>推送方式</label><select id="c' + i + 'type">' + opts + '</select></div>' +
         '</div>' +
         '<div class="field"><label id="c' + i + 'ul">推送 URL</label><input id="c' + i + 'url" value="' + esc(ch.url || '') + '" placeholder="https://"></div>' +
         '<div class="field" id="c' + i + 'w1"><label id="c' + i + 'l1">参数 1</label><input id="c' + i + 'key1" value="' + esc(ch.key1 || '') + '"></div>' +
         '<div class="field" id="c' + i + 'w2"><label id="c' + i + 'l2">参数 2</label><input id="c' + i + 'key2" value="' + esc(ch.key2 || '') + '"></div>' +
-        '<div class="field" id="c' + i + 'wb"><label>请求体模板</label><textarea id="c' + i + 'body" rows="3">' + esc(ch.custom_body || '') + '</textarea><span class="tip">支持 {sender} {message} {timestamp}</span></div>' +
+        '<div class="field" id="c' + i + 'wb"><label>请求体模板</label><textarea id="c' + i + 'bodyText" rows="3">' + esc(ch.custom_body || '') + '</textarea><span class="tip">支持 {sender} {message} {timestamp}</span></div>' +
       '</div>';
-    var head = el.querySelector('.chan-h');
-    head.addEventListener('click', function(ev){
-      if (ev.target.closest('.sw')) return;
-      el.classList.toggle('open');
+    var sw = el.querySelector('#c' + i + 'en');
+    sw.addEventListener('change', function(){
+      el.classList.toggle('on', sw.checked);
+      el.querySelector('#c' + i + 'state').textContent = sw.checked ? '已启用' : '已停用';
     });
-    var cb = el.querySelector('#c' + i + 'en');
-    cb.addEventListener('change', function(){ el.classList.toggle('on', cb.checked); });
-    el.querySelector('#c' + i + 'type').addEventListener('click', function(){
-      pickType(ch.type).then(function(t){
-        if (!t) return;
-        ch.type = t;
-        el._type = t;
-        el.querySelector('#c' + i + 'typeName').textContent = typeName(t);
-        el.querySelector('#c' + i + 'tag').textContent = typeName(t);
-        syncType(el, i, t);
-      });
+    var tg = el.querySelector('#c' + i + 'toggle');
+    tg.addEventListener('click', function(){
+      var open = el.classList.toggle('open');
+      tg.textContent = open ? '收起设置' : '展开设置';
     });
+    var sel = el.querySelector('#c' + i + 'type');
+    sel.addEventListener('change', function(){ syncType(el, i, parseInt(sel.value, 10) || 1); });
     el._type = ch.type || 1;
     syncType(el, i, ch.type || 1);
     return el;
   }
   function syncType(el, i, t){
-    var need = NEED[t] || NEED[1];
-    var lab = LABEL[t] || [];
+    var need = NEED[t] || NEED[1], lab = LABEL[t] || ['', ''];
     el.querySelector('#c' + i + 'w1').style.display = need[1] ? '' : 'none';
     el.querySelector('#c' + i + 'w2').style.display = need[2] ? '' : 'none';
     el.querySelector('#c' + i + 'wb').style.display = need[3] ? '' : 'none';
     el.querySelector('#c' + i + 'ul').textContent = need[0] ? '推送 URL' : '推送 URL（可空，使用默认地址）';
     if (need[1]) el.querySelector('#c' + i + 'l1').textContent = lab[0] || '参数 1';
     if (need[2]) el.querySelector('#c' + i + 'l2').textContent = lab[1] || '参数 2';
-  }
-  function pickType(cur){
-    return new Promise(function(resolve){
-      var list = $('typeList'), input = $('typeSearch');
-      input.value = '';
-      function draw(){
-        var q = input.value.trim().toLowerCase();
-        list.innerHTML = '';
-        TYPES.forEach(function(t){
-          if (q && (t[1] + t[2]).toLowerCase().indexOf(q) < 0) return;
-          var o = document.createElement('div');
-          o.className = 'opt' + (t[0] === cur ? ' sel' : '');
-          o.innerHTML = '<b>' + t[1] + '</b><small>' + t[2] + '</small>';
-          o.addEventListener('click', function(){ close(t[0]); });
-          list.appendChild(o);
-        });
-      }
-      function close(val){ $('typePick').classList.remove('show'); input.oninput = null; resolve(val || 0); }
-      input.oninput = draw;
-      draw();
-      $('typePick').classList.add('show');
-      setTimeout(function(){ input.focus(); }, 30);
-      $('typePick').onclick = function(ev){ if (ev.target === this) close(0); };
-    });
   }
   function collect(scope){
     var p = new URLSearchParams();
@@ -768,12 +651,12 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
         if (!en) continue;
         var row = en.closest('.chan');
         p.append('push' + i + 'en', en.checked ? 'on' : 'off');
-        p.append('push' + i + 'type', row._type || 1);
+        p.append('push' + i + 'type', $('c' + i + 'type').value);
         p.append('push' + i + 'name', $('c' + i + 'name').value);
         p.append('push' + i + 'url', $('c' + i + 'url').value);
         p.append('push' + i + 'key1', $('c' + i + 'key1').value);
         p.append('push' + i + 'key2', $('c' + i + 'key2').value);
-        p.append('push' + i + 'body', $('c' + i + 'body').value);
+        p.append('push' + i + 'body', $('c' + i + 'bodyText').value);
       }
     }
     return p.toString();
@@ -782,157 +665,156 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     busy(btn, true);
     api('/save?json=1', { method:'POST', body: collect(scope) }).then(function(r){
       busy(btn, false);
-      if (r && r.success) { toast('已保存', 'ok'); bump('acts', 'save:' + scope); loadConfig(); loadStatus(); }
+      if (r && r.success) { toast('已保存', 'ok'); loadConfig(); loadStatus(); }
       else toast((r && r.message) || '保存失败', 'err');
     }).catch(function(){ busy(btn, false); toast('保存失败：网络错误', 'err'); });
   }
-  window.pickTypeFor = function(row){};
 
-  /* ---------------- 发短信 ---------------- */
+  /* ---------- 发短信 ---------- */
   function smsMeta(){
     var v = $('mText').value;
     var ucs2 = /[^\x00-\x7f]/.test(v);
     var limit = ucs2 ? 70 : 160;
-    $('mCount').textContent = v.length + ' / ' + limit;
-    $('mMode').textContent = ucs2 ? 'UCS2' : 'GSM7';
+    $('mCount').textContent = v.length + ' / ' + limit + (ucs2 ? '（UCS2）' : '（GSM7）');
     $('mCount').style.color = v.length > limit ? 'var(--err)' : '';
   }
-  function renderNumChips(){
-    var host = $('mChips');
-    host.innerHTML = '';
-    (S.usage.nums || []).slice(0, 4).forEach(function(n){
-      var b = document.createElement('button');
-      b.className = 'chip';
-      b.textContent = n;
-      b.addEventListener('click', function(){ $('mPhone').value = n; });
-      host.appendChild(b);
-    });
-  }
-  function rememberNum(n){
-    var arr = S.usage.nums.filter(function(x){ return x !== n; });
-    arr.unshift(n);
-    S.usage.nums = arr.slice(0, 6);
-    saveUsage(); renderNumChips();
+  function renderNums(){
+    var dl = $('numList');
+    dl.innerHTML = '';
+    S.nums.forEach(function(n){ var o = document.createElement('option'); o.value = n; dl.appendChild(o); });
   }
   function renderHistory(){
     var host = $('mHistory');
-    if (!S.sent.length) { host.innerHTML = '<div class="empty">还没有发送记录</div>'; return; }
+    if (!S.sent.length) { host.innerHTML = '<div class="empty">暂无记录</div>'; return; }
     host.innerHTML = '';
-    S.sent.slice(0, 6).forEach(function(it){
+    S.sent.forEach(function(it, i){
       var d = document.createElement('div');
-      d.className = 'ev sms';
-      d.innerHTML = '<span class="txt"><b>' + esc(it.phone) + '</b> · ' + esc(it.text) + '</span><span class="chip">' + it.ok + '/' + it.total + '</span>';
+      d.className = 'ev ' + (it.ok ? 'sms' : 'err');
+      d.innerHTML = '<span class="txt"><b>' + esc(it.phone) + '</b> · ' + esc(it.text) + '</span><span class="chip">' + (it.ok ? '成功' : '失败') + '</span>';
       host.appendChild(d);
     });
   }
   function sendSms(){
     var phone = $('mPhone').value.trim(), text = $('mText').value.trim();
-    if (!phone) { toast('请填写号码', 'err'); return; }
-    if (!text) { toast('请填写内容', 'err'); return; }
-    var btn = $('mSend');
-    busy(btn, true);
-    $('mSendLabel').textContent = '发送中…';
+    var btn = $('mSend'), label = $('mSendLabel'), res = $('mResult');
+    if (!phone) { toast('请填写目标号码', 'err'); return; }
+    if (!text) { toast('请填写短信内容', 'err'); return; }
+    busy(btn, true); label.textContent = '发送中…'; res.textContent = '正在发送…';
     api('/sendsms?json=1', { method:'POST', body: 'phone=' + encodeURIComponent(phone) + '&content=' + encodeURIComponent(text) })
       .then(function(r){
-        busy(btn, false);
-        $('mSendLabel').textContent = '发送';
-        var ok = r && r.success;
-        toast((r && r.message) || (ok ? '已发送' : '发送失败'), ok ? 'ok' : 'err');
-        if (ok) { rememberNum(phone); S.sent.unshift({phone:phone, text:text.slice(0, 40), ok:1, total:1}); renderHistory(); }
+        busy(btn, false); label.textContent = '发送短信';
+        var ok = !!(r && r.success);
+        var msg = (r && r.message) || (ok ? '已发送' : '发送失败');
+        res.textContent = msg;
+        res.style.color = ok ? 'var(--ok)' : 'var(--err)';
+        toast(msg, ok ? 'ok' : 'err');
+        if (ok) {
+          S.nums = [phone].concat(S.nums.filter(function(x){ return x !== phone; })).slice(0, 5);
+          saveLocal(); renderNums();
+          S.sent.unshift({ phone:phone, text:text.slice(0, 30), ok:true });
+          S.sent = S.sent.slice(0, 5); renderHistory();
+        }
       })
-      .catch(function(){ busy(btn, false); $('mSendLabel').textContent = '发送'; toast('发送失败：网络错误', 'err'); });
+      .catch(function(){
+        busy(btn, false); label.textContent = '发送短信';
+        res.textContent = '发送失败：网络错误'; res.style.color = 'var(--err)';
+      });
   }
 
-  /* ---------------- 工具动作 ---------------- */
-  var ACT_META = {
-    signal:['信号','/modem?action=signal'], operator:['运营商','/modem?action=operator'],
-    imei:['序列号','/modem?action=imei'], ati:['固件','/query?type=ati'],
-    siminfo:['SIM','/query?type=siminfo'], network:['网络','/query?type=network'],
-    wifi:['WiFi','/query?type=wifi']
-  };
+  /* ---------- 工具动作 ---------- */
+  var QUERY = { ati:'固件', siminfo:'SIM', network:'网络', wifi:'WiFi' };
   function act(name, btn){
-    if (name === 'at') {
-      var cmd = $('atCmd').value.trim();
-      if (!cmd) { toast('请输入 AT 指令', 'err'); return; }
-      busy(btn, true);
-      api('/at?cmd=' + encodeURIComponent(cmd)).then(function(r){
-        busy(btn, false);
-        $('atOut').textContent = (r && r.message) || '(空)';
-        var arr = S.usage.ats.filter(function(x){ return x !== cmd; });
-        arr.unshift(cmd); S.usage.ats = arr.slice(0, 5); saveUsage(); renderAtChips();
-      }).catch(function(){ busy(btn, false); toast('执行失败', 'err'); });
-      return;
-    }
-    if (name === 'ping') { busy(btn, true); api('/ping', {method:'POST'}).then(function(r){ busy(btn,false); toast(r && r.message || '完成', r && r.success ? 'ok' : 'err'); }).catch(function(){ busy(btn,false); }); return; }
-    if (name === 'flight') {
-      busy(btn, true);
-      api('/flight?action=toggle').then(function(r){ busy(btn,false); toast(r && r.message || '已切换', r && r.success ? 'ok' : 'err'); }).catch(function(){ busy(btn,false); });
-      return;
-    }
-    if (name === 'modem_restart' || name === 'modem_hardreset' || name === 'wifi_restart' || name === 'system_restart') {
+    if (name === 'at') return runAt(btn);
+    if (name === 'signal') return querySignal(btn);
+    if (QUERY[name]) return queryHtml(name, btn);
+    if (name === 'wifi_restart' || name === 'modem_restart' || name === 'modem_hardreset' || name === 'system_restart') {
       var tip = {
-        modem_restart:['软重启模组','约 15 秒不可收发短信'],
-        modem_hardreset:['硬重启模组','断电重启模组，约 20 秒'],
-        wifi_restart:['重连 WiFi','断开并重新连接当前 WiFi'],
-        system_restart:['重启设备','整机重启，网页会中断']
+        wifi_restart:['重连 WiFi','会短暂断开，约 5 秒'],
+        modem_restart:['软重启模组','约 15 秒无法收发短信'],
+        modem_hardreset:['硬重启模组','断电重启，约 20 秒'],
+        system_restart:['重启设备','整机重启，网页会中断约 30 秒']
       }[name];
-      confirmDlg(tip[0], tip[1]).then(function(ok){
+      confirmDlg(tip[0], tip[1] + '。确定继续？').then(function(ok){
         if (!ok) return;
         var url = name === 'system_restart' ? '/system?action=restart'
                 : name === 'wifi_restart' ? '/wifi?action=restart'
                 : '/modem?action=' + (name === 'modem_restart' ? 'restart' : 'hardreset');
         busy(btn, true);
-        api(url).then(function(r){ busy(btn,false); toast(r && r.message || '已提交', 'ok'); bump('acts', name); }).catch(function(){ busy(btn,false); });
+        api(url).then(function(r){ busy(btn, false); toast((r && r.message) || '已提交', 'ok'); })
+                .catch(function(){ busy(btn, false); toast('请求失败', 'err'); });
       });
-      return;
     }
-    var meta = ACT_META[name];
-    if (!meta) return;
+  }
+  function outBox(){
+    var box = $('infoOut');
+    box.classList.remove('empty');
+    return box;
+  }
+  function querySignal(btn){
     busy(btn, true);
-    api(meta[1]).then(function(r){
+    $('infoOut').innerHTML = '<span class="empty">查询中…</span>';
+    api('/modem?action=signal').then(function(r){
       busy(btn, false);
-      if (!r || r.success === false) { toast((r && r.message) || '查询失败', 'err'); return; }
-      bump('acts', 'query:' + name);
-      var msg = r.message || '';
-      if (name === 'signal' || name === 'operator' || name === 'imei') {
-        $('modemOut').textContent = msg;
-      } else {
-        $('infoOut').classList.remove('empty');
-        $('infoOut').innerHTML = msg;
-      }
-      toast(meta[0] + '查询完成', 'ok');
-    }).catch(function(){ busy(btn, false); toast('请求失败', 'err'); });
+      if (!r || !r.success) { $('infoOut').innerHTML = '<span class="empty">' + esc((r && r.message) || '查询失败') + '</span>'; return; }
+      outBox().innerHTML = '<table class="kv"><tr><td>信号</td><td>' + esc(r.message) + '</td></tr></table>';
+    }).catch(function(){ busy(btn, false); $('infoOut').innerHTML = '<span class="empty">请求失败</span>'; });
   }
-  function renderAtChips(){
-    var host = $('atChips');
-    host.innerHTML = '';
-    (S.usage.ats || []).forEach(function(c){
-      var b = document.createElement('button');
-      b.className = 'chip';
-      b.textContent = c;
-      b.addEventListener('click', function(){ $('atCmd').value = c; });
-      host.appendChild(b);
-    });
+  function queryHtml(type, btn){
+    busy(btn, true);
+    $('infoOut').innerHTML = '<span class="empty">查询中…</span>';
+    api('/query?type=' + type).then(function(r){
+      busy(btn, false);
+      if (!r || !r.success) { $('infoOut').innerHTML = '<span class="empty">' + esc((r && r.message) || '查询失败') + '</span>'; return; }
+      outBox().innerHTML = r.message;
+    }).catch(function(){ busy(btn, false); $('infoOut').innerHTML = '<span class="empty">请求失败</span>'; });
   }
-  function renderQuick(){
-    var host = $('quickActions');
-    var defs = [
-      ['sms','发短信','go:sms'], ['log','看日志','go:logs'], ['sig','查信号','act:signal'], ['ping','Ping','act:ping']
-    ];
-    host.innerHTML = '';
-    defs.forEach(function(d){
-      var b = document.createElement('button');
-      b.className = 'btn sm' + (d[0] === 'sms' ? ' pri' : '');
-      b.textContent = d[1];
-      b.addEventListener('click', function(){
-        bump('acts', d[2]);
-        if (d[2].indexOf('go:') === 0) go(d[2].slice(3)); else act(d[2].slice(4), b);
-      });
-      host.appendChild(b);
+  function runAt(btn){
+    var cmd = $('atCmd').value.trim();
+    if (!cmd) { toast('请先输入 AT 指令', 'err'); return; }
+    busy(btn, true);
+    $('atOut').textContent = '执行中…';
+    api('/at?cmd=' + encodeURIComponent(cmd)).then(function(r){
+      busy(btn, false);
+      $('atOut').textContent = (r && r.message) || '(空)';
+      var arr = [cmd].concat(S.ats.filter(function(x){ return x !== cmd; })).slice(0, 6);
+      S.ats = arr; saveLocal(); renderAts();
+    }).catch(function(){ busy(btn, false); $('atOut').textContent = '请求失败'; });
+  }
+  function renderAts(){
+    var sel = $('atPick');
+    sel.innerHTML = '<option value="">选择后可填入输入框</option>';
+    S.ats.forEach(function(c){
+      var o = document.createElement('option');
+      o.value = c; o.textContent = c;
+      sel.appendChild(o);
     });
   }
 
-  /* ---------------- 日志（增量 + 尊重用户滚动） ---------------- */
+  /* ---------- 飞行模式（开关反映真实状态） ---------- */
+  function setFlightUi(on, text){
+    var sw = $('flightSw');
+    sw.checked = !!on;
+    $('flightState').textContent = text || (on ? '已开启' : '已关闭');
+    $('flightState').style.color = on ? 'var(--warn)' : 'var(--muted)';
+  }
+  function loadFlightState(){
+    setFlightUi(false, '读取中…');
+    api('/flight?action=state').then(function(r){
+      if (!r || !r.success) { setFlightUi(false, '读取失败'); return; }
+      setFlightUi(r.cfun === 4, r.cfun === 4 ? '已开启' : '已关闭');
+    }).catch(function(){ setFlightUi(false, '读取失败'); });
+  }
+  function toggleFlight(){
+    var target = $('flightSw').checked;
+    $('flightState').textContent = '切换中…';
+    api('/flight?action=' + (target ? 'on' : 'off')).then(function(r){
+      if (!r || !r.success) { toast((r && r.message) || '切换失败', 'err'); loadFlightState(); return; }
+      toast(target ? '已开启飞行模式（无法收发短信）' : '已关闭飞行模式', 'ok');
+      loadFlightState();
+    }).catch(function(){ toast('切换失败', 'err'); loadFlightState(); });
+  }
+
+  /* ---------- 日志 ---------- */
   function nearBottom(box){ return box.scrollHeight - box.scrollTop - box.clientHeight < 28; }
   function classify(line){
     if (/失败|错误|超时|异常|未响应/.test(line)) return 'l-err';
@@ -949,80 +831,57 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     return 'other';
   }
   function passes(line){
-    if (S.logFilter !== 'all' && kindOf(line) !== S.logFilter) return false;
-    if (S.logSearch && line.toLowerCase().indexOf(S.logSearch) < 0) return false;
+    if (S.filter !== 'all' && kindOf(line) !== S.filter) return false;
+    if (S.search && line.toLowerCase().indexOf(S.search) < 0) return false;
     return true;
   }
-  function row(line){
+  function logRow(line){
     var d = document.createElement('div');
     d.className = 'ln ' + classify(line);
     d.textContent = line;
     return d;
   }
   function renderLogsFull(){
-    var box = $('logBox');
+    var box = $('logBox'), n = 0;
     box.innerHTML = '';
-    var n = 0;
-    S.logs.forEach(function(l){ if (passes(l)) { box.appendChild(row(l)); n++; } });
+    S.logs.forEach(function(l){ if (passes(l)) { box.appendChild(logRow(l)); n++; } });
     if (!n) box.innerHTML = '<div class="l-dim">没有匹配的日志</div>';
   }
+  function scrollBottom(){ var b = $('logBox'); b.scrollTop = b.scrollHeight; S.logPending = 0; $('logPill').classList.remove('show'); }
   function refreshLogs(force){
     if (!force && (!document.getElementById('logAuto').checked || document.hidden)) return Promise.resolve();
     return api('/log').then(function(lines){
       if (!Array.isArray(lines)) return;
       var key = lines.length + '|' + (lines[lines.length - 1] || '');
-      if (key === S.logKey && !force) return;      /* 没变化：完全不动 DOM */
-      var box = $('logBox');
-      var atBottom = nearBottom(box);
-      var prev = S.logs;
-      S.logKey = key;
-      S.logs = lines;
-
-      if (force || !prev.length) {
-        renderLogsFull();
-        updateFeed();
-        if (force || atBottom) scrollLogToBottom();
-        S.logPending = 0; $('logPill').classList.remove('show');
-        return;
-      }
-      var last = prev[prev.length - 1];
-      var idx = lines.lastIndexOf(last);
+      if (key === S.logKey && !force) return;
+      var box = $('logBox'), atBottom = nearBottom(box), prev = S.logs;
+      S.logKey = key; S.logs = lines;
+      if (force || !prev.length) { renderLogsFull(); scrollBottom(); updateFeed(); return; }
+      var idx = lines.lastIndexOf(prev[prev.length - 1]);
       if (idx < 0) {
-        /* 环形缓冲已滚动，重建但保持阅读位置 */
         var ratio = box.scrollHeight > box.clientHeight ? box.scrollTop / (box.scrollHeight - box.clientHeight) : 1;
         renderLogsFull();
-        if (atBottom) scrollLogToBottom();
-        else box.scrollTop = ratio * (box.scrollHeight - box.clientHeight);
+        if (atBottom) scrollBottom(); else box.scrollTop = ratio * (box.scrollHeight - box.clientHeight);
+        updateFeed();
         return;
       }
       var added = 0;
-      for (var i = idx + 1; i < lines.length; i++) {
-        if (!passes(lines[i])) continue;
-        box.appendChild(row(lines[i]));
-        added++;
-      }
-      if (added && $('logFollow').checked && atBottom) scrollLogToBottom();
+      for (var i = idx + 1; i < lines.length; i++) { if (!passes(lines[i])) continue; box.appendChild(logRow(lines[i])); added++; }
+      if (added && atBottom && $('logFollow').checked) scrollBottom();
       if (added && !atBottom) {
         S.logPending += added;
-        $('logPill').textContent = S.logPending + ' 条新日志 · 点击查看';
+        $('logPill').textContent = S.logPending + ' 条新日志 · 点击跳到最新';
         $('logPill').classList.add('show');
       }
       updateFeed();
     }).catch(function(){});
   }
-  function scrollLogToBottom(){
-    var box = $('logBox');
-    box.scrollTop = box.scrollHeight;
-    S.logPending = 0;
-    $('logPill').classList.remove('show');
-  }
   function updateFeed(){
     var groups = [], cur = null;
-    var tail = S.logs.slice(-60);
-    tail.forEach(function(l){
+    S.logs.slice(-60).forEach(function(l){
       var k = kindOf(l);
       if (cur && cur.k === k) { cur.n++; cur.last = l; return; }
-      cur = { k: k, n: 1, last: l };
+      cur = { k:k, n:1, last:l };
       groups.push(cur);
     });
     var feed = $('feed');
@@ -1032,49 +891,13 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
       var d = document.createElement('div');
       d.className = 'ev ' + (g.k === 'other' ? '' : g.k);
       var name = { sms:'短信', net:'网络', notify:'通知', err:'异常', other:'其他' }[g.k] || '事件';
-      d.innerHTML = '<span class="chip" style="flex:0 0 auto">' + name + (g.n > 1 ? ' ×' + g.n : '') + '</span><span class="txt">' + esc(g.last) + '</span>';
+      d.innerHTML = '<span class="chip">' + name + (g.n > 1 ? ' ×' + g.n : '') + '</span><span class="txt">' + esc(g.last) + '</span>';
       feed.appendChild(d);
     });
     $('feedCount').textContent = String(S.logs.length);
   }
 
-  /* ---------------- 命令面板 ---------------- */
-  function paletteOpen(){
-    var list = $('palList'), input = $('palSearch');
-    input.value = '';
-    function draw(){
-      var q = input.value.trim().toLowerCase();
-      var items = [];
-      orderedPages().forEach(function(p){ items.push({ t:p.name, s:'页面', run:function(){ go(p.id); } }); });
-      [['发短信','操作',function(){ go('messages'); }],
-       ['查信号','操作',function(){ act('signal'); }],
-       ['Ping','操作',function(){ act('ping'); }],
-       ['看日志','操作',function(){ go('logs'); }],
-       ['重连 WiFi','维护',function(){ act('wifi_restart'); }]].forEach(function(a){ items.push({ t:a[0], s:a[1], run:a[2] }); });
-      list.innerHTML = '';
-      items.filter(function(it){ return !q || (it.t + it.s).toLowerCase().indexOf(q) >= 0; }).forEach(function(it, i){
-        var o = document.createElement('div');
-        o.className = 'opt' + (i === 0 ? ' sel' : '');
-        o.innerHTML = '<b>' + it.t + '</b><small>' + it.s + '</small>' + (i === 0 ? '<span class="k">Enter</span>' : '');
-        o.addEventListener('click', function(){ close(); it.run(); });
-        list.appendChild(o);
-      });
-    }
-    function close(){ $('palette').classList.remove('show'); input.oninput = null; input.onkeydown = null; }
-    input.oninput = draw;
-    input.onkeydown = function(ev){
-      if (ev.key === 'Enter') {
-        var first = list.querySelector('.opt');
-        if (first) first.click();
-      } else if (ev.key === 'Escape') { close(); }
-    };
-    draw();
-    $('palette').classList.add('show');
-    setTimeout(function(){ input.focus(); }, 30);
-    $('palette').onclick = function(ev){ if (ev.target === this) close(); };
-  }
-
-  /* ---------------- 主题 ---------------- */
+  /* ---------- 主题 ---------- */
   function initTheme(){
     var t = LS.getItem('theme');
     if (t) document.documentElement.setAttribute('data-theme', t);
@@ -1082,50 +905,49 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
       var cur = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
       document.documentElement.setAttribute('data-theme', cur);
       LS.setItem('theme', cur);
+      toast(cur === 'light' ? '已切换为浅色' : '已切换为深色', 'info');
     });
   }
 
-  /* ---------------- 绑定 ---------------- */
+  /* ---------- 绑定 ---------- */
   function bind(){
     document.querySelectorAll('[data-save]').forEach(function(b){
       b.addEventListener('click', function(){ save(b.getAttribute('data-save'), b); });
     });
+    document.querySelectorAll('[data-go]').forEach(function(b){
+      b.addEventListener('click', function(){ go(b.getAttribute('data-go')); });
+    });
     document.querySelectorAll('[data-act]').forEach(function(b){
       b.addEventListener('click', function(){ act(b.getAttribute('data-act'), b); });
     });
-    $('refreshBtn').addEventListener('click', function(){ loadStatus(); loadConfig(); refreshLogs(true); toast('已刷新', 'ok'); });
-    $('copyIp').addEventListener('click', function(){
+    $('refreshBtn').addEventListener('click', function(){ loadStatus(); loadConfig(); refreshLogs(true); toast('状态已刷新', 'ok'); });
+    $('copyBtn').addEventListener('click', function(){
+      var ip = $('vIp').textContent || '';
       if (!navigator.clipboard) { toast('浏览器不支持复制', 'err'); return; }
-      navigator.clipboard.writeText('http://' + ($('vIp').textContent || '') + '/').then(function(){ toast('地址已复制', 'ok'); });
-    });
-    $('ipChip').addEventListener('click', function(){
-      if (!navigator.clipboard) return;
-      navigator.clipboard.writeText('http://' + ($('vIp').textContent || '') + '/').then(function(){ toast('地址已复制', 'ok'); });
-    });
-    $('paletteBtn').addEventListener('click', paletteOpen);
-    document.addEventListener('keydown', function(ev){
-      if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'k') { ev.preventDefault(); paletteOpen(); }
+      navigator.clipboard.writeText('http://' + ip + '/').then(function(){ toast('已复制 http://' + ip + '/', 'ok'); });
     });
     $('mSend').addEventListener('click', sendSms);
     $('mClear').addEventListener('click', function(){ $('mText').value = ''; smsMeta(); });
     $('mText').addEventListener('input', smsMeta);
-    $('logPill').addEventListener('click', scrollLogToBottom);
+    $('atRun').addEventListener('click', function(){ runAt(this); });
+    $('atPick').addEventListener('change', function(){ if (this.value) $('atCmd').value = this.value; });
+    $('flightSw').addEventListener('change', toggleFlight);
+    $('logPill').addEventListener('click', scrollBottom);
     $('logCopy').addEventListener('click', function(){
       if (!navigator.clipboard) { toast('浏览器不支持复制', 'err'); return; }
-      navigator.clipboard.writeText(S.logs.join(String.fromCharCode(10))).then(function(){ toast('日志已复制', 'ok'); });
+      navigator.clipboard.writeText(S.logs.join(String.fromCharCode(10))).then(function(){ toast('已复制 ' + S.logs.length + ' 行日志', 'ok'); });
     });
-    $('logSearch').addEventListener('input', function(){
-      S.logSearch = this.value.trim().toLowerCase();
-      renderLogsFull();
-    });
+    $('logSearch').addEventListener('input', function(){ S.search = this.value.trim().toLowerCase(); renderLogsFull(); });
     document.querySelectorAll('#fChips .fchip').forEach(function(c){
       c.addEventListener('click', function(){
         document.querySelectorAll('#fChips .fchip').forEach(function(x){ x.classList.remove('on'); });
         c.classList.add('on');
-        S.logFilter = c.getAttribute('data-f');
+        S.filter = c.getAttribute('data-f');
         renderLogsFull();
       });
     });
+    $('logAuto').addEventListener('change', function(){ $('autoState').textContent = this.checked ? '开' : '关'; });
+    $('logFollow').addEventListener('change', function(){ $('followState').textContent = this.checked ? '开' : '关'; });
     $('logBox').addEventListener('scroll', function(){
       if (nearBottom(this)) { S.logPending = 0; $('logPill').classList.remove('show'); }
     });
@@ -1134,28 +956,20 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
   }
 
   function init(){
-    loadUsage();
+    loadLocal();
     initTheme();
     bind();
     renderNav();
-    renderQuick();
-    renderNumChips();
-    renderAtChips();
+    renderNums();
+    renderAts();
     renderHistory();
-    bindCards();
+    smsMeta();
     go((location.hash || '').replace('#', '') || 'overview');
     loadStatus(); loadConfig(); refreshLogs(true);
-
-    setInterval(function(){
-      if (document.hidden) return;
-      loadStatus();
-    }, 8000);
+    setInterval(function(){ if (!document.hidden) loadStatus(); }, 8000);
     setInterval(function(){ refreshLogs(false); }, 3000);
     setInterval(function(){
-      if (S.status.uptime_s != null) {
-        S.status.uptime_s++;
-        $('vUp').textContent = fmtUp(S.status.uptime_s);
-      }
+      if (S.status.uptime_s != null) { S.status.uptime_s++; $('vUp').textContent = fmtUp(S.status.uptime_s); }
     }, 1000);
   }
   document.addEventListener('DOMContentLoaded', init);

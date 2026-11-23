@@ -224,6 +224,14 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
 @media (max-width:640px){ .chan-h{flex-wrap:wrap} }
 
 
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:11px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:12px;padding:7px 11px;cursor:pointer;
+  transition:background .2s,color .2s}
+.seg button + button{border-left:1px solid var(--line)}
+.seg button:hover{color:var(--text)}
+.seg button.on{color:#fff;background:linear-gradient(120deg,var(--pri),var(--pri2))}
+@media (max-width:520px){ .seg button{padding:6px 8px;font-size:11px} }
+
 </style>
 </head>
 <body>
@@ -235,7 +243,7 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     <div class="side-foot">
       <div class="row" style="justify-content:space-between">
         <span class="chip" id="netChip"><i class="dot" id="netDot"></i><span id="netText">连接中</span></span>
-        <button class="btn sm ghost" id="themeBtn" title="切换深浅色">切换主题</button>
+        <span class="tip">v2</span>
       </div>
       <div><button class="btn sm" id="copyBtn" style="width:100%">复制设备地址</button></div>
       <div class="tip" id="ipText">--</div>
@@ -246,6 +254,11 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     <div class="top">
       <div><h1 id="pageTitle">概览</h1><p id="pageSub">设备、网络与最近动态</p></div>
       <div class="grow"></div>
+      <div class="seg" id="themeSeg" role="group" aria-label="主题">
+        <button type="button" data-pref="dark">深色</button>
+        <button type="button" data-pref="light">浅色</button>
+        <button type="button" data-pref="system">跟随系统</button>
+      </div>
       <button class="btn sm" id="refreshBtn"><span class="spinner"></span>刷新状态</button>
     </div>
 
@@ -897,16 +910,38 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     $('feedCount').textContent = String(S.logs.length);
   }
 
-  /* ---------- 主题 ---------- */
+  /* ---------- 主题：深色 / 浅色 / 跟随系统（默认跟随） ---------- */
+  var MQ = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+  function themePref(){
+    var v = LS.getItem('theme');
+    return (v === 'dark' || v === 'light' || v === 'system') ? v : 'system';
+  }
+  function resolveTheme(pref){
+    if (pref === 'system') return (MQ && MQ.matches) ? 'light' : 'dark';
+    return pref;
+  }
+  function applyTheme(pref){
+    LS.setItem('theme', pref);
+    document.documentElement.setAttribute('data-theme', resolveTheme(pref));
+    var btns = document.querySelectorAll('#themeSeg button');
+    for (var i = 0; i < btns.length; i++) {
+      var on = btns[i].getAttribute('data-pref') === pref;
+      btns[i].classList.toggle('on', on);
+      btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+  }
   function initTheme(){
-    var t = LS.getItem('theme');
-    if (t) document.documentElement.setAttribute('data-theme', t);
-    $('themeBtn').addEventListener('click', function(){
-      var cur = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
-      document.documentElement.setAttribute('data-theme', cur);
-      LS.setItem('theme', cur);
-      toast(cur === 'light' ? '已切换为浅色' : '已切换为深色', 'info');
-    });
+    var pref = themePref();
+    applyTheme(pref);
+    var btns = document.querySelectorAll('#themeSeg button');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].addEventListener('click', function(){ applyTheme(this.getAttribute('data-pref')); });
+    }
+    if (MQ) {
+      var onChange = function(){ if (themePref() === 'system') applyTheme('system'); };
+      if (MQ.addEventListener) MQ.addEventListener('change', onChange);
+      else if (MQ.addListener) MQ.addListener(onChange);
+    }
   }
 
   /* ---------- 绑定 ---------- */

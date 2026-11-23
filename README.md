@@ -42,9 +42,9 @@
 固件内置完整网页（不到 100 KB，直接嵌在 Flash 里），手机上也能用。
 主题支持深色 / 浅色 / 跟随系统。
 
-<img src="assets/web-overview.png" width="100%" alt="概览页：设备地址、运行时长、空闲内存、4G 模组状态、最近动态与通知链路">
+<p align="center"><img src="assets/web-overview.png" width="680" alt="概览页：设备地址、运行时长、空闲内存、4G 模组状态、最近动态与通知链路"></p>
 
-<img src="assets/web-push.png" width="100%" alt="推送通道页：邮件开关与 SMTP 配置、多个推送通道（可逐个测试）、号码黑名单">
+<p align="center"><img src="assets/web-push.png" width="680" alt="推送通道页：邮件开关与 SMTP 配置、多个推送通道（可逐个测试）"></p>
 
 ## 功能一览
 
@@ -73,7 +73,7 @@
 - [4G FPC 天线](https://item.taobao.com/item.htm?id=797466121802&skuId=5722077108045)，¥2，与核心板同购
 - Nano SIM 卡一张 + 5 根杜邦线
 
-<img src="assets/wiring.svg" width="100%" alt="接线：GPIO5→EN、GPIO3→RX、GPIO4→TX、GND 共地、5V→VCC">
+<p align="center"><img src="assets/wiring.svg" width="780" alt="接线：GPIO5→EN、GPIO3→RX、GPIO4→TX、GND 共地、5V→VCC"></p>
 
 > 模组跑的是出厂 AT 固件，**不用刷机、不用改**，只当"能收短信的串口猫"用。
 

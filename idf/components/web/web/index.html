@@ -302,6 +302,7 @@ body.chan-dirty main{padding-bottom:150px}
             <tr><td>邮件通知</td><td id="kMail">--</td></tr>
             <tr><td>推送通道</td><td id="kPush">--</td></tr>
             <tr><td>管理员号码</td><td id="kAdmin">--</td></tr>
+            <tr><td>本机号码</td><td id="kSelf">--</td></tr>
             <tr><td>WiFi</td><td id="kWifi">--</td></tr>
           </table>
           <div class="sec" style="margin:14px 0 0">
@@ -408,11 +409,20 @@ body.chan-dirty main{padding-bottom:150px}
         </div>
         <div class="card"><div class="head">管理员号码</div>
           <div class="field" style="margin-top:10px"><label>手机号</label><input id="adminPhone" placeholder="13800138000"></div>
-          <div class="tip" style="margin-bottom:10px">该号码发送 SMS:号码:内容 可远程发短信；RESET 重启设备</div>
+          <div class="tip" style="margin-bottom:10px">该号码发送 SMS:号码:内容 可远程发短信；RESET 重启设备；RESETPASS 重置后台密码</div>
           <div class="row"><button class="btn pri" data-save="admin"><span class="spinner"></span>保存号码</button></div>
         </div>
       </div>
 
+      <div class="card" style="margin-top:14px">
+        <div class="head">本机号码</div>
+        <div class="field" style="margin-top:10px">
+          <label>SIM 卡号码</label>
+          <input id="selfPhone" inputmode="tel" placeholder="留空则由开机自动尝试读取">
+          <div class="tip" style="margin-top:4px">用于通知文案和自定义模版变量 {self_phone}；留空时每次启动都会尝试 AT+CNUM 自动获取，取不到就保持为空</div>
+        </div>
+        <div class="row"><button class="btn pri" data-save="selfphone"><span class="spinner"></span>保存本机号码</button></div>
+      </div>
     </section>
 
 <section class="page" id="p-device">
@@ -744,6 +754,7 @@ body.chan-dirty main{padding-bottom:150px}
     $('aboutModel').textContent = s.model || '--';
     $('aboutName').textContent = s.device_name ? s.device_name + '.local' : '--';
     if (s.admin_phone) $('kAdmin').textContent = s.admin_phone;
+    $('kSelf').textContent = s.self_phone || '--';
   }
   function loadStatus(){ return api('/status').then(applyStatus).catch(function(){}); }
   /* 邮件通道状态：关闭 / 已配置 / 未配置（mail_enabled 缺失时按开启处理） */
@@ -776,6 +787,7 @@ body.chan-dirty main{padding-bottom:150px}
       $('smtpPass').value = cfg.smtp_pass || '';
       $('smtpTo').value = cfg.smtp_to || '';
       $('adminPhone').value = cfg.admin_phone || '';
+      $('selfPhone').value = cfg.self_phone || '';
       $('blacklist').value = cfg.blacklist || '';
       $('operMode').value = cfg.operator_mode === 1 ? '1' : '0';
       $('operCode').value = cfg.operator_code || '';
@@ -878,7 +890,7 @@ body.chan-dirty main{padding-bottom:150px}
         '<div class="field"><label id="c' + i + 'ul">推送 URL</label><input id="c' + i + 'url" value="' + esc(ch.url || '') + '" placeholder="https://"></div>' +
         '<div class="field" id="c' + i + 'w1"><label id="c' + i + 'l1">参数 1</label><input id="c' + i + 'key1" value="' + esc(ch.key1 || '') + '"></div>' +
         '<div class="field" id="c' + i + 'w2"><label id="c' + i + 'l2">参数 2</label><input id="c' + i + 'key2" value="' + esc(ch.key2 || '') + '"></div>' +
-        '<div class="field" id="c' + i + 'wb"><label>请求体模板</label><textarea id="c' + i + 'bodyText" rows="3">' + esc(ch.custom_body || '') + '</textarea><span class="tip">支持 {sender} {message} {timestamp}</span></div>' +
+        '<div class="field" id="c' + i + 'wb"><label>请求体模板</label><textarea id="c' + i + 'bodyText" rows="3">' + esc(ch.custom_body || '') + '</textarea><span class="tip">支持 {sender} {message} {timestamp} {self_phone}</span></div>' +
       '</div>';
     var sw = el.querySelector('#c' + i + 'en');
     sw.addEventListener('change', function(){
@@ -916,6 +928,7 @@ body.chan-dirty main{padding-bottom:150px}
       p.append('smtpSendTo', $('smtpTo').value);
     }
     if (scope === 'admin') p.append('adminPhone', $('adminPhone').value);
+    if (scope === 'selfphone') p.append('selfPhone', ($('selfPhone').value || '').trim());
     if (scope === 'blacklist') p.append('numberBlackList', $('blacklist').value);
     if (scope === 'operator') {
       p.append('operatorMode', $('operMode').value);

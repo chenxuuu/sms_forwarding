@@ -83,6 +83,9 @@ JSON 转义、URL 编码、Base64、HMAC-SHA256→Base64（钉钉/飞书签名�
 - **ML307Y 禁止 CGACT**：这颗模组执行 `AT+CGACT=1,1` / `CGACT=0,1` 会触发重启，
   重启后可能长时间搜不到网。保号操作直接依赖注册后可用的数据连接，不手动开关。
 - 初始化时打开 `AT+CREG=2` / `AT+CEREG=2`，注册状态变化会以 URC 出现在日志里（相同状态去重）；
+- `detect_self_phone()`：初始化时执行 `AT+CNUM` 读取 SIM 卡本机号码。配置里 `self_phone` 为空
+  才写入并落盘（NVS 键 `selfPhone`）；已手填则保留用户值，两者不一致只打一行日志提示；
+  CNUM 无结果时保持为空，不报错（国内很多卡未写号码）。
 - 初始化末尾 `apply_operator_selection()`：自动模式 `AT+COPS=0`；手动模式
   `AT+COPS=1,2,"<PLMN>",<AcT>`（Act：0=2G / 2=3G / 7=LTE），最多等 60 秒；失败只记日志、继续等注册。
 
@@ -149,10 +152,15 @@ EN 引脚（GPIO5，低电平断电）与板载 LED（GPIO8，低电平点亮）
 | 钉钉机器人 | 4 | url + key1(secret，HMAC 签名) |
 | PushPlus | 5 | key1(token) + key2(channel) |
 | Server酱 | 6 | key1(sendkey) |
-| 自定义模板 | 7 | url + 模板（`{sender}{message}{timestamp}`） |
+| 自定义模板 | 7 | url + 模板（`{sender}{message}{timestamp}{self_phone}`） |
 | 飞书机器人 | 8 | url + key1(secret) |
 | Gotify | 9 | url + key1(token) |
 | Telegram | 10 | key1(chat_id) + key2(bot token)，url 可填反代前缀 |
+
+本机号码 `self_phone` 由 `config.self_phone` 提供（后台手填，或启动时 AT+CNUM 自动获取）：
+文本型通道（钉钉/飞书/PushPlus/Server酱/Gotify/Telegram）在文案末尾自动追加「本机号码: …」，
+POST JSON 多一个 `self_phone` 字段，GET 多一个 `self_phone` 查询参数，Bark 追加到 body，
+自定义模板用 `{self_phone}` 占位符自行摆放。
 
 响应体业务码校验（钉钉/飞书/PushPlus/Server酱/Telegram）与 4xx 不重试策略与旧版一致。
 
@@ -163,7 +171,9 @@ EN 引脚（GPIO5，低电平断电）与板载 LED（GPIO8，低电平点亮）
 1. 黑名单命中 → 丢弃（支持 `+86` 前缀差异）；
 2. 管理员号码 + `SMS:号码:内容` → 发短信并回执邮件；
 3. 管理员号码 + `RESET` → 邮件通知 → 等待通知队列 → 硬重启模组 → 整机重启；
-4. 其它 → `notify_sms()`。
+4. 管理员号码 + `RESETPASS` → 后台账号密码恢复默认（admin/admin123）并写入 NVS →
+   `notify_system()` 发到所有已启用通道，正文带默认账号密码与设备地址，等待通知队列后返回；
+5. 其它 → `notify_sms()`。
 
 ## web
 

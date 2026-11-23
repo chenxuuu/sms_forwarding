@@ -68,6 +68,30 @@ static void handle_admin_command(const char *sender, const char *text)
         return;
     }
 
+    if (util_equals_ci(cmd, "RESETPASS")) {
+        app_config_t *cfg = config_lock();
+        snprintf(cfg->web_user, sizeof(cfg->web_user), "%s", DEFAULT_WEB_USER);
+        snprintf(cfg->web_pass, sizeof(cfg->web_pass), "%s", DEFAULT_WEB_PASS);
+        config_save_locked();
+        config_unlock();
+
+        log_line("执行 RESETPASS 命令：后台账号已重置为 %s，密码已重置为默认值", DEFAULT_WEB_USER);
+        char body[384];
+        int n = snprintf(body, sizeof(body),
+                         "收到管理员短信，后台登录账号与密码已恢复默认：\n账号: %s\n密码: %s\n",
+                         DEFAULT_WEB_USER, DEFAULT_WEB_PASS);
+        char ip[16] = {0};
+        if (n > 0 && (size_t)n < sizeof(body) && config_state_get_last_ip(ip, sizeof(ip))) {
+            n += snprintf(body + n, sizeof(body) - (size_t)n, "设备地址: http://%s/\n", ip);
+        }
+        if (n > 0 && (size_t)n < sizeof(body)) {
+            snprintf(body + n, sizeof(body) - (size_t)n, "请登录后立即修改密码。");
+        }
+        notify_system("后台密码已重置", body);
+        notify_drain(15000);
+        return;
+    }
+
     if (util_equals_ci(cmd, "RESET")) {
         log_line("执行 RESET 命令，重启模组与整机");
         notify_email("重启命令已执行", "收到 RESET 命令，设备即将重启...");
@@ -108,7 +132,8 @@ static void forwarder_task(void *arg)
             char trimmed[FWD_TEXT_MAX];
             snprintf(trimmed, sizeof(trimmed), "%s", ev->text);
             util_trim(trimmed);
-            if (util_starts_with(trimmed, "SMS:") || util_equals_ci(trimmed, "RESET")) {
+            if (util_starts_with(trimmed, "SMS:") || util_equals_ci(trimmed, "RESET") ||
+                util_equals_ci(trimmed, "RESETPASS")) {
                 handle_admin_command(ev->sender, ev->text);
                 continue;
             }

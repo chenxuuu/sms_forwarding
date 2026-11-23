@@ -59,6 +59,8 @@ typedef struct {
     char smtp_pass[96];
     char smtp_to[96];
     char admin_phone[CFG_SMALL_LEN];
+    /* 本机（SIM 卡）号码：可在后台填写；为空时启动阶段尝试 AT+CNUM 自动获取 */
+    char self_phone[24];
     push_channel_t *channels; /* 动态通道数组（堆上分配） */
     int channel_count;
     char web_user[CFG_SMALL_LEN];

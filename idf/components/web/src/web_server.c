@@ -278,7 +278,7 @@ static uint32_t fnv1a(const void *data, size_t len, uint32_t h)
     return h;
 }
 
-/** 配置分区哈希：0=账号密码 1=邮件 2=管理员 3=黑名单 4=推送通道 */
+/** 配置分区哈希：0=账号密码 1=邮件 2=管理员 3=黑名单 4=推送通道 5=选网 6=本机号码 */
 static uint32_t hash_section(const app_config_t *c, int section)
 {
     uint32_t h = 2166136261u;
@@ -304,6 +304,9 @@ static uint32_t hash_section(const app_config_t *c, int section)
     case 4:
         h = fnv1a(c->channels, (size_t)c->channel_count * sizeof(push_channel_t), h);
         h = fnv1a(&c->channel_count, sizeof(c->channel_count), h);
+        break;
+    case 6:
+        h = fnv1a(c->self_phone, sizeof(c->self_phone), h);
         break;
     default:
         h = fnv1a(&c->operator_mode, sizeof(c->operator_mode), h);
@@ -332,8 +335,8 @@ esp_err_t handler_save(httpd_req_t *req)
     char value[1024];
     app_config_t *cfg = config_lock();
 
-    uint32_t h_before[6];
-    for (int sc = 0; sc < 6; sc++) {
+    uint32_t h_before[7];
+    for (int sc = 0; sc < 7; sc++) {
         h_before[sc] = hash_section(cfg, sc);
     }
 
@@ -366,6 +369,10 @@ esp_err_t handler_save(httpd_req_t *req)
     }
     if (web_form_get(body, "adminPhone", value, sizeof(value))) {
         snprintf(cfg->admin_phone, sizeof(cfg->admin_phone), "%s", value);
+    }
+    if (web_form_get(body, "selfPhone", value, sizeof(value))) {
+        util_trim(value);
+        snprintf(cfg->self_phone, sizeof(cfg->self_phone), "%s", value);
     }
     if (web_form_get(body, "numberBlackList", value, sizeof(value))) {
         snprintf(cfg->blacklist, sizeof(cfg->blacklist), "%s", value);
@@ -485,7 +492,8 @@ esp_err_t handler_save(httpd_req_t *req)
     bool ch_black = h_before[3] != hash_section(cfg, 3);
     bool ch_push = h_before[4] != hash_section(cfg, 4);
     bool ch_oper = h_before[5] != hash_section(cfg, 5);
-    bool changed = ch_creds || ch_mail || ch_admin || ch_black || ch_push || ch_oper;
+    bool ch_self = h_before[6] != hash_section(cfg, 6);
+    bool changed = ch_creds || ch_mail || ch_admin || ch_black || ch_push || ch_oper || ch_self;
 
     config_save_locked();
     config_unlock();
@@ -521,6 +529,9 @@ esp_err_t handler_save(httpd_req_t *req)
     }
     if (ch_oper) {
         sbuf_append(&items, "\n· 选网配置（重启设备后生效）");
+    }
+    if (ch_self) {
+        sbuf_append(&items, "\n· 本机号码");
     }
 
     sbuf_t text;
@@ -584,6 +595,8 @@ esp_err_t handler_status(httpd_req_t *req)
     app_config_t *cfg = config_lock();
     bool email_ok = config_mail_active(cfg);
     bool mail_enabled = cfg->mail_enabled;
+    char self_phone[sizeof(((app_config_t *)0)->self_phone)];
+    snprintf(self_phone, sizeof(self_phone), "%s", cfg->self_phone);
     int push_count = 0;
     for (int i = 0; i < cfg->channel_count; i++) {
         if (config_push_channel_valid(&cfg->channels[i])) {
@@ -592,9 +605,11 @@ esp_err_t handler_status(httpd_req_t *req)
     }
     config_unlock();
 
-    sbuf_printf(&out, "\"email_ok\":%s,\"mail_enabled\":%s,\"push_count\":%d,\"device_name\":\"%s\",\"model\":\"%s\"}",
-                email_ok ? "true" : "false", mail_enabled ? "true" : "false", push_count, host,
-                modem_model());
+    sbuf_printf(&out,
+                "\"email_ok\":%s,\"mail_enabled\":%s,\"push_count\":%d,\"self_phone\":\"%s\","
+                "\"device_name\":\"%s\",\"model\":\"%s\"}",
+                email_ok ? "true" : "false", mail_enabled ? "true" : "false", push_count,
+                self_phone, host, modem_model());
     httpd_resp_set_type(req, "application/json; charset=utf-8");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_send(req, sbuf_cstr(&out), out.len);
@@ -629,6 +644,7 @@ esp_err_t handler_config(httpd_req_t *req)
     append_str_field(&out, "smtp_pass", cfg->smtp_pass, true);
     append_str_field(&out, "smtp_to", cfg->smtp_to, true);
     append_str_field(&out, "admin_phone", cfg->admin_phone, true);
+    append_str_field(&out, "self_phone", cfg->self_phone, true);
     append_str_field(&out, "blacklist", cfg->blacklist, true);
     sbuf_printf(&out, "\"operator_mode\":%u,\"operator_act\":%u,",
                 (unsigned)cfg->operator_mode, (unsigned)cfg->operator_act);

@@ -41,7 +41,8 @@ HTTP 服务本身不受影响，页面还能正常打开和刷新。
 | `webUser` / `webPass` | 管理账号（留空恢复默认 `admin/admin123`） |
 | `mailEnabled` | 邮件通道开关：`on`/`off`（不传则保持原值） |
 | `smtpServer` / `smtpPort` / `smtpUser` / `smtpPass` / `smtpSendTo` | 邮件通知 |
-| `adminPhone` | 管理员号码（可下发 `SMS:`/`RESET` 命令） |
+| `adminPhone` | 管理员号码（可下发 `SMS:`/`RESET`/`RESETPASS` 命令） |
+| `selfPhone` | 本机（SIM 卡）号码，用于通知文案与 `{self_phone}` 模版变量；留空则每次启动尝试 `AT+CNUM` 自动获取 |
 | `numberBlackList` | 号码黑名单，换行分隔 |
 | `operatorMode` | 选网模式：0=自动（默认）/ 1=手动 |
 | `operatorCode` | 手动模式的 PLMN，5~6 位数字（如 46000） |
@@ -53,7 +54,7 @@ HTTP 服务本身不受影响，页面还能正常打开和刷新。
 
 ### GET /status
 
-前端轮询用的轻量状态（不碰 AT，毫秒级）：`ip/ssid/rssi/heap_kb/uptime_s/modem_ready/email_ok/mail_enabled/push_count/device_name/model`。
+前端轮询用的轻量状态（不碰 AT，毫秒级）：`ip/ssid/rssi/heap_kb/uptime_s/modem_ready/email_ok/mail_enabled/self_phone/push_count/device_name/model`。
 `mail_enabled` 是邮件通道开关；`email_ok` 表示「开关打开且 SMTP 四项配置齐全」（即 config_mail_active），
 关闭后即便 SMTP 填好也不再发邮件。
 
@@ -65,7 +66,8 @@ HTTP 服务本身不受影响，页面还能正常打开和刷新。
 ### GET /config
 
 返回完整配置快照（含 5 个推送通道），前端据此渲染表单，避免服务端拼 HTML。
-另含邮件开关 `mail_enabled`（布尔，缺省视为开启），以及选网字段 `operator_mode`（0 自动/1 手动）、`operator_code`（PLMN）、`operator_act`（0=2G/2=3G/7=LTE）。
+另含本机号码 `self_phone`（`AT+CNUM` 自动获取或后台手填，可能为空）、
+邮件开关 `mail_enabled`（布尔，缺省视为开启），以及选网字段 `operator_mode`（0 自动/1 手动）、`operator_code`（PLMN）、`operator_act`（0=2G/2=3G/7=LTE）。
 密码等敏感字段也在其中，接口本身受 Basic 认证保护。
 
 ### POST /save?json=1
@@ -159,6 +161,10 @@ cfun=1 全功能、cfun=4 飞行模式（射频关闭）。
 通知通过 notify_system() 发送到邮件 + 所有已启用推送通道。
 
 ## 动态推送通道
+
+模板与载荷里的本机号码：自定义模板（type=7）支持 `{sender}` `{message}` `{timestamp}` `{self_phone}`；
+POST JSON 载荷多一个 `self_phone` 字段，GET 多一个 `self_phone` 查询参数，
+Bark 的 body 与钉钉/飞书/PushPlus/Server酱/Gotify/Telegram 的正文末尾会自动追加「本机号码: …」（未配置时省略）。
 
 /config 返回的 channels 数组长度即当前通道数（1..50，默认 5）。
 POST /save 通过 pushCount 字段调整数量：增加时新通道名为「未命名通道」，

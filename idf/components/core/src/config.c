@@ -84,6 +84,7 @@ static void load_all(void)
     nvs_get_u8(s_nvs, "mailEnable", &mail_en);
     s_config.mail_enabled = (mail_en != 0);
     load_str("adminPhone", s_config.admin_phone, sizeof(s_config.admin_phone), "");
+    load_str("selfPhone", s_config.self_phone, sizeof(s_config.self_phone), "");
     load_str("webUser", s_config.web_user, sizeof(s_config.web_user), DEFAULT_WEB_USER);
     load_str("webPass", s_config.web_pass, sizeof(s_config.web_pass), DEFAULT_WEB_PASS);
     load_str("numBlkList", s_config.blacklist, sizeof(s_config.blacklist), "");
@@ -202,6 +203,7 @@ void config_save_locked(void)
     nvs_set_str(s_nvs, "smtpSendTo", s_config.smtp_to);
     nvs_set_u8(s_nvs, "mailEnable", s_config.mail_enabled ? 1 : 0);
     nvs_set_str(s_nvs, "adminPhone", s_config.admin_phone);
+    nvs_set_str(s_nvs, "selfPhone", s_config.self_phone);
     nvs_set_str(s_nvs, "webUser", s_config.web_user);
     nvs_set_str(s_nvs, "webPass", s_config.web_pass);
     nvs_set_str(s_nvs, "numBlkList", s_config.blacklist);

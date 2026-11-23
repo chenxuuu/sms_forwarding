@@ -118,7 +118,7 @@ static bool execute_once(const push_channel_t *ch, const push_request_t *req,
  * JSON 需要字面 \n（两个字符），表单编码需要真实换行，所以准备两份。
  */
 static void build_texts(const char *title, const char *message, const char *timestamp,
-                        bool is_notice, sbuf_t *json_safe, sbuf_t *plain)
+                        const char *self_phone, bool is_notice, sbuf_t *json_safe, sbuf_t *plain)
 {
     sbuf_t s_title, s_msg, s_time;
     sbuf_init(&s_title);
@@ -148,6 +148,16 @@ static void build_texts(const char *title, const char *message, const char *time
         sbuf_printf(plain, "\n时间: %s", timestamp);
     }
 
+    /* 本机号码（SIM 卡号码）统一追加在末尾，所有文本型通道自动带上 */
+    if (self_phone && self_phone[0]) {
+        sbuf_t s_phone;
+        sbuf_init(&s_phone);
+        util_json_escape(&s_phone, self_phone);
+        sbuf_printf(json_safe, "\\n本机号码: %s", sbuf_cstr(&s_phone));
+        sbuf_printf(plain, "\n本机号码: %s", self_phone);
+        sbuf_free(&s_phone);
+    }
+
     sbuf_free(&s_title);
     sbuf_free(&s_msg);
     sbuf_free(&s_time);
@@ -158,29 +168,45 @@ static void build_request(const push_channel_t *ch, const char *title, const cha
 {
     request_init(req);
 
-    sbuf_t s_title, s_msg, s_time, content, plain;
+    sbuf_t s_title, s_msg, s_time, s_phone, content, plain;
     sbuf_init(&s_title);
     sbuf_init(&s_msg);
     sbuf_init(&s_time);
+    sbuf_init(&s_phone);
     sbuf_init(&content);
     sbuf_init(&plain);
     util_json_escape(&s_title, title ? title : "");
     util_json_escape(&s_msg, message ? message : "");
     util_json_escape(&s_time, timestamp ? timestamp : "");
-    build_texts(title ? title : "", message ? message : "", timestamp ? timestamp : "", is_notice,
-                &content, &plain);
+
+    /* 本机号码：来自配置（可由用户手填或启动时自动获取） */
+    char self_phone[sizeof(((app_config_t *)0)->self_phone)];
+    app_config_t *cfg = config_lock();
+    snprintf(self_phone, sizeof(self_phone), "%s", cfg->self_phone);
+    config_unlock();
+    util_json_escape(&s_phone, self_phone);
+
+    build_texts(title ? title : "", message ? message : "", timestamp ? timestamp : "", self_phone,
+                is_notice, &content, &plain);
 
     switch (ch->type) {
     case PUSH_TYPE_POST_JSON:
         sbuf_printf(&req->url, "%s", ch->url);
-        sbuf_printf(&req->body, "{\"sender\":\"%s\",\"message\":\"%s\",\"timestamp\":\"%s\"}",
-                    sbuf_cstr(&s_title), sbuf_cstr(&s_msg), sbuf_cstr(&s_time));
+        sbuf_printf(&req->body,
+                    "{\"sender\":\"%s\",\"message\":\"%s\",\"timestamp\":\"%s\","
+                    "\"self_phone\":\"%s\"}",
+                    sbuf_cstr(&s_title), sbuf_cstr(&s_msg), sbuf_cstr(&s_time),
+                    sbuf_cstr(&s_phone));
         break;
 
     case PUSH_TYPE_BARK:
         sbuf_printf(&req->url, "%s", ch->url);
-        sbuf_printf(&req->body, "{\"title\":\"%s\",\"body\":\"%s\"}", sbuf_cstr(&s_title),
+        sbuf_printf(&req->body, "{\"title\":\"%s\",\"body\":\"%s", sbuf_cstr(&s_title),
                     sbuf_cstr(&s_msg));
+        if (self_phone[0]) {
+            sbuf_printf(&req->body, "\\n本机号码: %s", sbuf_cstr(&s_phone));
+        }
+        sbuf_append(&req->body, "\"}");
         break;
 
     case PUSH_TYPE_GET:
@@ -191,6 +217,8 @@ static void build_request(const push_channel_t *ch, const char *title, const cha
         util_url_encode(&req->url, message ? message : "");
         sbuf_append(&req->url, "&timestamp=");
         util_url_encode(&req->url, timestamp ? timestamp : "");
+        sbuf_append(&req->url, "&self_phone=");
+        util_url_encode(&req->url, self_phone);
         req->is_get = true;
         break;
 
@@ -255,6 +283,9 @@ static void build_request(const push_channel_t *ch, const char *title, const cha
             } else if (strncmp(p, "{timestamp}", 11) == 0) {
                 sbuf_append(&req->body, sbuf_cstr(&s_time));
                 p += 11;
+            } else if (strncmp(p, "{self_phone}", 12) == 0) {
+                sbuf_append(&req->body, sbuf_cstr(&s_phone));
+                p += 12;
             } else {
                 sbuf_append_char(&req->body, *p++);
             }
@@ -312,6 +343,7 @@ static void build_request(const push_channel_t *ch, const char *title, const cha
     sbuf_free(&s_title);
     sbuf_free(&s_msg);
     sbuf_free(&s_time);
+    sbuf_free(&s_phone);
     sbuf_free(&content);
     sbuf_free(&plain);
 }

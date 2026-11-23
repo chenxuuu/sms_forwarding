@@ -264,6 +264,65 @@ static void apply_operator_selection(void)
     }
 }
 
+/* 从 AT+CNUM 应答里取出本机号码；SIM 卡未存储号码时返回 false */
+static bool query_self_phone(char *out, size_t cap)
+{
+    char resp[512] = {0};
+    if (at_command("AT+CNUM", resp, sizeof(resp), 3000) != AT_RESULT_OK) {
+        return false;
+    }
+    const char *line = strstr(resp, "+CNUM:");
+    if (!line) {
+        return false;
+    }
+    const char *quote = strstr(line, ",\"");
+    if (!quote) {
+        return false;
+    }
+    const char *begin = quote + 2;
+    const char *end = strchr(begin, '"');
+    if (!end || end == begin) {
+        return false;
+    }
+    size_t n = (size_t)(end - begin);
+    if (n >= cap) {
+        return false;
+    }
+    memcpy(out, begin, n);
+    out[n] = '\0';
+    util_trim(out);
+    return out[0] != '\0';
+}
+
+/**
+ * 本机号码：用户没填时尝试从 SIM 卡自动读取并落盘；已填写则保留用户值，
+ * 仅在两者不一致时提示，避免换卡后悄悄改掉手填的号码。
+ */
+static void detect_self_phone(void)
+{
+    char num[24] = {0};
+    if (!query_self_phone(num, sizeof(num))) {
+        log_line("未能自动获取本机号码（AT+CNUM 无结果），可在后台「本机号码」手动填写");
+        return;
+    }
+
+    char configured_num[sizeof(((app_config_t *)0)->self_phone)] = {0};
+    app_config_t *cfg = config_lock();
+    snprintf(configured_num, sizeof(configured_num), "%s", cfg->self_phone);
+    bool configured = configured_num[0] != '\0';
+    if (!configured) {
+        snprintf(cfg->self_phone, sizeof(cfg->self_phone), "%s", num);
+        config_save_locked();
+    }
+    config_unlock();
+
+    if (!configured) {
+        log_line("本机号码已自动获取: %s", num);
+    } else if (strcmp(configured_num, num) != 0) {
+        log_line("SIM 卡号码 %s 与配置的本机号码 %s 不同，保留配置值", num, configured_num);
+    }
+}
+
 static void do_init(bool power_cycle)
 {
     s_ready = false;
@@ -316,6 +375,9 @@ static void do_init(bool power_cycle)
         led_blink(300);
     }
     log_line("PDU 模式已设置（CMGF=0）");
+
+    /* 本机号码：用户未配置时尝试自动读取，失败就保持为空 */
+    detect_self_phone();
 
     /* 打开注册状态主动上报：小区切换/掉线会立刻在日志里出现 +CREG/+CEREG */
     at_command_ok("AT+CREG=2", 2000);

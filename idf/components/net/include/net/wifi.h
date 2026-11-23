@@ -36,3 +36,6 @@ void wifi_get_info(wifi_info_t *out);
 
 /** 断开并重新连接（供 Web 端“重启 WiFi”使用）。 */
 esp_err_t wifi_reconnect(uint32_t timeout_ms);
+
+/** 立即踢一次重连（非阻塞，供心跳自愈使用）。 */
+void wifi_kick(void);

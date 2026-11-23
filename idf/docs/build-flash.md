@@ -56,6 +56,9 @@ idf.py -p COM3 monitor
 python tools/serial_capture.py COM3 60
 ```
 
+> **供电**：长期挂机建议用独立 5V 电源。USB 供电时 PC 睡眠/重启会导致 USB 重新枚举，
+> 芯片跟着复位（`复位原因: 11` 即 `ESP_RST_USB`），IP 也可能被 DHCP 重新分配。
+>
 > **重要坑位**：这块板子的控制台是芯片内置 USB-Serial/JTAG。用 pyserial/esptool 打开
 > `COM3` 时 DTR/RTS 电平变化会让芯片复位（日志里 `复位原因: 11` 即 `ESP_RST_USB`）。
 > 想观察设备“当前状态”或崩溃现场，请用 `tools/serial_capture.py`（打开后立即把 DTR/RTS 拉低），
@@ -109,6 +112,8 @@ idf.py build flash
 | 长短信合并 | 开发期用临时注入接口喂入两段 PDU，按顺序合并为完整文本并进入推送（该注入接口已移除，避免误触发真实通知） |
 | 畸形 PDU | 校验时间戳/DCS/UDL 一致性后拒绝，不会再解出乱码并推送 |
 | 事务期间收短信 | 在 `AT+CMGL` 事务进行中到达的短信，经 URC 队列仍被正确解析并转发 |
+| 过夜运行 | 连续运行 10 小时，WiFi 掉线 9 次均自动重连；期间 DHCP 把 IP 从 .8 换成 .6 |
+| 心跳（外网不可达） | 3 次告警后重连 WiFi、6 次后仅告警不重启，130 秒观察期内 0 次重启 |
 | HTTPS 自检 | `https://www.baidu.com` 200、`https://p.papapoi.com` 200、`https://api.telegram.org` 连接被重置（该网络不可达） |
 | 配置保存 / 重启 | `/save` 落盘并回显；`/system?action=restart` 重启后自动重连、模组重新就绪 |
 

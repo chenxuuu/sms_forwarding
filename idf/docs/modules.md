@@ -80,7 +80,10 @@ EN 引脚（GPIO5，低电平断电）与板载 LED（GPIO8，低电平点亮）
 - `wifi_start()`：STA 连接，20s 超时；断线后 3s 退避重连；
 - `wifi_get_info()`：SSID/IP/网关/掩码/DNS/MAC/BSSID/信道/RSSI；
 - `wifi_reconnect()`：供 Web “重启 WiFi” 使用；
-- `time_sync_start()`：SNTP（ntp.ntsc.ac.cn / ntp.aliyun.com / pool.ntp.org）。
+- `wifi_kick()`：非阻塞踢一次重连，供心跳使用；
+- `time_sync_start()`：SNTP（ntp.ntsc.ac.cn / ntp.aliyun.com / pool.ntp.org）；
+- `heartbeat_start(cb)`：周期自检（本机 Web + 外网），失败时重连/重启，并通过回调
+  通知「IP 变化」「网络恢复」；配置项 `CONFIG_HEARTBEAT_HOST/PORT/INTERVAL_S`。
 
 ## notify
 

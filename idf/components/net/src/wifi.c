@@ -184,6 +184,13 @@ void wifi_get_info(wifi_info_t *out)
     }
 }
 
+void wifi_kick(void)
+{
+    esp_wifi_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(200));
+    esp_wifi_connect();
+}
+
 esp_err_t wifi_reconnect(uint32_t timeout_ms)
 {
     if (!s_events) {

@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "modem/modem.h"
+#include "net/heartbeat.h"
 #include "net/time_sync.h"
 #include "net/wifi.h"
 #include "notify/notify.h"
@@ -20,9 +21,21 @@
  *  3. WiFi（20s 超时，失败重启重试）
  *  4. Web 服务（此时即可访问配置页面）
  *  5. NTP 时间同步（异步）
- *  6. 4G 模组初始化（慢，异步任务中执行）
- *  7. 启动通知邮件
+ *  6. 网络心跳（DHCP 换 IP / 断网自愈，并把新地址发邮件）
+ *  7. 4G 模组初始化（慢，异步任务中执行）
+ *  8. 启动通知邮件
  */
+static void on_net_event(heartbeat_event_t ev, const char *ip)
+{
+    char url[40];
+    snprintf(url, sizeof(url), "http://%s/", ip);
+    if (ev == HB_EVENT_IP_CHANGED) {
+        forwarder_notify_device("设备网络地址已变化", "DHCP 重新分配了地址，请使用新地址访问", url);
+    } else if (ev == HB_EVENT_RECOVERED) {
+        forwarder_notify_device("设备网络已恢复", "网络心跳连续失败后已自动恢复", url);
+    }
+}
+
 void app_main(void)
 {
     log_init();
@@ -50,6 +63,7 @@ void app_main(void)
 
     web_server_start();
     time_sync_start();
+    heartbeat_start(on_net_event);
     modem_start();
 
     if (config_any_valid()) {

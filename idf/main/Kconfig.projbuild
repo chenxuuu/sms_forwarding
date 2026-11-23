@@ -17,4 +17,23 @@ menu "短信转发器配置"
         help
             设备启动时连接的路由器密码。留空表示开放网络。
 
+    config HEARTBEAT_HOST
+        string "网络自检目标主机"
+        default "www.baidu.com"
+        help
+            心跳任务用“域名解析 + TCP 连接”判断网络是否可用，默认访问百度的 80 端口。
+            如果所在网络访问不了该域名，可改成网关域名或其他可达主机。
+
+    config HEARTBEAT_PORT
+        int "网络自检目标端口"
+        default 80
+        range 1 65535
+
+    config HEARTBEAT_INTERVAL_S
+        int "网络自检间隔（秒）"
+        default 60
+        range 10 600
+        help
+            连续 3 次失败会主动重连 WiFi，连续 6 次失败会重启设备。
+
 endmenu

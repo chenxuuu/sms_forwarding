@@ -8,6 +8,7 @@
 #include "core/log.h"
 #include "core/util.h"
 #include "esp_check.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
@@ -54,8 +55,20 @@ static char s_model[MODEM_MODEL_MAX];
 static char s_version[MODEM_VERSION_MAX];
 
 /* ---- URC：短信上报 ---- */
+#define PDU_WAIT_MAX_LINES 16
+#define PDU_WAIT_MAX_MS 5000
+
 static bool s_expect_pdu;
-static int s_last_urc_stat = -1; /* 上次记录的注册状态，避免周期性查询刷屏 */
+static int s_pdu_wait_lines;  /* +CMT 之后夹进来的非 PDU 行数 */
+static int64_t s_pdu_wait_ms; /* 开始等 PDU 的时刻 */
+static int s_last_urc_stat = -1;
+
+/** PDU 是纯十六进制、够长；用来和夹在中间的 AT 应答区分开 */
+static bool looks_like_pdu(const char *line)
+{
+    size_t n = strlen(line);
+    return n >= 20 && (n % 2) == 0 && util_is_hex_string(line);
+}
 
 static void handle_urc(const char *line)
 {
@@ -63,8 +76,8 @@ static void handle_urc(const char *line)
         if (line[0] == '\0') {
             return; /* 空行忽略，继续等 PDU */
         }
-        s_expect_pdu = false;
-        if (util_is_hex_string(line)) {
+        if (looks_like_pdu(line)) {
+            s_expect_pdu = false;
             log_line("收到 PDU: %s", line);
             sms_deliver_t *msg = calloc(1, sizeof(*msg));
             if (!msg) {
@@ -81,12 +94,24 @@ static void handle_urc(const char *line)
             free(msg);
             return;
         }
-        /* 状态错位（+CMT 与 PDU 之间夹了其它行）：复位后按普通 URC 继续解析 */
-        log_line("期望 PDU 却收到: %s", line);
+        /* 模组会先把 +CMT 报上来，再回当前 AT 命令的应答（+CPIN: READY 等），
+           PDU 夹在它后面。这里不能当成状态错位直接放弃，否则整条短信就丢了。 */
+        if (s_pdu_wait_lines == 0) {
+            s_pdu_wait_ms = esp_timer_get_time() / 1000;
+        }
+        s_pdu_wait_lines++;
+        if (s_pdu_wait_lines > PDU_WAIT_MAX_LINES ||
+            esp_timer_get_time() / 1000 - s_pdu_wait_ms > PDU_WAIT_MAX_MS) {
+            s_expect_pdu = false;
+            log_line("等待 PDU 超时（夹了 %d 行其它数据），该条短信已丢弃", s_pdu_wait_lines);
+        }
+        /* 这一行仍按普通 URC 继续解析（注册状态等） */
     }
 
     if (util_starts_with(line, "+CMT:")) {
         s_expect_pdu = true;
+        s_pdu_wait_lines = 0;
+        s_pdu_wait_ms = 0;
         return;
     }
     if (util_starts_with(line, "+CMTI:")) {

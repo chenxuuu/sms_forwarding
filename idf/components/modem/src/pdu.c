@@ -551,20 +551,24 @@ bool pdu_decode_deliver(const char *hex, sms_deliver_t *out)
         }
         ucs2_to_utf8(ud + udh_len, udl - udh_len, out->text, sizeof(out->text));
     } else {
+        /* UDH 占 48 bit，但 7bit 数据必须从下一个整 septet 边界开始：
+           6 字节 UDH = 7 个 septet（49 bit），第 49 位是填充位。
+           按 48 位解会让每个字符错位 1 bit，解出来就是一堆 ¡Ñ§Ω 之类的乱码。 */
         int udh_septets = udh_len > 0 ? (udh_len * 8 + 6) / 7 : 0;
         if (udl < udh_septets) {
             return false;
         }
-        int need_bits = udh_len * 8 + (udl - udh_septets) * 7;
-        if (ud_bytes < (need_bits + 7) / 8) {
+        int septets = udl - udh_septets;
+        int bit_off = udh_septets * 7;
+        /* 整条 UD 共 udl 个 septet，止于 bit udl*7 */
+        if (ud_bytes < (udl * 7 + 7) / 8) {
             return false;
         }
-        int septets = udl - udh_septets;
         uint8_t sept[400];
         if (septets > (int)sizeof(sept)) {
             septets = sizeof(sept);
         }
-        int got = gsm7_unpack(ud, ud_bytes, udh_len * 8, septets, sept);
+        int got = gsm7_unpack(ud, ud_bytes, bit_off, septets, sept);
         gsm7_to_utf8(sept, got, out->text, sizeof(out->text));
     }
     return true;

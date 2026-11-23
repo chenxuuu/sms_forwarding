@@ -61,6 +61,10 @@ JSON 转义、URL 编码、Base64、HMAC-SHA256→Base64（钉钉/飞书签名�
   输出 UTF-8 文本与长短信 `ref/part/total`。
 - 解码校验（防止畸形 PDU 产生乱码通知）：时间戳范围（月 1-12、日 1-31、时分秒范围）、
   DCS 必须是文本编码（GSM7/UCS2）、UDL 与实际数据长度一致、UDH 长度自洽。任一不满足即返回失败。
+- **7bit 长短信的 UDH 对齐**：6 字节 UDH = 48 bit，但 GSM 7bit 数据必须从下一个整 septet 边界
+  （第 49 bit，即 7 个 septet）开始，中间那 1 bit 是填充位。按 48 bit 解会让每个字符错位 1 bit，
+  解出来是 `¡Ñ§ΩΛ` 这类乱码（issue #37 的“邮件乱码”就是这个）。UDL 也要按
+  `UDH septet 数 + 文本 septet 数` 校验，长度不符直接判畸形。
 
 ### sms_assembler
 

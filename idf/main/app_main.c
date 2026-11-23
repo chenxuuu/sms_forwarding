@@ -24,7 +24,7 @@
  *  4. Web 服务（此时即可访问配置页面）
  *  5. NTP 时间同步（异步）
  *  6. 网络心跳（DHCP 换 IP / 断网自愈，并把新地址发邮件）
- *  7. 4G 模组初始化（慢，异步任务中执行）
+ *  7. 4G 模组初始化（慢，异步任务中执行）+ 蜂窝网络守护（掉线自动重连）
  *  8. 启动通知邮件
  */
 static void on_net_event(heartbeat_event_t ev, const char *ip)
@@ -35,6 +35,21 @@ static void on_net_event(heartbeat_event_t ev, const char *ip)
         forwarder_notify_device("设备网络地址已变化", "DHCP 重新分配了地址，请使用新地址访问", url);
     } else if (ev == HB_EVENT_RECOVERED) {
         forwarder_notify_device("设备网络已恢复", "网络心跳连续失败后已自动恢复", url);
+    }
+}
+
+/**
+ * 模组自愈结果：只有「多轮重启仍连不上」和「之后恢复」才发通知，
+ * 日常掉线重连不打扰用户（只在日志里记录）。
+ */
+static void on_modem_event(modem_net_event_t ev, const char *detail)
+{
+    char url[48];
+    snprintf(url, sizeof(url), "http://%s/", wifi_ip());
+    if (ev == MODEM_NET_FAILED) {
+        forwarder_notify_device("4G 网络无法自动重连", detail, url);
+    } else {
+        forwarder_notify_device("4G 网络已恢复", detail, url);
     }
 }
 
@@ -74,6 +89,7 @@ void app_main(void)
     bool ip_changed = had_last && strcmp(last_ip, ip) != 0;
 
     heartbeat_start(on_net_event, ip);
+    modem_set_net_event_handler(on_modem_event);
     modem_start();
 
     char url[48];

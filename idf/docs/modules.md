@@ -69,7 +69,20 @@ JSON 转义、URL 编码、Base64、HMAC-SHA256→Base64（钉钉/飞书签名�
 - 作业队列（初始化 / 发送短信 / 原始 AT / ping / 软重启 / 硬重启），作业对象在堆上传递；
 - 初始化流程：EN 断电重启 → `AT` 握手 → `ATI` 识别型号 → `AT+CGACT=0,1`（ML307Y 跳过）
   → `AT+CNMI=2,2,0,0,0` → `AT+CMGF=0` → `AT+CEREG?` 等注册；
-- `modem_ping()`：临时 `AT+CGACT=1,1` → `AT+MPING="8.8.8.8",30,1` → 解析 → 关闭数据连接。
+- `modem_ping()`：临时 `AT+CGACT=1,1` → `AT+MPING="8.8.8.8",30,1` → 解析 → 关闭数据连接；
+- 初始化时打开 `AT+CREG=2` / `AT+CEREG=2`，注册状态变化会以 URC 出现在日志里（相同状态去重）。
+
+### netmon（蜂窝网络守护）
+
+- 每 60 秒用 `AT`、`AT+CPIN?`、`AT+CREG?`、`AT+CEREG?`、`AT+CSQ`、`AT+CFUN?` 检查一次，
+  全部是**信令查询，不发短信、不激活数据连接，零资费**；
+- 连续 2 次确认未注册才判定掉线；已注册但连续 3 次 `CSQ=99`（读不到信号）同样视为射频卡死；
+- 自愈阶梯：`AT+CFUN=4 → AT+CFUN=1 → AT+COPS=0,0`（射频重启 + 自动选网）
+  → `AT+CFUN=1,1`（软重启，不再断电）→ EN 引脚断电（硬重启）；
+- 三级都失败算一轮，冷却 5 分钟后从第 1 级重来，避免无 SIM 卡时无休止断电；
+- 日常掉线自动重连**只写日志**；只有整轮（射频+软+硬重启）都失败时才发一次通知，
+  内容包含掉线起始时间；之后若恢复，再发一条恢复通知；
+- 用户手动开飞行模式（`CFUN=4`）时暂停检测，不会擅自把射频打开。
 
 ### modem_hw
 
@@ -82,6 +95,7 @@ EN 引脚（GPIO5，低电平断电）与板载 LED（GPIO8，低电平点亮）
 - `wifi_reconnect()`：供 Web “重启 WiFi” 使用；
 - `wifi_kick()`：非阻塞踢一次重连，供心跳使用；
 - `time_sync_start()`：SNTP（ntp.ntsc.ac.cn / ntp.aliyun.com / pool.ntp.org）；
+  同时设置时区 `CST-8`（否则日志/通知里的时间会是 UTC，差 8 小时）；
 - `heartbeat_start(cb, current_ip)`：周期自检（本机 Web + 外网），失败时重连/重启，并通过回调
   通知「IP 变化」「网络恢复」；配置项 `CONFIG_HEARTBEAT_HOST/PORT/INTERVAL_S`。
 **mDNS（`net/mdns.h`）**

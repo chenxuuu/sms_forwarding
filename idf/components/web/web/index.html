@@ -569,9 +569,14 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     $('ipText').textContent = 'http://' + (s.ip || '') + '/';
     $('vUp').textContent = fmtUp(s.uptime_s || 0);
     $('vHeap').textContent = (s.heap_kb || 0) + ' KB';
-    $('vModem').textContent = s.modem_ready ? '已就绪' : '未就绪';
+    var netKnown = typeof s.net_stat === 'number' && s.net_stat >= 0;
+    $('vModem').textContent = s.modem_ready ? '已就绪' : (netKnown ? '重连中' : '未就绪');
     $('vModem').style.color = s.modem_ready ? 'var(--ok)' : 'var(--err)';
-    $('subModem').textContent = s.model || '--';
+    var sigTxt = '';
+    if (typeof s.net_csq === 'number' && s.net_csq >= 0) {
+      sigTxt = s.net_csq === 99 ? ' · 无信号' : ' · 信号 ' + s.net_csq;
+    }
+    $('subModem').textContent = (s.model || '--') + sigTxt;
     $('kMail').textContent = s.email_ok ? '已配置' : '未配置';
     $('kPush').textContent = (s.push_count || 0) + ' 个已启用';
     $('kWifi').textContent = (s.ssid || '--') + (s.rssi ? '（' + s.rssi + ' dBm）' : '');

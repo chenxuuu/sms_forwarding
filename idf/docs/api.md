@@ -45,6 +45,11 @@
 
 前端轮询用的轻量状态（不碰 AT，毫秒级）：`ip/ssid/rssi/heap_kb/uptime_s/modem_ready/email_ok/push_count/device_name/model`。
 
+模组字段来自网络守护的最近一次检测（每 60 秒）：
+`net_stat`（0 未注册未搜索 / 1 已注册本地 / 2 搜索中 / 3 被拒绝 / 4 未知 / 5 漫游 / -1 查询失败）、
+`net_csq`（0..31，99 无信号，-1 未知）、`net_sim`（CPIN 是否 READY）。
+`modem_ready` 已是「初始化完成 + 当前注册正常」，掉线自愈期间为 `false`。
+
 ### GET /config
 
 返回完整配置快照（含 5 个推送通道），前端据此渲染表单，避免服务端拼 HTML。

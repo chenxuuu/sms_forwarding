@@ -510,7 +510,11 @@ esp_err_t handler_status(httpd_req_t *req)
     sbuf_printf(&out, "\",\"rssi\":%d,\"heap_kb\":%u,\"uptime_s\":%lld,", info.rssi,
                 (unsigned)(esp_get_free_heap_size() / 1024),
                 (long long)(esp_timer_get_time() / 1000000));
-    sbuf_printf(&out, "\"modem_ready\":%s,", modem_ready() ? "true" : "false");
+    modem_reg_t reg;
+    modem_net_info(&reg);
+    sbuf_printf(&out, "\"modem_ready\":%s,\"net_stat\":%d,\"net_csq\":%d,\"net_sim\":%s,",
+                modem_ready() ? "true" : "false", reg.stat, reg.csq,
+                reg.sim_ready ? "true" : "false");
 
     app_config_t *cfg = config_lock();
     bool email_ok = config_email_valid(cfg);

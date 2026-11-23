@@ -46,11 +46,13 @@ typedef struct {
 static QueueHandle_t s_queue;
 static modem_job_t *job_new(modem_job_type_t type);
 static volatile bool s_ready;
+static volatile bool s_init_done;
 static char s_model[MODEM_MODEL_MAX];
 static char s_version[MODEM_VERSION_MAX];
 
 /* ---- URC：短信上报 ---- */
 static bool s_expect_pdu;
+static int s_last_urc_stat = -1; /* 上次记录的注册状态，避免周期性查询刷屏 */
 
 static void handle_urc(const char *line)
 {
@@ -88,6 +90,45 @@ static void handle_urc(const char *line)
         log_line("收到 +CMTI（短信存储通知）: %s", line);
         return;
     }
+    /* 网络守护每分钟轮询的应答：不逐条记录，只在注册状态真正变化时打一行 */
+    if (util_starts_with(line, "+CPIN:") || util_starts_with(line, "+CSQ:") ||
+        util_starts_with(line, "+CFUN:")) {
+        return;
+    }
+    if (util_starts_with(line, "+CREG:") || util_starts_with(line, "+CEREG:") ||
+        util_starts_with(line, "+CGREG:")) {
+        int stat = -1;
+        const char *p = strchr(line, ':');
+        if (p) {
+            const char *q = p + 1;
+            while (*q == ' ') q++;
+            char buf[64];
+            size_t n = 0;
+            while (*q && *q != '\r' && *q != '\n' && n + 1 < sizeof(buf)) {
+                buf[n++] = *q++;
+            }
+            buf[n] = '\0';
+            int first = -1, second = -1;
+            char *save = NULL;
+            char *tok = strtok_r(buf, ",", &save);
+            if (tok) {
+                util_trim(tok);
+                first = atoi(tok);
+                tok = strtok_r(NULL, ",", &save);
+                if (tok) {
+                    util_trim(tok);
+                    second = atoi(tok);
+                }
+            }
+            stat = second >= 0 ? second : first;
+        }
+        if (stat >= 0 && stat != s_last_urc_stat) {
+            s_last_urc_stat = stat;
+            log_line("模组注册状态变化: %s", line);
+        }
+        return;
+    }
+
     /* 只记录真正的主动上报，避免 AT 应答行被当成 URC 刷屏 */
     if (line[0] == '+' || util_starts_with(line, "RDY") || util_starts_with(line, "RING") ||
         util_starts_with(line, "NO CARRIER")) {
@@ -145,18 +186,26 @@ static bool wait_registered(void)
     return false;
 }
 
-static void do_init(void)
+/**
+ * @param power_cycle true=硬复位（EN 断电）；false=仅软复位后的重新配置，
+ *                    用于 AT+CFUN=1,1 之后的重新初始化。
+ */
+static void do_init(bool power_cycle)
 {
     s_ready = false;
+    s_init_done = false;
     s_expect_pdu = false;
     sms_assembler_reset();
 
-    modem_power_cycle();
+    if (power_cycle) {
+        modem_power_cycle();
+    }
 
     int cycles = 0;
     while (!wait_at_ready()) {
         if (++cycles >= 3) {
             log_line("模组连续 3 次无响应，放弃本次初始化（可稍后点“硬重启模组”）");
+            s_init_done = true;
             return;
         }
         log_line("模组仍无响应，尝试重新上电");
@@ -194,6 +243,11 @@ static void do_init(void)
     }
     log_line("PDU 模式已设置（CMGF=0）");
 
+    /* 打开注册状态主动上报：小区切换/掉线会立刻在日志里出现 +CREG/+CEREG */
+    at_command_ok("AT+CREG=2", 2000);
+    at_command_ok("AT+CEREG=2", 2000);
+    log_line("注册状态上报已开启（CREG=2 / CEREG=2）");
+
     if (wait_registered()) {
         log_line("网络已注册，模组就绪");
         s_ready = true;
@@ -203,6 +257,7 @@ static void do_init(void)
         s_ready = false;
         led_set(true);
     }
+    s_init_done = true;
 }
 
 /* 解析 +MPING: <result>,<ip>,<len>,<time>,<ttl> */
@@ -255,7 +310,7 @@ static void modem_worker(void *arg)
         job->result = NULL;
         switch (job->type) {
         case JOB_INIT:
-            do_init();
+            do_init(true);
             job->ok = s_ready;
             break;
         case JOB_SEND_SMS: {
@@ -301,18 +356,21 @@ static void modem_worker(void *arg)
         }
         case JOB_HARD_RESET:
             log_line("正在硬重启模组（EN 断电重启）...");
-            do_init();
+            do_init(true);
             job->ok = s_ready;
             break;
-        case JOB_SOFT_RESET:
+        case JOB_SOFT_RESET: {
             log_line("正在软重启模组（AT+CFUN=1,1）...");
-            job->ok = at_command_ok("AT+CFUN=1,1", 15000);
-            if (!job->ok) {
-                log_line("软重启失败，改为硬重启");
+            bool cmd_ok = at_command_ok("AT+CFUN=1,1", 15000);
+            if (!cmd_ok) {
+                log_line("软重启指令无应答，直接改为硬重启");
             }
-            do_init();
+            /* 等模组自己重启；硬复位由 do_init(power_cycle) 负责，这里不再断电 */
+            vTaskDelay(pdMS_TO_TICKS(cmd_ok ? 12000 : 2000));
+            do_init(!cmd_ok);
             job->ok = s_ready;
             break;
+        }
         }
         if (!job->done || job->abandoned) {
             /* 无人等待 / 调用方已超时放弃：由 worker 释放，绝不回写已释放内存 */
@@ -346,12 +404,24 @@ esp_err_t modem_start(void)
         return ESP_ERR_NO_MEM;
     }
     xQueueSend(s_queue, &job, 0); /* done == NULL：worker 执行完后自行释放 */
+
+    modem_watchdog_start();
     return ESP_OK;
 }
 
 bool modem_ready(void)
 {
     return s_ready;
+}
+
+bool modem_init_done(void)
+{
+    return s_init_done;
+}
+
+void modem_set_ready(bool ready)
+{
+    s_ready = ready;
 }
 
 const char *modem_model(void)

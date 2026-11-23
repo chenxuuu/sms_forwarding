@@ -625,6 +625,7 @@ esp_err_t web_server_start(void)
     register_uri(s_server, "/save", HTTP_POST, handler_save);
     register_uri(s_server, "/sendsms", HTTP_POST, handler_sendsms);
     register_uri(s_server, "/ping", HTTP_POST, handler_ping);
+    register_uri(s_server, "/keepalive_http", HTTP_GET, handler_keepalive_http);
     register_uri(s_server, "/query", HTTP_GET, handler_query);
     register_uri(s_server, "/query", HTTP_POST, handler_query);
     register_uri(s_server, "/flight", HTTP_GET, handler_flight);

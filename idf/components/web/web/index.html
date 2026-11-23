@@ -414,6 +414,24 @@ body.chan-dirty main{padding-bottom:150px}
       </div>
 
       <div class="card" style="margin-top:14px">
+        <div class="head">保号操作</div>
+        <div class="tip" style="margin:6px 0 12px">通过模组主动联网，用于保持 SIM 卡在线；执行时会短暂激活数据连接</div>
+        <div class="grid two">
+          <div>
+            <div class="field"><label>Ping 目标</label><input id="keepPingHost" value="qq.com" placeholder="IP 或域名"></div>
+            <div class="row" style="margin-top:8px"><button class="btn pri sm" id="keepPingBtn"><span class="spinner"></span>执行 Ping</button></div>
+            <div class="outbox" id="keepPingOut"><span class="empty">结果会显示在这里</span></div>
+          </div>
+          <div>
+            <div class="field"><label>访问网址</label><input id="keepHttpUrl" value="https://speed.cloudflare.com/__down?bytes=10" placeholder="https://..."></div>
+            <div class="tip" style="margin:4px 0 8px">默认网址末尾 bytes=10 表示只下载 10 字节 body，流量非常可控；若当前网络访问失败（如模组错误码 5），可换成其他网址重试</div>
+            <div class="row" style="margin-top:8px"><button class="btn pri sm" id="keepHttpBtn"><span class="spinner"></span>访问网址</button></div>
+            <div class="outbox" id="keepHttpOut"><span class="empty">结果会显示在这里</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
         <div class="head">维护</div>
         <div class="row" style="margin-top:10px;gap:14px">
           <span class="row" style="gap:8px">
@@ -440,6 +458,7 @@ body.chan-dirty main{padding-bottom:150px}
             <button class="fchip" data-f="sms">短信</button>
             <button class="fchip" data-f="net">网络</button>
             <button class="fchip" data-f="notify">通知</button>
+            <button class="fchip" data-f="at">AT指令</button>
           </div>
           <div class="row">
             <input id="logSearch" placeholder="搜索日志" style="width:120px">
@@ -1009,9 +1028,44 @@ body.chan-dirty main{padding-bottom:150px}
     }).catch(function(){ toast('切换失败', 'err'); loadFlightState(); });
   }
 
+  /* ---------- 保号操作：Ping / HTTP 流量 ---------- */
+  function keepPing(btn){
+    var host = ($('keepPingHost').value || '').trim() || 'qq.com';
+    $('keepPingOut').innerHTML = '<span class="empty">Ping 中…</span>';
+    busy(btn, true);
+    api('/ping?ip=' + encodeURIComponent(host), { method:'POST' }).then(function(r){
+      busy(btn, false);
+      $('keepPingOut').innerHTML = '<span class="' + (r && r.success ? 'l-ok' : 'l-err') + '">' +
+        esc((r && r.message) || '操作失败') + '</span>';
+    }).catch(function(){
+      busy(btn, false);
+      $('keepPingOut').innerHTML = '<span class="l-err">请求失败</span>';
+    });
+  }
+  function keepHttp(btn){
+    var url = ($('keepHttpUrl').value || '').trim();
+    if (!url) { toast('请填写网址', 'err'); return; }
+    confirmDlg('可能产生流量消耗',
+      '将通过 4G 网络主动访问该网址，会产生流量消耗。请确保目标页面返回的数据量在可承受范围内（默认网址 bytes=10 仅下载 10 字节）。',
+      '确定访问', '取消', 'btn danger', 'btn pri').then(function(ok){
+      if (!ok) return;
+      $('keepHttpOut').innerHTML = '<span class="empty">访问中…</span>';
+      busy(btn, true);
+      api('/keepalive_http?url=' + encodeURIComponent(url)).then(function(r){
+        busy(btn, false);
+        $('keepHttpOut').innerHTML = '<span class="' + (r && r.success ? 'l-ok' : 'l-err') + '">' +
+          esc((r && r.message) || '访问失败') + '</span>';
+      }).catch(function(){
+        busy(btn, false);
+        $('keepHttpOut').innerHTML = '<span class="l-err">请求失败</span>';
+      });
+    });
+  }
+
   /* ---------- 日志 ---------- */
   function nearBottom(box){ return box.scrollHeight - box.scrollTop - box.clientHeight < 28; }
   function classify(line){
+    if (line.indexOf('AT>') === 0) return 'l-dim';   /* 原始 AT 交互统一弱显示 */
     if (/失败|错误|超时|异常|未响应/.test(line)) return 'l-err';
     if (/成功|已就绪|已恢复|已连接|已保存/.test(line)) return 'l-ok';
     if (/重试|警告|未配置|跳过/.test(line)) return 'l-warn';
@@ -1019,6 +1073,7 @@ body.chan-dirty main{padding-bottom:150px}
     return 'l-info';
   }
   function kindOf(line){
+    if (line.indexOf('AT>') === 0) return 'at';
     if (/短信|PDU|CMT|长短信/.test(line)) return 'sms';
     if (/WiFi|网络|IP|NTP|mDNS|心跳/.test(line)) return 'net';
     if (/邮件|推送|通道|通知/.test(line)) return 'notify';
@@ -1182,6 +1237,8 @@ body.chan-dirty main{padding-bottom:150px}
     $('atRun').addEventListener('click', function(){ runAt(this); });
     $('atPick').addEventListener('change', function(){ if (this.value) $('atCmd').value = this.value; });
     $('flightSw').addEventListener('change', toggleFlight);
+    $('keepPingBtn').addEventListener('click', function(){ keepPing(this); });
+    $('keepHttpBtn').addEventListener('click', function(){ keepHttp(this); });
     $('logPill').addEventListener('click', scrollBottom);
     $('logCopy').addEventListener('click', function(){
       copyText(S.logs.join(String.fromCharCode(10)), function(){ toast('已复制 ' + S.logs.length + ' 行日志', 'ok'); });

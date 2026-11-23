@@ -203,14 +203,14 @@ esp_err_t handler_sendsms(httpd_req_t *req)
     return ESP_OK;
 }
 
-/* ---- Ping ---- */
+/* ---- 保号操作：Ping / HTTP 流量 ---- */
 static void ping_async(web_async_ctx_t *ctx, sbuf_t *out, const char **ctype)
 {
-    (void)ctx;
     *ctype = "application/json; charset=utf-8";
-    log_line("网页端发起 Ping 请求");
+    const char *ip = (ctx->arg1[0] != '\0') ? ctx->arg1 : "qq.com";
+    log_line("网页端发起 Ping: %s", ip);
     modem_ping_result_t result = {0};
-    bool ok = modem_ping(&result, 35000);
+    bool ok = modem_ping_ip(ip, &result, 35000);
     if (ok) {
         json_ok(out, "%s", result.detail);
     } else {
@@ -223,7 +223,38 @@ esp_err_t handler_ping(httpd_req_t *req)
     if (!web_require_auth(req)) {
         return ESP_OK;
     }
-    web_spawn_async(req, ping_async, "", "");
+    char ip[128] = {0};
+    web_query_get(req, "ip", ip, sizeof(ip));
+    web_spawn_async(req, ping_async, ip, "");
+    return ESP_OK;
+}
+
+static void keepalive_http_async(web_async_ctx_t *ctx, sbuf_t *out, const char **ctype)
+{
+    *ctype = "application/json; charset=utf-8";
+    log_line("网页端发起保号 HTTP 访问: %s", ctx->arg1);
+    modem_http_result_t result = {0};
+    bool ok = modem_http_get(ctx->arg1, &result, 45000);
+    if (ok) {
+        json_ok(out, "%s", result.detail);
+    } else {
+        json_fail(out, "%s", result.detail[0] ? result.detail : "访问失败，未收到模组应答");
+    }
+}
+
+esp_err_t handler_keepalive_http(httpd_req_t *req)
+{
+    if (!web_require_auth(req)) {
+        return ESP_OK;
+    }
+    char url[512] = {0};
+    web_query_get(req, "url", url, sizeof(url));
+    if (url[0] == '\0') {
+        httpd_resp_set_type(req, "application/json; charset=utf-8");
+        httpd_resp_sendstr(req, "{\"success\":false,\"message\":\"网址不能为空\"}");
+        return ESP_OK;
+    }
+    web_spawn_async(req, keepalive_http_async, url, "");
     return ESP_OK;
 }
 
@@ -586,8 +617,13 @@ static void flight_async(web_async_ctx_t *ctx, sbuf_t *out, const char **ctype)
     char *resp = modem_at(cmd, 8000);
     bool ok = resp && strstr(resp, "OK");
     if (ok) {
+        /* 立即同步就绪状态：开飞行模式后射频关闭，首页不能再显示「已就绪」。
+         * 关闭飞行模式时保持 false，等 netmon 检测到重新注册后再置 true。 */
+        modem_set_ready(false);
+        log_line("飞行模式已%s，模组就绪状态已同步为未就绪（等待网络守护重新确认）",
+                 target == 4 ? "开启" : "关闭");
         json_ok(out, target == 4 ? "已开启飞行模式 ✈️<br>模组射频已关闭，无法收发短信"
-                                 : "已关闭飞行模式 🟢<br>模组恢复正常工作");
+                                 : "已关闭飞行模式 🟢<br>模组恢复正常工作，正在重新注册网络");
     } else {
         json_fail(out, "切换失败: %s", resp ? resp : "模组无响应");
     }

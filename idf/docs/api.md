@@ -10,13 +10,13 @@
 
 | 接口 | 处理方式 |
 |---|---|
-| `/sendsms`、`/ping`、`/query`、`/flight`、`/at`、`/modem?action=signal\|operator\|imei`、`/decode`、`/selftest` | 异步任务执行后回包，httpd 任务立即释放 |
+| `/sendsms`、`/ping`、`/keepalive_http`、`/query`、`/flight`、`/at`、`/modem?action=signal\|operator\|imei`、`/decode`、`/selftest` | 异步任务执行后回包，httpd 任务立即释放 |
 | `/modem?action=restart\|hardreset`、`/wifi?action=restart`、`/system?action=restart` | 先回包，后台任务执行动作 |
 | `/`、`/log`、`/save` | 同步，但不碰 AT，毫秒级完成 |
 
 需要注意：**AT 串口仍然是独占资源**（模组作业队列深度 4）。例如一次 35 秒的 `/ping`
-会让之后提交的 AT 作业排队，若排队等待超时则返回"超时或无响应"；HTTP 服务本身不受影响，
-页面还能正常打开和刷新。
+或最长 45 秒的 `/keepalive_http` 会让之后提交的 AT 作业排队，若排队等待超时则返回"超时或无响应"；
+HTTP 服务本身不受影响，页面还能正常打开和刷新。
 
 ## 页面
 
@@ -103,12 +103,13 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/log` | 最近 120 行日志（JSON 字符串数组） |
+| GET | `/log` | 最近 200 行日志（JSON 字符串数组）；含 `AT> 命令 → 应答 [结果]` 格式的原始 AT 交互，前端可按「AT指令」过滤 |
 | GET | `/decode?pdu=<hex>` | 解析一条 SMS-DELIVER PDU，返回发送者/时间/文本/长短信信息 |
 | GET | `/selftest?url=<https地址>` | HTTPS 连通性自检（CA bundle / TLS / DNS），默认测试 baidu |
 | GET | `/wifi?action=restart` | 断开并重连 WiFi（立即返回，后台执行） |
 | GET | `/system?action=restart` | 重启整机（立即返回） |
-| POST | `/ping` | 激活数据连接 → ping 8.8.8.8 → 关闭数据连接（约 40s，异步） |
+| POST | `/ping?ip=<目标>` | 保号 Ping：ping 指定 IP/域名（默认 `qq.com`），不碰 CGACT（约 40s，异步） |
+| GET | `/keepalive_http?url=<网址>` | 保号访问：通过模组 MHTTP 主动 GET 指定 http/https 网址，返回收到的 body 字节数（异步）；会产生流量 |
 
 ### /decode 响应示例
 
@@ -130,6 +131,9 @@
     {"success":true,"cfun":1,"flight":false}
 
 cfun=1 全功能、cfun=4 飞行模式（射频关闭）。
+
+开/关飞行模式后立即把模组就绪状态同步为未就绪（首页不再误报「已就绪」），
+关闭后由 netmon 检测到重新注册成功再恢复为就绪。
 
 ## 配置变更通知
 

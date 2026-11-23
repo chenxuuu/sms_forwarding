@@ -54,6 +54,7 @@ esp_err_t handler_selftest(httpd_req_t *req);
 esp_err_t handler_favicon(httpd_req_t *req);
 esp_err_t handler_sendsms(httpd_req_t *req);
 esp_err_t handler_ping(httpd_req_t *req);
+esp_err_t handler_keepalive_http(httpd_req_t *req);
 esp_err_t handler_query(httpd_req_t *req);
 esp_err_t handler_flight(httpd_req_t *req);
 esp_err_t handler_at(httpd_req_t *req);

@@ -13,7 +13,7 @@
 
 #include "core/sbuf.h"
 
-#define LOG_RING_LINES 120
+#define LOG_RING_LINES 200
 #define LOG_LINE_MAX 256
 
 void log_init(void);

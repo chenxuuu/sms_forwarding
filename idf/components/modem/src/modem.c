@@ -28,6 +28,7 @@ typedef enum {
     JOB_SOFT_RESET,
     JOB_AT,
     JOB_PING,
+    JOB_HTTP_GET,
 } modem_job_type_t;
 
 typedef struct {
@@ -38,6 +39,7 @@ typedef struct {
     bool ok;
     char *result;
     modem_ping_result_t ping;
+    modem_http_result_t http;
     SemaphoreHandle_t done;
     volatile bool abandoned; /* 调用方等待超时：作业仍归 worker，由 worker 释放 */
 } modem_job_t;
@@ -171,12 +173,52 @@ static void parse_ati(const char *resp)
     }
 }
 
+/** 从应答中逐行解析注册状态，只认 +CEREG/+CREG 行的第 2 字段（stat 1=本地 / 5=漫游）。 */
+static bool reg_registered(const char *resp)
+{
+    char buf[512];
+    snprintf(buf, sizeof(buf), "%s", resp);
+    char *save = NULL;
+    for (char *line = strtok_r(buf, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+        util_trim(line);
+        if (!util_starts_with(line, "+CEREG:") && !util_starts_with(line, "+CREG:")) {
+            continue;
+        }
+        const char *colon = strchr(line, ':');
+        if (!colon) continue;
+        /* 查询应答格式 <n>,<stat>[,...]；URC 格式 <stat>[,...]（CREG=2 时 stat 后直接是 LAC） */
+        int first = -1, second = -1;
+        char fields[8][32] = {{0}};
+        int cnt = 0;
+        char f[128];
+        snprintf(f, sizeof(f), "%s", colon + 1);
+        char *fsave = NULL;
+        char *tok = strtok_r(f, ",", &fsave);
+        while (tok && cnt < 8) {
+            util_trim(tok);
+            snprintf(fields[cnt], sizeof(fields[cnt]), "%s", tok);
+            if (cnt == 0) first = atoi(fields[cnt]);
+            if (cnt == 1) second = atoi(fields[cnt]);
+            cnt++;
+            tok = strtok_r(NULL, ",", &fsave);
+        }
+        int stat = -1;
+        if (cnt >= 2 && fields[1][0] >= '0' && fields[1][0] <= '9') {
+            stat = second;           /* 查询应答：<n>,<stat> */
+        } else if (cnt >= 1) {
+            stat = first;            /* URC：<stat>,"<lac>",... */
+        }
+        if (stat == 1 || stat == 5) return true;
+    }
+    return false;
+}
+
 static bool wait_registered(void)
 {
     for (int i = 0; i < 30; i++) {
-        char resp[256] = {0};
+        char resp[512] = {0};
         if (at_command("AT+CEREG?", resp, sizeof(resp), 2000) != AT_RESULT_TIMEOUT) {
-            if (strstr(resp, ",1") || strstr(resp, ",5")) {
+            if (reg_registered(resp)) {
                 return true;
             }
         }
@@ -287,13 +329,84 @@ static bool parse_mping(const char *line, char *detail, size_t cap)
 
     int result = atoi(fields[0]);
     if (count >= 4 && (result == 0 || result == 1)) {
-        const char *ip = fields[1];
+        char ip[64] = {0};
+        snprintf(ip, sizeof(ip), "%s", fields[1]);
+        size_t ilen = strlen(ip);
+        if (ilen >= 2 && ip[0] == '"' && ip[ilen - 1] == '"') {
+            memmove(ip, ip + 1, ilen - 2);
+            ip[ilen - 2] = '\0';
+        }
         const char *time_ms = fields[3];
         const char *ttl = count >= 5 ? fields[4] : "N/A";
         snprintf(detail, cap, "目标: %s, 延迟: %sms, TTL: %s", ip, time_ms, ttl);
         return true;
     }
     snprintf(detail, cap, "Ping 超时或目标不可达（错误码 %d）", result);
+    return false;
+}
+
+/* ---- 保号 HTTP：URL 拆分与 MHTTP URC 解析 ---- */
+static void hex_encode(const char *s, char *out, size_t cap)
+{
+    static const char HEX[] = "0123456789ABCDEF";
+    size_t n = 0;
+    while (*s && n + 2 < cap) {
+        out[n++] = HEX[((unsigned char)*s >> 4) & 0xF];
+        out[n++] = HEX[(unsigned char)*s & 0xF];
+        s++;
+    }
+    out[n] = '\0';
+}
+
+/** 把 http(s)://host[:port]/path 拆成 scheme / host / path。 */
+static bool split_url(const char *url, char *scheme, size_t sch_cap,
+                      char *host, size_t host_cap, char *path, size_t path_cap)
+{
+    const char *p = url ? url : "";
+    bool https = false;
+    if (strncmp(p, "https://", 8) == 0) { https = true; p += 8; }
+    else if (strncmp(p, "http://", 7) == 0) { p += 7; }
+    else return false;
+
+    snprintf(scheme, sch_cap, "%s", https ? "https" : "http");
+    const char *slash = strchr(p, '/');
+    size_t hlen = slash ? (size_t)(slash - p) : strlen(p);
+    if (hlen == 0 || hlen >= host_cap) return false;
+    memcpy(host, p, hlen);
+    host[hlen] = '\0';
+    snprintf(path, path_cap, "%s", slash ? slash : "/");
+    return true;
+}
+
+/**
+ * 解析 +MHTTPURC: "content",<id>,<len>,... 或 "err",<id>,<code>。
+ * @return true=收到内容（bytes 有效）；false=错误（err 有效）。
+ */
+static bool parse_mhttp_urc(const char *line, int *bytes, int *err)
+{
+    if (bytes) *bytes = -1;
+    if (err) *err = -1;
+    const char *p = strchr(line, ':');
+    if (!p) return false;
+    char buf[160];
+    snprintf(buf, sizeof(buf), "%s", p + 1);
+    char *fields[8] = {0};
+    int cnt = 0;
+    char *save = NULL;
+    for (char *tok = strtok_r(buf, ",", &save); tok && cnt < 8;
+         tok = strtok_r(NULL, ",", &save)) {
+        util_trim(tok);
+        fields[cnt++] = tok;
+    }
+    if (cnt < 3) return false;
+    if (strstr(fields[0], "content")) {
+        if (bytes) *bytes = atoi(fields[2]);
+        return true;
+    }
+    if (strstr(fields[0], "err")) {
+        if (err) *err = atoi(fields[2]);
+        return false;
+    }
     return false;
 }
 
@@ -337,21 +450,69 @@ static void modem_worker(void *arg)
             }
             break;
         case JOB_PING: {
-            log_line("激活数据连接（AT+CGACT=1,1）...");
-            at_command_ok("AT+CGACT=1,1", 10000);
-            vTaskDelay(pdMS_TO_TICKS(500));
+            const char *ip = (job->arg[0] != '\0') ? job->arg : "qq.com";
+            /* 不碰 AT+CGACT：ML307Y 执行 CGACT 会触发模组重启（初始化也跳过了），
+             * 且重启后可能长时间搜不到网。模组注册后数据连接默认可用。 */
+            log_line("Ping %s ...", ip);
             char line[256] = {0};
-            bool got = at_command_wait_for("AT+MPING=\"8.8.8.8\",30,1", "+MPING:", line,
-                                           sizeof(line), job->timeout_ms);
+            char cmd[160] = {0};
+            snprintf(cmd, sizeof(cmd), "AT+MPING=\"%s\",30,1", ip);
+            bool got = at_command_wait_for(cmd, "+MPING:", line, sizeof(line), job->timeout_ms);
             if (got) {
                 log_line("收到 MPING 结果: %s", line);
                 job->ping.success = parse_mping(line, job->ping.detail, sizeof(job->ping.detail));
             } else {
                 snprintf(job->ping.detail, sizeof(job->ping.detail), "Ping 超时或目标不可达");
             }
-            log_line("关闭数据连接（AT+CGACT=0,1）...");
-            at_command_ok("AT+CGACT=0,1", 5000);
             job->ok = job->ping.success;
+            break;
+        }
+        case JOB_HTTP_GET: {
+            char scheme[8] = {0}, host[128] = {0}, path[256] = {0};
+            char pathhex[512] = {0}, cmd[320] = {0};
+            job->http.bytes = -1;
+            if (!split_url(job->text, scheme, sizeof(scheme), host, sizeof(host),
+                           path, sizeof(path))) {
+                snprintf(job->http.detail, sizeof(job->http.detail),
+                         "网址格式不正确，需以 http:// 或 https:// 开头");
+                break;
+            }
+            hex_encode(path, pathhex, sizeof(pathhex));
+
+            /* 不碰 AT+CGACT：ML307Y 执行 CGACT 会触发模组重启（初始化也跳过了） */
+            log_line("保号访问 %s ...", job->text);
+
+            at_command_ok("AT+MHTTPDEL=0", 3000);
+            snprintf(cmd, sizeof(cmd), "AT+MHTTPCREATE=\"%s://%s\"", scheme, host);
+            at_command_ok(cmd, 10000);
+            if (strcmp(scheme, "https") == 0) {
+                at_command_ok("AT+MHTTPCFG=\"ssl\",0,1,0", 3000);
+            }
+            at_command_ok("AT+MHTTPCFG=\"encoding\",0,0,0", 3000);
+            at_command_ok("AT+MHTTPCFG=\"encoding\",0,1,1", 3000);
+
+            snprintf(cmd, sizeof(cmd), "AT+MHTTPREQUEST=0,1,0,%s", pathhex);
+            char urc[512] = {0};
+            bool got = at_command_wait_for(cmd, "+MHTTPURC:", urc, sizeof(urc), job->timeout_ms);
+            log_line("保号访问模组应答: %s", urc[0] ? urc : "（无）");
+
+            int bytes = -1, err = -1;
+            bool content = got && parse_mhttp_urc(urc, &bytes, &err);
+            if (content) {
+                job->http.bytes = bytes;
+                job->http.success = true;
+                snprintf(job->http.detail, sizeof(job->http.detail),
+                         "访问成功，收到 %d 字节数据", bytes);
+            } else if (err >= 0) {
+                snprintf(job->http.detail, sizeof(job->http.detail),
+                         "访问失败（模组错误码 %d），请检查网址是否可达", err);
+            } else {
+                snprintf(job->http.detail, sizeof(job->http.detail),
+                         "访问超时或模组无应答，请检查网址与 SIM 数据连接");
+            }
+
+            at_command_ok("AT+MHTTPDEL=0", 3000);
+            job->ok = job->http.success;
             break;
         }
         case JOB_HARD_RESET:
@@ -540,11 +701,14 @@ bool modem_reinit(uint32_t timeout_ms)
     return reset_job(JOB_INIT, timeout_ms);
 }
 
-bool modem_ping(modem_ping_result_t *out, uint32_t timeout_ms)
+bool modem_ping_ip(const char *ip, modem_ping_result_t *out, uint32_t timeout_ms)
 {
     modem_job_t *job = job_new(JOB_PING);
     if (!job) {
         return false;
+    }
+    if (ip && *ip) {
+        snprintf(job->arg, sizeof(job->arg), "%s", ip);
     }
     job->timeout_ms = timeout_ms;
     submit_result_t rc = submit(job, timeout_ms + 20000);
@@ -552,6 +716,34 @@ bool modem_ping(modem_ping_result_t *out, uint32_t timeout_ms)
     if (out) {
         if (rc == SUBMIT_OK) {
             *out = job->ping;
+        } else if (!out->detail[0]) {
+            snprintf(out->detail, sizeof(out->detail), "操作超时");
+        }
+    }
+    if (rc != SUBMIT_TIMEOUT) {
+        free(job);
+    }
+    return ok;
+}
+
+bool modem_ping(modem_ping_result_t *out, uint32_t timeout_ms)
+{
+    return modem_ping_ip(NULL, out, timeout_ms);
+}
+
+bool modem_http_get(const char *url, modem_http_result_t *out, uint32_t timeout_ms)
+{
+    modem_job_t *job = job_new(JOB_HTTP_GET);
+    if (!job) {
+        return false;
+    }
+    snprintf(job->text, sizeof(job->text), "%s", url ? url : "");
+    job->timeout_ms = timeout_ms;
+    submit_result_t rc = submit(job, timeout_ms + 20000);
+    bool ok = rc == SUBMIT_OK && job->http.success;
+    if (out) {
+        if (rc == SUBMIT_OK) {
+            *out = job->http;
         } else if (!out->detail[0]) {
             snprintf(out->detail, sizeof(out->detail), "操作超时");
         }

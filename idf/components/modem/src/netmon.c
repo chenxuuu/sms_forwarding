@@ -254,6 +254,7 @@ static void netmon_task(void *arg)
         if (r.flight) {
             if (!flight_logged) {
                 log_line("飞行模式已开启，暂停基站检测（关闭飞行模式后自动恢复）");
+                modem_set_ready(false); /* 射频关闭，首页不能显示「已就绪」 */
                 flight_logged = true;
             }
             fail = 0;
@@ -261,7 +262,10 @@ static void netmon_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(NETMON_INTERVAL_MS));
             continue;
         }
-        flight_logged = false;
+        if (flight_logged) {
+            log_line("飞行模式已关闭，恢复基站检测");
+            flight_logged = false;
+        }
 
         /* 已注册但连续读不到信号：注册状态是卡死前的残留值，需要重启射频 */
         if (r.registered && r.csq == 99) {

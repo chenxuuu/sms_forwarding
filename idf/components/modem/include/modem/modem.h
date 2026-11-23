@@ -86,5 +86,24 @@ typedef struct {
     char detail[128];
 } modem_ping_result_t;
 
-/** 临时激活数据连接并 ping 8.8.8.8，完成后自动关闭数据连接。 */
+/**
+ * 临时激活数据连接并 ping 指定目标，完成后自动关闭数据连接。
+ * @param ip 目标 IP 或域名；为 NULL/空时默认 8.8.8.8。
+ */
+bool modem_ping_ip(const char *ip, modem_ping_result_t *out, uint32_t timeout_ms);
+
+/** 兼容旧调用：ping 8.8.8.8。 */
 bool modem_ping(modem_ping_result_t *out, uint32_t timeout_ms);
+
+typedef struct {
+    bool success;
+    char detail[160];
+    int bytes; /* 实际收到的 body 字节数，-1 表示未知 */
+} modem_http_result_t;
+
+/**
+ * 主动访问 http/https 网址（保号 / 消耗少量流量）。
+ * 用模组 MHTTP 指令发起 GET，统计响应字节数，完成后删除实例并关闭数据连接。
+ * @param url 形如 https://host/path，path 支持 ?a=b 查询串。
+ */
+bool modem_http_get(const char *url, modem_http_result_t *out, uint32_t timeout_ms);

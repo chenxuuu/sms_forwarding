@@ -188,6 +188,43 @@ static void append_resp(char *resp, size_t cap, const char *line)
     strcat(resp, "\n");
 }
 
+/**
+ * 把一次 AT 交互压成一行日志：AT> 命令 → 应答摘要。
+ * 环形缓冲只有 120 行，逐应答行记录会把关键事件冲掉；这里每条命令固定一行，
+ * 既保留完整交互又不会刷屏。URC（+CMT/+CEREG 等）单独由 at_reader 记录。
+ */
+static void at_log_xfer(const char *cmd, const char *resp, at_result_t result)
+{
+    const char *tail = "超时";
+    if (result == AT_RESULT_OK) tail = "OK";
+    else if (result == AT_RESULT_ERROR) tail = "ERROR";
+
+    /* 应答去掉换行，压平到一行；过长截断，保留开头关键信息 */
+    char flat[160] = {0};
+    if (resp && resp[0]) {
+        snprintf(flat, sizeof(flat), "%s", resp);
+        for (char *p = flat; *p; p++) {
+            if (*p == '\r' || *p == '\n') *p = ' ';
+        }
+        while (strlen(flat) > 2 && flat[strlen(flat) - 1] == ' ') {
+            flat[strlen(flat) - 1] = '\0';
+        }
+        /* 去掉末尾与 tail 重复的 OK/ERROR，避免 "OK → OK" */
+        size_t n = strlen(flat);
+        size_t tl = strlen(tail);
+        if (n >= tl && strcmp(flat + n - tl, tail) == 0 &&
+            (n == tl || flat[n - tl - 1] == ' ')) {
+            flat[n - tl] = '\0';
+            while (n > 1 && flat[n - 2] == ' ') flat[--n - 1] = '\0';
+        }
+    }
+    if (flat[0]) {
+        log_line("AT> %s → %s [%s]", cmd, flat, tail);
+    } else {
+        log_line("AT> %s → [%s]", cmd, tail);
+    }
+}
+
 at_result_t at_command(const char *cmd, char *resp, size_t resp_cap, uint32_t timeout_ms)
 {
     if (resp && resp_cap) {
@@ -225,6 +262,7 @@ at_result_t at_command(const char *cmd, char *resp, size_t resp_cap, uint32_t ti
         urc_defer(line);
     }
 
+    at_log_xfer(cmd, resp ? resp : "", result);
     at_unlock();
     return result;
 }
@@ -250,10 +288,14 @@ bool at_command_wait_for(const char *cmd, const char *keyword, char *line_out, s
     bool found = false;
     int64_t deadline = now_ms() + timeout_ms;
     char line[AT_LINE_MAX];
+    char collected[160] = {0};
     while (now_ms() < deadline) {
         int64_t remain = deadline - now_ms();
         if (!read_line(line, sizeof(line), (uint32_t)remain)) {
             break;
+        }
+        if (collected[0] == '\0') {
+            snprintf(collected, sizeof(collected), "%s", line);
         }
         if (strstr(line, keyword)) {
             if (line_out && cap) {
@@ -270,6 +312,11 @@ bool at_command_wait_for(const char *cmd, const char *keyword, char *line_out, s
         }
         urc_defer(line);
     }
+    for (char *p = collected; *p; p++) {
+        if (*p == '\r' || *p == '\n') *p = ' ';
+    }
+    log_line("AT> %s → %s [%s]", cmd, collected[0] ? collected : "(无应答)",
+             found ? "匹配" : "未匹配");
     at_unlock();
     return found;
 }
@@ -281,6 +328,7 @@ bool at_send_pdu(const char *pdu_hex, int tpdu_len, uint32_t timeout_ms)
 
     char tx[64];
     int n = snprintf(tx, sizeof(tx), "AT+CMGS=%d\r", tpdu_len);
+    log_line("AT> AT+CMGS=%d (PDU %d 字节)...", tpdu_len, tpdu_len);
     uart_write_bytes(BOARD_MODEM_UART_NUM, tx, n);
 
     /* 等待 '>' 提示符（不以换行结尾，必须按字节读取） */

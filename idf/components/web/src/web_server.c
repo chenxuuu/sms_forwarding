@@ -269,6 +269,45 @@ static const char SAVE_OK_HTML[] =
     "<p>3秒后返回配置页面...</p>"
     "<p>如果修改了账号密码，请使用新的账号密码登录</p></div></body></html>";
 
+static uint32_t fnv1a(const void *data, size_t len, uint32_t h)
+{
+    const uint8_t *p = (const uint8_t *)data;
+    for (size_t i = 0; i < len; i++) {
+        h = (h ^ p[i]) * 16777619u;
+    }
+    return h;
+}
+
+/** 配置分区哈希：0=账号密码 1=邮件 2=管理员 3=黑名单 4=推送通道 */
+static uint32_t hash_section(const app_config_t *c, int section)
+{
+    uint32_t h = 2166136261u;
+    switch (section) {
+    case 0:
+        h = fnv1a(c->web_user, sizeof(c->web_user), h);
+        h = fnv1a(c->web_pass, sizeof(c->web_pass), h);
+        break;
+    case 1:
+        h = fnv1a(c->smtp_server, sizeof(c->smtp_server), h);
+        h = fnv1a(&c->smtp_port, sizeof(c->smtp_port), h);
+        h = fnv1a(c->smtp_user, sizeof(c->smtp_user), h);
+        h = fnv1a(c->smtp_pass, sizeof(c->smtp_pass), h);
+        h = fnv1a(c->smtp_to, sizeof(c->smtp_to), h);
+        break;
+    case 2:
+        h = fnv1a(c->admin_phone, sizeof(c->admin_phone), h);
+        break;
+    case 3:
+        h = fnv1a(c->blacklist, sizeof(c->blacklist), h);
+        break;
+    default:
+        h = fnv1a(c->channels, (size_t)c->channel_count * sizeof(push_channel_t), h);
+        h = fnv1a(&c->channel_count, sizeof(c->channel_count), h);
+        break;
+    }
+    return h;
+}
+
 esp_err_t handler_save(httpd_req_t *req)
 {
     if (!web_require_auth(req)) {
@@ -283,6 +322,11 @@ esp_err_t handler_save(httpd_req_t *req)
 
     char value[1024];
     app_config_t *cfg = config_lock();
+
+    uint32_t h_before[5];
+    for (int sc = 0; sc < 5; sc++) {
+        h_before[sc] = hash_section(cfg, sc);
+    }
 
     if (web_form_get(body, "webUser", value, sizeof(value))) {
         snprintf(cfg->web_user, sizeof(cfg->web_user), "%s",
@@ -373,25 +417,60 @@ esp_err_t handler_save(httpd_req_t *req)
         }
     }
 
+    char json_flag[8] = {0};
+    bool want_json = web_query_get(req, "json", json_flag, sizeof(json_flag)) &&
+                     strcmp(json_flag, "1") == 0;
+
+    bool ch_creds = h_before[0] != hash_section(cfg, 0);
+    bool ch_mail = h_before[1] != hash_section(cfg, 1);
+    bool ch_admin = h_before[2] != hash_section(cfg, 2);
+    bool ch_black = h_before[3] != hash_section(cfg, 3);
+    bool ch_push = h_before[4] != hash_section(cfg, 4);
+    bool changed = ch_creds || ch_mail || ch_admin || ch_black || ch_push;
+
     config_save_locked();
     config_unlock();
     free(body);
 
-    char json_flag[8] = {0};
-    bool want_json = web_query_get(req, "json", json_flag, sizeof(json_flag)) &&
-                     strcmp(json_flag, "1") == 0;
     if (want_json) {
-        web_send_json(req, true, "配置已保存");
+        web_send_json(req, true, changed ? "配置已保存" : "配置未变化");
     } else {
         web_send_html_redirect(req, SAVE_OK_HTML);
     }
 
-    if (config_any_valid()) {
-        char url[48];
-        snprintf(url, sizeof(url), "http://%s/", wifi_ip());
-        notify_email("短信转发器配置已更新", "设备配置已更新，如修改账号密码请使用新密码登录。");
-        log_line("配置有效，新的设备地址: %s", url);
+    if (!changed) {
+        log_line("配置未变化，不发送通知");
+        return ESP_OK;
     }
+
+    sbuf_t items;
+    sbuf_init(&items);
+    if (ch_creds) {
+        sbuf_append(&items, "\n· 管理账号与密码");
+    }
+    if (ch_mail) {
+        sbuf_append(&items, "\n· 邮件设置");
+    }
+    if (ch_push) {
+        sbuf_printf(&items, "\n· 推送通道（当前 %d 个）", cfg->channel_count);
+    }
+    if (ch_admin) {
+        sbuf_append(&items, "\n· 管理员号码");
+    }
+    if (ch_black) {
+        sbuf_append(&items, "\n· 号码黑名单");
+    }
+
+    sbuf_t text;
+    sbuf_init(&text);
+    sbuf_printf(&text, "以下配置已更新：%s\n设备地址: http://%s/", sbuf_cstr(&items), wifi_ip());
+    if (ch_creds) {
+        sbuf_append(&text, "\n\n管理账号已修改，请使用新账号密码登录。");
+    }
+    notify_system("短信转发器配置已更新", sbuf_cstr(&text));
+    log_line("配置已更新：%s", sbuf_cstr(&items));
+    sbuf_free(&items);
+    sbuf_free(&text);
     return ESP_OK;
 }
 

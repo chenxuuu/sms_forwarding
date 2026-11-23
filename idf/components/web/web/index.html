@@ -722,7 +722,7 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     busy(btn, true);
     api('/save?json=1', { method:'POST', body: collect(scope) }).then(function(r){
       busy(btn, false);
-      if (r && r.success) { toast('已保存', 'ok'); loadConfig(); loadStatus(); }
+      if (r && r.success) { toast((r.message || '已保存'), 'ok'); loadConfig(); loadStatus(); }
       else toast((r && r.message) || '保存失败', 'err');
     }).catch(function(){ busy(btn, false); toast('保存失败：网络错误', 'err'); });
   }

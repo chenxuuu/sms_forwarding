@@ -85,11 +85,13 @@
 ### 方式一：烧现成固件（不用装编译环境）
 
 1. 从 [Releases](../../releases/latest) 下载 `sms_forwarder-merged.bin`
-2. 全新芯片用 [ESP Launchpad](https://espressif.github.io/esp-launchpad/)（Chrome / Edge）选 ESP32-C3、地址填 `0x0`；
-   或命令行：`esptool.py --chip esp32c3 -p COM3 write_flash 0x0 sms_forwarder-merged.bin`
-   **已有设备升级不要用整包**：整包会用 0xFF 覆盖 NVS，配置全丢。用 `idf.py flash`，或只写
-   `0x0/0x8000/0x20000` 三段。之后就能直接在后台「固件升级」页面上传 ota 包了
-3. 配网：连热点 `SMS-Forwarder-XXXX`（无密码）→ 打开 <http://192.168.4.1/> → 选 WiFi、输密码 → 设备自动重启入网
+2. 烧录（Chrome / Edge 打开 [ESP Launchpad](https://espressif.github.io/esp-launchpad/)）：
+   - 芯片选 **ESP32-C3**，地址填 `0x0`，选刚下载的 `sms_forwarder-merged.bin`
+   - 或命令行：`esptool.py --chip esp32c3 -p COM3 write_flash 0x0 sms_forwarder-merged.bin`
+3. 配网：连热点 `SMS-Forwarder-XXXX`（无密码）→ 打开 <http://192.168.4.1/> → 选 WiFi、输密码 → 自动重启入网
+
+> **已经在用的设备别烧整包**：整包会用 0xFF 覆盖 NVS，配置全丢。
+> 用 `idf.py flash`，或只写 `0x0/0x8000/0x20000` 三段；装好后也能直接在后台「固件升级」上传 ota 包。
 
 固件在每次推送后由 GitHub Actions 自动构建，功能和源码编译的完全一致。
 

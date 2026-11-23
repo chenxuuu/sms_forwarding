@@ -724,6 +724,8 @@ esp_err_t web_server_start(void)
     register_uri(s_server, "/status", HTTP_GET, handler_status);
     register_uri(s_server, "/config", HTTP_GET, handler_config);
     register_uri(s_server, "/selftest", HTTP_GET, handler_selftest);
+    register_uri(s_server, "/push_test", HTTP_POST, handler_push_test);
+    register_uri(s_server, "/mail_test", HTTP_POST, handler_mail_test);
     register_uri(s_server, "/modem", HTTP_GET, handler_modem);
     register_uri(s_server, "/modem", HTTP_POST, handler_modem);
     register_uri(s_server, "/wifi", HTTP_GET, handler_wifi);

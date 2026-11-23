@@ -349,6 +349,12 @@ bool email_send(const char *subject, const char *body)
     port = cfg->smtp_port;
     config_unlock();
 
+    return email_send_direct(host, port, user, pass, to, subject, body);
+}
+
+bool email_send_direct(const char *host, uint16_t port, const char *user, const char *pass,
+                       const char *to, const char *subject, const char *body)
+{
     const int max_attempts = 3;
     for (int attempt = 1; attempt <= max_attempts; attempt++) {
         if (attempt > 1) {

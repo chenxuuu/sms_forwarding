@@ -38,9 +38,13 @@
 #define NETMON_STEP_GAP_MS 4000        /* 一级失败到下一级的间隔 */
 #define NETMON_ROUND_BACKOFF_MS 300000 /* 三级都失败后的冷却时间 */
 #define NETMON_RESET_TIMEOUT_MS 240000 /* 软/硬重启作业的等待上限 */
+/* 飞行模式保持时长：类似 TCP 退避，首次 10 秒，每失败一次翻倍，上限 5 分钟 */
+#define NETMON_AIR_HOLD_MIN_MS 10000
+#define NETMON_AIR_HOLD_MAX_MS 300000
 
 static modem_net_cb_t s_cb;
 static volatile bool s_registered = true; /* 首次检测前不改变 modem_ready() 的判断 */
+static uint32_t s_air_hold_ms = NETMON_AIR_HOLD_MIN_MS; /* 当前飞行模式保持时长 */
 static modem_reg_t s_last = {.stat = -1, .csq = -1};
 
 static void emit(modem_net_event_t ev, const char *detail)
@@ -180,14 +184,32 @@ static bool wait_registered(uint32_t timeout_ms)
     return false;
 }
 
-/** 第 1 级：射频重启 + 自动选网（最轻量，不重启模组）。 */
+/** 飞行模式保持时长退避：每失败一次翻倍，到 5 分钟为止。 */
+static void air_hold_escalate(void)
+{
+    uint32_t next = s_air_hold_ms * 2;
+    s_air_hold_ms = next > NETMON_AIR_HOLD_MAX_MS ? NETMON_AIR_HOLD_MAX_MS : next;
+}
+
+/** 注册恢复后回到最短保持时间，下次掉线仍从 10 秒起步。 */
+static void air_hold_reset(void)
+{
+    s_air_hold_ms = NETMON_AIR_HOLD_MIN_MS;
+}
+
+/**
+ * 第 1 级：飞行模式保持一段时间后恢复射频并重新选网（最轻量，不重启模组）。
+ * 保持时长按 TCP 式退避递增：10s → 20s → 40s → … → 最多 300s，
+ * 让模组有更长时间彻底脱离旧小区再重新附着。
+ */
 static bool rf_cycle(void)
 {
-    log_line("自愈 1/3：射频重启（CFUN=4 → CFUN=1）并重新自动选网");
+    log_line("自愈 1/3：飞行模式保持 %u 秒后恢复射频并重新选网（上次失败会翻倍，最多 %u 秒）",
+             (unsigned)(s_air_hold_ms / 1000), (unsigned)(NETMON_AIR_HOLD_MAX_MS / 1000));
     if (!at_ok("AT+CFUN=4", 8000)) {
         return false;
     }
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    vTaskDelay(pdMS_TO_TICKS(s_air_hold_ms));
     if (!at_ok("AT+CFUN=1", 20000)) {
         return false;
     }
@@ -315,6 +337,7 @@ static void netmon_task(void *arg)
             weak = 0;
             offline_up = 0;
             offline_wall = 0;
+            air_hold_reset();
             s_registered = true;
             modem_set_ready(true);
             led_set(false);
@@ -377,6 +400,9 @@ static void netmon_task(void *arg)
         bool ok = false;
         if (step == 1) {
             ok = rf_cycle() && wait_registered(NETMON_REG_WAIT_MS);
+            if (!ok) {
+                air_hold_escalate(); /* 这次飞行模式没能救回来：下次保持更久 */
+            }
         } else if (step == 2) {
             log_line("自愈 2/3：软重启模组（AT+CFUN=1,1）");
             ok = modem_soft_reset(NETMON_RESET_TIMEOUT_MS);
@@ -391,6 +417,7 @@ static void netmon_task(void *arg)
             fail = 0;
             step = 0;
             round = 0;
+            air_hold_reset();
             s_registered = true;
             modem_set_ready(true);
             led_set(false);

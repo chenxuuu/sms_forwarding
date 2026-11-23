@@ -377,7 +377,7 @@ body.chan-dirty main{padding-bottom:150px}
           <div class="field"><label>密码/授权码</label><input id="smtpPass" type="password"></div>
         </div>
         <div class="field"><label>收件地址</label><input id="smtpTo" placeholder="receiver@example.com"></div>
-        <div class="row"><button class="btn pri" data-save="mail"><span class="spinner"></span>保存邮件设置</button><span class="tip">465 端口为 SSL；其它端口明文</span></div>
+        <div class="row"><button class="btn pri" data-save="mail"><span class="spinner"></span>保存邮件设置</button><button class="btn sm" id="mailTest"><span class="spinner"></span>测试邮件</button><span class="tip">465 端口为 SSL；其它端口明文</span></div>
       </div>
 
       <div class="card" style="margin-top:14px">
@@ -722,7 +722,7 @@ body.chan-dirty main{padding-bottom:150px}
     document.documentElement.style.setProperty('--hue', meta.hue);
     if (location.hash !== '#' + page) history.replaceState(null, '', '#' + page);
     movePill();
-    if (page === 'logs') { refreshLogs(true); }
+    if (page === 'logs') { jumpToLogBottom(); refreshLogs(true); }
     if (page === 'device') loadFlightState();
   }
 
@@ -861,6 +861,23 @@ body.chan-dirty main{padding-bottom:150px}
     var last = rows[rows.length - 1];
     if (last) { last.classList.add('open'); last.scrollIntoView({ behavior:'smooth', block:'nearest' }); }
   }
+  /* 用当前表单值发一条测试消息，不需要先保存 */
+  function testChannel(i, btn){
+    var ch = readChannel(i);
+    var p = new URLSearchParams();
+    p.append('type', String(ch.type));
+    p.append('name', ch.name || '');
+    p.append('url', ch.url || '');
+    p.append('key1', ch.key1 || '');
+    p.append('key2', ch.key2 || '');
+    p.append('body', ch.custom_body || '');
+    busy(btn, true);
+    api('/push_test', { method:'POST', body: p.toString() }).then(function(r){
+      busy(btn, false);
+      var ok = !!(r && r.success);
+      toast((r && r.message) || (ok ? '测试消息已发送' : '测试失败'), ok ? 'ok' : 'err');
+    }).catch(function(){ busy(btn, false); toast('测试失败：网络错误', 'err'); });
+  }
   function delChannel(i){
     confirmDlg('删除通道 ' + (i + 1), '删除后需要点击「保存全部通道」才会写入设备。', '删除', '取消', 'btn danger', 'btn pri').then(function(ok){
       if (!ok) return;
@@ -879,6 +896,7 @@ body.chan-dirty main{padding-bottom:150px}
         '<b id="c' + i + 'title">' + esc(ch.name || '未命名通道') + '</b>' +
         '<span class="chip" id="c' + i + 'state">' + (ch.enabled ? '已启用' : '已停用') + '</span>' +
         '<span class="spacer" style="flex:1"></span>' +
+        '<button class="btn sm" id="c' + i + 'test">测试</button>' +
         '<button class="btn sm" id="c' + i + 'toggle">展开设置</button>' +
         '<button class="btn sm danger" id="c' + i + 'del">删除</button>' +
       '</div>' +
@@ -897,6 +915,8 @@ body.chan-dirty main{padding-bottom:150px}
       el.classList.toggle('on', sw.checked);
       el.querySelector('#c' + i + 'state').textContent = sw.checked ? '已启用' : '已停用';
     });
+    var tb = el.querySelector('#c' + i + 'test');
+    tb.addEventListener('click', function(){ testChannel(i, tb); });
     var tg = el.querySelector('#c' + i + 'toggle');
     tg.addEventListener('click', function(){
       var open = el.classList.toggle('open');
@@ -949,6 +969,21 @@ body.chan-dirty main{padding-bottom:150px}
       }
     }
     return p.toString();
+  }
+  /* 用当前表单值发一封测试邮件，不需要先保存 */
+  function mailTest(btn){
+    var p = new URLSearchParams();
+    p.append('smtpServer', $('smtpServer').value);
+    p.append('smtpPort', $('smtpPort').value);
+    p.append('smtpUser', $('smtpUser').value);
+    p.append('smtpPass', $('smtpPass').value);
+    p.append('smtpTo', $('smtpTo').value);
+    busy(btn, true);
+    api('/mail_test', { method:'POST', body: p.toString() }).then(function(r){
+      busy(btn, false);
+      var ok = !!(r && r.success);
+      toast((r && r.message) || (ok ? '测试邮件已发送' : '测试失败'), ok ? 'ok' : 'err');
+    }).catch(function(){ busy(btn, false); toast('测试失败：网络错误', 'err'); });
   }
   function save(scope, btn){
     if (scope === 'operator' && $('operMode').value === '1') {
@@ -1181,6 +1216,11 @@ body.chan-dirty main{padding-bottom:150px}
     if (!n) box.innerHTML = '<div class="l-dim">没有匹配的日志</div>';
   }
   function scrollBottom(){ var b = $('logBox'); b.scrollTop = b.scrollHeight; S.logPending = 0; $('logPill').classList.remove('show'); }
+  /* 切到日志页先贴底，等 /log 回来再贴一次，避免先闪一屏最旧的日志 */
+  function jumpToLogBottom(){
+    scrollBottom();
+    requestAnimationFrame(function(){ scrollBottom(); });
+  }
   function refreshLogs(force){
     if (!force && (!document.getElementById('logAuto').checked || document.hidden)) return Promise.resolve();
     return api('/log').then(function(lines){
@@ -1322,6 +1362,7 @@ body.chan-dirty main{padding-bottom:150px}
     $('flightSw').addEventListener('change', toggleFlight);
     $('operMode').addEventListener('change', syncOperatorForm);
     $('mailEnable').addEventListener('change', syncMailForm);
+    $('mailTest').addEventListener('click', function(){ mailTest(this); });
     $('keepPingBtn').addEventListener('click', function(){ keepPing(this); });
     $('keepHttpBtn').addEventListener('click', function(){ keepHttp(this); });
     $('logPill').addEventListener('click', scrollBottom);

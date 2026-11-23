@@ -10,7 +10,7 @@
 
 | 接口 | 处理方式 |
 |---|---|
-| `/sendsms`、`/ping`、`/keepalive_http`、`/query`、`/flight`、`/at`、`/modem?action=signal\|operator\|imei`、`/decode`、`/selftest` | 异步任务执行后回包，httpd 任务立即释放 |
+| `/sendsms`、`/ping`、`/keepalive_http`、`/query`、`/flight`、`/at`、`/modem?action=signal\|operator\|imei`、`/decode`、`/selftest`、`/push_test`、`/mail_test` | 异步任务执行后回包，httpd 任务立即释放 |
 | `/modem?action=restart\|hardreset`、`/wifi?action=restart`、`/system?action=restart` | 先回包，后台任务执行动作 |
 | `/`、`/log`、`/save` | 同步，但不碰 AT，毫秒级完成 |
 
@@ -117,6 +117,8 @@ HTTP 服务本身不受影响，页面还能正常打开和刷新。
 | GET | `/log` | 最近 200 行日志（JSON 字符串数组）；含 `AT> 命令 → 应答 [结果]` 格式的原始 AT 交互，前端可按「AT指令」过滤 |
 | GET | `/decode?pdu=<hex>` | 解析一条 SMS-DELIVER PDU，返回发送者/时间/文本/长短信信息 |
 | GET | `/selftest?url=<https地址>` | HTTPS 连通性自检（CA bundle / TLS / DNS），默认测试 baidu |
+| POST | `/push_test` | 用请求里的通道参数发一条测试消息，用于验证新通道是否可用 |
+| POST | `/mail_test` | 用请求里的 SMTP 参数发一封测试邮件（不读已保存配置） |
 | GET | `/wifi?action=restart` | 断开并重连 WiFi（立即返回，后台执行） |
 | GET | `/system?action=restart` | 重启整机（立即返回） |
 | POST | `/ping?ip=<目标>` | 保号 Ping：ping 指定 IP/域名（默认 `qq.com`），不碰 CGACT（约 40s，异步） |
@@ -165,6 +167,26 @@ cfun=1 全功能、cfun=4 飞行模式（射频关闭）。
 模板与载荷里的本机号码：自定义模板（type=7）支持 `{sender}` `{message}` `{timestamp}` `{self_phone}`；
 POST JSON 载荷多一个 `self_phone` 字段，GET 多一个 `self_phone` 查询参数，
 Bark 的 body 与钉钉/飞书/PushPlus/Server酱/Gotify/Telegram 的正文末尾会自动追加「本机号码: …」（未配置时省略）。
+
+### POST /push_test
+
+用请求体里的通道参数**直接**发一条测试消息，不用先保存，也不受「启用」开关影响——
+方便添加新通道后立刻验证 URL/密钥是否可用。请求体为 `application/x-www-form-urlencoded`：
+
+| 字段 | 说明 |
+|---|---|
+| `type` | 推送类型 1..10 |
+| `name` | 通道名称，仅用于日志和返回文案 |
+| `url` / `key1` / `key2` / `body` | 该类型对应的 URL、密钥与自定义模板 |
+
+参数校验复用 `config_push_channel_valid()`，缺必填项时返回「通道参数不完整」；
+推送失败（含平台返回业务失败）返回 `success:false` 与原因，方便直接定位问题。
+
+### POST /mail_test
+
+用请求体里的 SMTP 参数直接发一封测试邮件，同样不需要先保存（字段名与 /save 一致：
+`smtpServer` / `smtpPort` / `smtpUser` / `smtpPass` / `smtpTo`），端口缺省按 465（SSL）处理。
+四项任一为空返回「邮件配置不完整」；发送失败时日志里能看到具体阶段（连接 / 认证 / DATA / 服务端拒收）。
 
 /config 返回的 channels 数组长度即当前通道数（1..50，默认 5）。
 POST /save 通过 pushCount 字段调整数量：增加时新通道名为「未命名通道」，

@@ -84,8 +84,14 @@ EN 引脚（GPIO5，低电平断电）与板载 LED（GPIO8，低电平点亮）
 - `time_sync_start()`：SNTP（ntp.ntsc.ac.cn / ntp.aliyun.com / pool.ntp.org）；
 - `heartbeat_start(cb, current_ip)`：周期自检（本机 Web + 外网），失败时重连/重启，并通过回调
   通知「IP 变化」「网络恢复」；配置项 `CONFIG_HEARTBEAT_HOST/PORT/INTERVAL_S`。
-- `net_mdns_start()`：发布 `_http._tcp` 服务；设备名 `net_device_name()` 默认 `sms-<MAC 后两字节>`，
-  可用 `CONFIG_MDNS_NAME` 覆盖（多设备需各自不同）。
+**mDNS（`net/mdns.h`）**
+
+| 接口 / 配置 | 说明 |
+|---|---|
+| `net_device_name(out, cap)` | 设备名：优先 `CONFIG_MDNS_NAME`，否则 `sms-<MAC 后两字节>` |
+| `net_mdns_start()` | `mdns_init` + 主机名 + 实例名 `SMS Forwarder` + `_http._tcp`/80；失败仅记日志 |
+| `CONFIG_MDNS_NAME` | 留空按 MAC 自动生成（多台同固件也唯一）；填写时各设备必须不同 |
+| 依赖 | 组件仓库 `espressif/mdns`（版本锁定在 `dependencies.lock`） |
 
 ## notify
 

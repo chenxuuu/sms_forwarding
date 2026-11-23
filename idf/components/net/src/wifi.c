@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "core/log.h"
+#include "net/mdns.h"
 #include "esp_check.h"
 #include "esp_event.h"
 #include "esp_mac.h"
@@ -102,6 +103,14 @@ esp_err_t wifi_start(uint32_t timeout_ms)
 
     wifi_init_config_t init_cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_RETURN_ON_ERROR(esp_wifi_init(&init_cfg), "wifi", "wifi init");
+
+    /* DHCP 主机名与 mDNS 保持一致：路由器客户端列表里也能看到设备名 */
+    {
+        char host[33];
+        net_device_name(host, sizeof(host));
+        esp_netif_set_hostname(s_netif, host);
+        log_line("设备名: %s（mDNS 地址 http://%s.local/）", host, host);
+    }
 
     ESP_RETURN_ON_ERROR(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
                                                             event_handler, NULL, NULL),

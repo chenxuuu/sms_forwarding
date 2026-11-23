@@ -38,7 +38,7 @@ static void load_channel(int i)
     snprintf(key, sizeof(key), "push%dname", i);
     load_str(key, ch->name, sizeof(ch->name), "");
     if (ch->name[0] == '\0') {
-        snprintf(ch->name, sizeof(ch->name), "通道%d", i + 1);
+        snprintf(ch->name, sizeof(ch->name), "未命名通道");
     }
 
     snprintf(key, sizeof(key), "push%dtype", i);
@@ -264,7 +264,7 @@ bool config_set_channel_count(int count)
         memcpy(arr, s_config.channels, (size_t)copy * sizeof(push_channel_t));
     }
     for (int i = copy; i < count; i++) {
-        snprintf(arr[i].name, sizeof(arr[i].name), "通道%d", i + 1);
+        snprintf(arr[i].name, sizeof(arr[i].name), "未命名通道");
         arr[i].type = PUSH_TYPE_POST_JSON;
     }
     free(s_config.channels);

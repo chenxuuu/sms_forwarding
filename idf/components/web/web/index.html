@@ -630,7 +630,7 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
   function addChannel(){
     if (!S.channels || S.channels.length >= 50) { toast('最多 50 个通道', 'err'); return; }
     var list = snapshotChannels();
-    list.push({ enabled:false, type:1, name:'通道' + (list.length + 1), url:'', key1:'', key2:'', custom_body:'' });
+    list.push({ enabled:false, type:1, name:'未命名通道', url:'', key1:'', key2:'', custom_body:'' });
     renderList(list);
     var rows = document.querySelectorAll('#channels .chan');
     var last = rows[rows.length - 1];
@@ -651,7 +651,7 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     el.innerHTML =
       '<div class="chan-h">' +
         '<label class="sw"><input type="checkbox" id="c' + i + 'en"' + (ch.enabled ? ' checked' : '') + '><i></i></label>' +
-        '<b id="c' + i + 'title">' + esc(ch.name || ('通道 ' + (i + 1))) + '</b>' +
+        '<b id="c' + i + 'title">' + esc(ch.name || '未命名通道') + '</b>' +
         '<span class="chip" id="c' + i + 'state">' + (ch.enabled ? '已启用' : '已停用') + '</span>' +
         '<span class="spacer" style="flex:1"></span>' +
         '<button class="btn sm" id="c' + i + 'toggle">展开设置</button>' +

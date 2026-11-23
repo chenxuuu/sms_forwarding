@@ -11,8 +11,9 @@
  *   3. 硬重启：EN 引脚断电，彻底复位模组
  * 三级都失败 → 5 分钟后从第 1 级重新开始，避免无 SIM 卡时无休止地断电。
  *
- * 通知策略：日常掉线→重连只写日志；只有「一整轮（射频+软+硬重启）都失败」时
- * 才回调上层发一次通知（含掉线起始时间），恢复后再发一条恢复通知。
+ * 通知策略：日常掉线→重连只写日志；只有连续 NETMON_ALERT_ROUNDS(5) 轮
+ * （每轮含一次飞行模式重启 + 软/硬重启）都失败时才回调上层发一次通知
+ * （含掉线起始时间），恢复后再发一条恢复通知。
  */
 #include "modem/modem.h"
 
@@ -37,6 +38,8 @@
 #define NETMON_REG_WAIT_MS 90000       /* 每级自愈后等待注册的时间 */
 #define NETMON_STEP_GAP_MS 4000        /* 一级失败到下一级的间隔 */
 #define NETMON_ROUND_BACKOFF_MS 300000 /* 三级都失败后的冷却时间 */
+/* 连续多少轮（每轮含一次飞行模式重启）都失败后才提醒用户，避免频繁打扰 */
+#define NETMON_ALERT_ROUNDS 5
 #define NETMON_RESET_TIMEOUT_MS 240000 /* 软/硬重启作业的等待上限 */
 /* 飞行模式保持时长：类似 TCP 退避，首次 10 秒，每失败一次翻倍，上限 5 分钟 */
 #define NETMON_AIR_HOLD_MIN_MS 10000
@@ -382,10 +385,13 @@ static void netmon_task(void *arg)
             round++;
             char stamp[40];
             offline_stamp(&offline_wall, offline_up, stamp, sizeof(stamp));
-            if (!alerted) {
+            if (round < NETMON_ALERT_ROUNDS) {
+                log_line("自愈第 %d 轮失败（未达 %d 次飞行模式重连阈值，继续重试），%d 秒后重试",
+                         round, NETMON_ALERT_ROUNDS, NETMON_ROUND_BACKOFF_MS / 1000);
+            } else if (!alerted) {
                 char detail[192];
                 snprintf(detail, sizeof(detail),
-                         "自 %s 起掉线，射频重启/软重启/硬重启共 %d 轮均未能恢复，仍在持续重试",
+                         "自 %s 起掉线，已连续 %d 次飞行模式重连（含软/硬重启）均未成功，仍在持续重试",
                          stamp, round);
                 log_line("自愈 %d 轮均失败，发送一次通知：%s", round, detail);
                 emit(MODEM_NET_FAILED, detail);

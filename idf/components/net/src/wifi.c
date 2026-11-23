@@ -128,8 +128,22 @@ static void load_credentials(void)
         nvs_close(h);
     }
     if (!from_nvs) {
-        snprintf(s_ssid, sizeof(s_ssid), "%s", CONFIG_WIFI_SSID);
-        snprintf(s_pass, sizeof(s_pass), "%s", CONFIG_WIFI_PASSWORD);
+        char ssid[33];
+        char pass[65];
+        snprintf(ssid, sizeof(ssid), "%s", CONFIG_WIFI_SSID);
+        snprintf(pass, sizeof(pass), "%s", CONFIG_WIFI_PASSWORD);
+        snprintf(s_ssid, sizeof(s_ssid), "%s", ssid);
+        snprintf(s_pass, sizeof(s_pass), "%s", pass);
+        /* 编译期账号（menuconfig）以前只在内存里用，从没落盘。
+           一旦 OTA 到不带 CONFIG_WIFI_* 的固件（比如 CI 包），设备就会变回"未配置"
+           并进配网模式——看起来就像配置全丢了。首次使用就写进 NVS，之后任何固件都能连上。 */
+        if (ssid[0] != '\0') {
+            if (wifi_save_credentials(ssid, pass) == ESP_OK) {
+                log_line("WiFi 账号来自编译期配置，已写入 NVS 保存（%s）", ssid);
+            } else {
+                log_line("WiFi 账号来自编译期配置，写入 NVS 失败");
+            }
+        }
     }
 }
 

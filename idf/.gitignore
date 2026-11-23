@@ -1,4 +1,5 @@
 build*/
+dist/
 sdkconfig
 sdkconfig.old
 managed_components/

@@ -32,6 +32,7 @@ python tools/serial_capture.py COM3 60  # 抓日志（直接 monitor/开串口�
   因此没有 `CONFIG_OTA_MANIFEST_URL` 和 `/ota_check`；CI 必须把 Release 标题写成版本号，否则页面判不了新旧。
 - NVS 命名空间与键名和 Arduino 版本完全一致，可从 Arduino 固件原地升级。
 - WiFi 账号优先级：NVS `sms_wifi`（`ssid`/`pass`，热点配网写入）> menuconfig 的 `CONFIG_WIFI_*`；
+  用到编译期账号时**首次启动会写进 NVS**，否则 OTA 到不带 `CONFIG_WIFI_*` 的固件（CI 包）会断网进配网；
   没有账号或连续 3 次连不上时进配网模式（`net/wifi_portal.c`，热点 `SMS-Forwarder-XXXX`，192.168.4.1）。
   配网 httpd 与主 Web 不会同时占用 80 端口。
 

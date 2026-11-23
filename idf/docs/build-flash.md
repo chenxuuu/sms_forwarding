@@ -93,11 +93,16 @@ idf.py build flash
 |---|---|
 | 配置符号 | `CONFIG_WIFI_SSID` / `CONFIG_WIFI_PASSWORD`（`main/Kconfig.projbuild`，默认空） |
 | 读取优先级 | `wifi.c: load_credentials()` 先读 NVS，读不到才用 Kconfig |
-| 持久化 | Kconfig 值在 `sdkconfig`（gitignore）；配网写入的值在 NVS，重启不丢 |
+| 持久化 | Kconfig 值在 `sdkconfig`（gitignore），**首次启动会写进 NVS**；配网写入的值也在 NVS，重启不丢 |
 | 未配置时 | 不重启循环，直接进配网热点；串口同时打印热点名与 192.168.4.1 |
 
 > 之所以把 Kconfig 默认值留空：真实 WiFi 密码不应该跟着仓库走。**删掉 sdkconfig 后要重新填**
 > （或者干脆走热点配网，完全不用碰 sdkconfig）。
+
+**踩过的坑**：早期 Kconfig 里的账号只在内存里用，从来不落盘。这种设备一旦 OTA 到 CI 构建的固件
+（CI 没有 `CONFIG_WIFI_*`），NVS 里又没存过账号，重启后就是"未配置 WiFi"直接进配网模式，
+看起来像配置全丢了（其实只是 WiFi）。现在 `load_credentials()` 第一次用到 Kconfig 值时就会
+`wifi_save_credentials()` 写进 NVS，之后任何固件都能连上。
 
 ## 6. 内存与 TLS 调优（sdkconfig.defaults）
 

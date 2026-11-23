@@ -19,6 +19,15 @@
 
 <img src="assets/flow.svg" width="100%" alt="原理：SIM 卡收到短信，4G 模组经 UART 交给 ESP32-C3，再通过 WiFi 推送到邮件与各种平台">
 
+> **老方案在哪**：[`old-luatos` 分支](https://github.com/chenxuuu/sms_forwarding/tree/old-luatos)（2022 年的 LuatOS 版）、
+> [`code/`](code/)（Arduino 框架版，文档见 [code/README.md](code/README.md)）。当前主线是 [`idf/`](idf/)。
+>
+> **免责声明**：本项目仅供个人学习与自用。请遵守所在地法律法规、运营商条款与短信服务协议；
+> 转发内容可能涉及他人隐私，请自行确认你有权处理。因使用本项目产生的费用、封号或法律风险由使用者自行承担。
+>
+> **功能边界**：只做短信接收、转发与保号。多卡控制、通话、拨号、开放接口、自动化（自动回复 / 自动操作）
+> **永远不会支持**，请勿提出 issue 或 PR。
+
 ## 它解决什么问题
 
 给设备插一张手机卡（Nano SIM），开机后连上 WiFi 并盯着 4G 模组。
@@ -90,9 +99,12 @@ idf.py -p COM3 flash    # 串口按实际改：Windows 是 COMx，Linux 是 /dev
 
 ### 用 CI 构建的固件
 
-每次推送到 master，GitHub Actions 都会用 ESP-IDF 编译一遍并把合并好的单文件固件挂到
-[Releases](../../releases/latest)，用来确认最新代码可用、也方便回滚到某个已知能跑的状态。
-注意它同样**没有你的 WiFi 账号**，直接烧进去只会提示"未配置 WiFi"——正常使用请按上面的步骤自己编译。
+每次推送到 master，GitHub Actions 都会用官方 ESP-IDF 镜像把 [`idf/`](idf/) 编译一遍，
+并把合并好的单文件固件挂到 [Releases](../../releases/latest)。它既是"最新代码确实能编译"的证明，
+也可以直接烧进设备把硬件链路（串口 / SIM / 模组）验证一遍。
+
+不过 WiFi 账号是编译期写入的，这个固件里是空的，直接烧进去只会提示"未配置 WiFi"。
+要真正使用，还得按上面的步骤自己编译一次——区别只有 menuconfig 填 WiFi 那一步。
 
 下载后在浏览器打开 [ESP Launchpad](https://espressif.github.io/esp-launchpad/)（Chrome / Edge），
 选 ESP32-C3、地址填 `0x0` 即可一键烧录；也可以命令行：
@@ -138,23 +150,6 @@ sms_forwarding/
 
 想改代码？先读 [idf/docs/architecture.md](idf/docs/architecture.md) 和 [idf/docs/modules.md](idf/docs/modules.md)，
 项目约定写在 [AGENTS.md](AGENTS.md)（日志、配置锁、新增推送通道的步骤都在里面）。
-
-## 旧方案与免责声明
-
-**老版本去哪了**
-
-- 2022 年的 LuatOS 方案：[`old-luatos` 分支](https://github.com/chenxuuu/sms_forwarding/tree/old-luatos)
-- Arduino 框架实现：[code/](code/)（仍可编译使用，文档在 [code/README.md](code/README.md)）
-
-**免责声明**
-
-本项目仅供个人学习与自用。请遵守所在地法律法规、运营商条款与短信服务协议；
-转发的内容可能涉及他人隐私，请确保你有权处理这些信息。因使用本项目产生的费用、封号或法律风险由使用者自行承担。
-
-**功能边界**
-
-本项目**只做短信接收、转发与保号**。
-多卡控制、通话、拨号、开放接口、自动化（自动回复 / 自动操作）等需求**永远不会支持**，请勿提出 issue 或 PR。
 
 ## License
 

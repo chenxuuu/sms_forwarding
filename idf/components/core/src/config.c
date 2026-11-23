@@ -1,6 +1,7 @@
 #include "core/config.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "core/log.h"
@@ -83,7 +84,27 @@ static void load_all(void)
     load_str("webPass", s_config.web_pass, sizeof(s_config.web_pass), DEFAULT_WEB_PASS);
     load_str("numBlkList", s_config.blacklist, sizeof(s_config.blacklist), "");
 
-    for (int i = 0; i < PUSH_CHANNEL_MAX; i++) {
+    uint8_t cnt = 0;
+    bool has_cnt = nvs_get_u8(s_nvs, "pushCount", &cnt) == ESP_OK &&
+                   cnt >= PUSH_CHANNEL_MIN && cnt <= PUSH_CHANNEL_MAX;
+    if (!has_cnt) {
+        int last = -1;
+        for (int i = 0; i < PUSH_CHANNEL_MAX; i++) {
+            char k[16];
+            uint8_t v = 0;
+            snprintf(k, sizeof(k), "push%den", i);
+            if (nvs_get_u8(s_nvs, k, &v) == ESP_OK) {
+                last = i;
+            }
+        }
+        cnt = (last >= 0) ? (uint8_t)(last + 1) : PUSH_CHANNEL_DEFAULT;
+    }
+    s_config.channel_count = cnt;
+    s_config.channels = calloc(cnt, sizeof(push_channel_t));
+    if (!s_config.channels) {
+        s_config.channel_count = 0;
+    }
+    for (int i = 0; i < s_config.channel_count; i++) {
         load_channel(i);
     }
 
@@ -122,7 +143,9 @@ void config_init(void)
         snprintf(s_config.web_user, sizeof(s_config.web_user), DEFAULT_WEB_USER);
         snprintf(s_config.web_pass, sizeof(s_config.web_pass), DEFAULT_WEB_PASS);
         s_config.smtp_port = 465;
-        for (int i = 0; i < PUSH_CHANNEL_MAX; i++) {
+        s_config.channel_count = PUSH_CHANNEL_DEFAULT;
+        s_config.channels = calloc(PUSH_CHANNEL_DEFAULT, sizeof(push_channel_t));
+        for (int i = 0; i < s_config.channel_count; i++) {
             snprintf(s_config.channels[i].name, sizeof(s_config.channels[i].name), "通道%d", i + 1);
             s_config.channels[i].type = PUSH_TYPE_POST_JSON;
         }
@@ -134,7 +157,7 @@ void config_init(void)
         s_state_ready = true;
     }
     load_all();
-    log_line("配置已加载（用户: %s, 推送通道: %d 个）", s_config.web_user, PUSH_CHANNEL_MAX);
+    log_line("配置已加载（用户: %s, 推送通道: %d 个）", s_config.web_user, s_config.channel_count);
 }
 
 app_config_t *config_lock(void)
@@ -163,7 +186,8 @@ void config_save_locked(void)
     nvs_set_str(s_nvs, "webPass", s_config.web_pass);
     nvs_set_str(s_nvs, "numBlkList", s_config.blacklist);
 
-    for (int i = 0; i < PUSH_CHANNEL_MAX; i++) {
+    nvs_set_u8(s_nvs, "pushCount", (uint8_t)s_config.channel_count);
+    for (int i = 0; i < s_config.channel_count; i++) {
         const push_channel_t *ch = &s_config.channels[i];
         char key[16];
         snprintf(key, sizeof(key), "push%den", i);
@@ -181,8 +205,16 @@ void config_save_locked(void)
         snprintf(key, sizeof(key), "push%dbody", i);
         nvs_set_str(s_nvs, key, ch->custom_body);
     }
+    for (int i = s_config.channel_count; i < PUSH_CHANNEL_MAX; i++) {
+        const char *fields[] = {"en", "type", "url", "name", "k1", "k2", "body"};
+        for (size_t f = 0; f < sizeof(fields) / sizeof(fields[0]); f++) {
+            char key[16];
+            snprintf(key, sizeof(key), "push%d%s", i, fields[f]);
+            nvs_erase_key(s_nvs, key);
+        }
+    }
     nvs_commit(s_nvs);
-    log_line("配置已保存");
+    log_line("配置已保存（推送通道 %d 个）", s_config.channel_count);
 }
 
 bool config_state_get_last_ip(char *out, size_t cap)
@@ -210,6 +242,35 @@ void config_state_set_last_ip(const char *ip)
     }
     nvs_set_str(s_state_nvs, "lastIp", ip);
     nvs_commit(s_state_nvs);
+}
+
+bool config_set_channel_count(int count)
+{
+    if (count < PUSH_CHANNEL_MIN) {
+        count = PUSH_CHANNEL_MIN;
+    }
+    if (count > PUSH_CHANNEL_MAX) {
+        count = PUSH_CHANNEL_MAX;
+    }
+    if (count == s_config.channel_count) {
+        return true;
+    }
+    push_channel_t *arr = calloc((size_t)count, sizeof(push_channel_t));
+    if (!arr) {
+        return false;
+    }
+    int copy = count < s_config.channel_count ? count : s_config.channel_count;
+    if (s_config.channels && copy > 0) {
+        memcpy(arr, s_config.channels, (size_t)copy * sizeof(push_channel_t));
+    }
+    for (int i = copy; i < count; i++) {
+        snprintf(arr[i].name, sizeof(arr[i].name), "通道%d", i + 1);
+        arr[i].type = PUSH_TYPE_POST_JSON;
+    }
+    free(s_config.channels);
+    s_config.channels = arr;
+    s_config.channel_count = count;
+    return true;
 }
 
 bool config_email_valid(const app_config_t *cfg)
@@ -246,7 +307,7 @@ bool config_any_valid(void)
 {
     app_config_t *cfg = config_lock();
     bool ok = config_email_valid(cfg);
-    for (int i = 0; !ok && i < PUSH_CHANNEL_MAX; i++) {
+    for (int i = 0; !ok && i < cfg->channel_count; i++) {
         ok = config_push_channel_valid(&cfg->channels[i]);
     }
     config_unlock();

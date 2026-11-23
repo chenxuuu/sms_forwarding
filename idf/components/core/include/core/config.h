@@ -14,7 +14,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define PUSH_CHANNEL_MAX 5
+#define PUSH_CHANNEL_MAX 50
+#define PUSH_CHANNEL_MIN 1
+#define PUSH_CHANNEL_DEFAULT 5
 
 #define CFG_SMALL_LEN 32
 #define CFG_MED_LEN 64
@@ -41,11 +43,11 @@ typedef enum {
 typedef struct {
     bool enabled;
     uint8_t type;
-    char name[CFG_SMALL_LEN];
-    char url[CFG_URL_LEN];
-    char key1[CFG_KEY_LEN];
-    char key2[CFG_KEY_LEN];
-    char custom_body[CFG_BODY_LEN];
+    char name[24];
+    char url[160];
+    char key1[80];
+    char key2[80];
+    char custom_body[256];
 } push_channel_t;
 
 typedef struct {
@@ -55,7 +57,8 @@ typedef struct {
     char smtp_pass[96];
     char smtp_to[96];
     char admin_phone[CFG_SMALL_LEN];
-    push_channel_t channels[PUSH_CHANNEL_MAX];
+    push_channel_t *channels; /* 动态通道数组（堆上分配） */
+    int channel_count;
     char web_user[CFG_SMALL_LEN];
     char web_pass[CFG_SMALL_LEN];
     char blacklist[CFG_BLACKLIST_LEN];
@@ -76,6 +79,9 @@ void config_save_locked(void);
 
 bool config_email_valid(const app_config_t *cfg);
 bool config_push_channel_valid(const push_channel_t *ch);
+/** 调整通道数量（1..PUSH_CHANNEL_MAX），需在持锁状态下调用。 */
+bool config_set_channel_count(int count);
+
 /** 至少配置了邮件或任一推送通道。 */
 bool config_any_valid(void);
 

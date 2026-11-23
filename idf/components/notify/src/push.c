@@ -1,6 +1,7 @@
 #include "notify/push.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -356,26 +357,33 @@ bool push_send_channel(const push_channel_t *channel, const char *title, const c
 
 void push_send_all(const char *title, const char *message, const char *timestamp, bool is_notice)
 {
-    static push_channel_t channels[PUSH_CHANNEL_MAX];
-
     app_config_t *cfg = config_lock();
+    int total = cfg->channel_count;
+    push_channel_t *snap = calloc((size_t)(total > 0 ? total : 1), sizeof(push_channel_t));
+    if (!snap) {
+        config_unlock();
+        log_line("内存不足，跳过推送");
+        return;
+    }
     int count = 0;
-    for (int i = 0; i < PUSH_CHANNEL_MAX; i++) {
+    for (int i = 0; i < total; i++) {
         if (config_push_channel_valid(&cfg->channels[i])) {
-            channels[count++] = cfg->channels[i];
+            snap[count++] = cfg->channels[i];
         }
     }
     config_unlock();
 
     if (count == 0) {
+        free(snap);
         log_line("没有启用的推送通道");
         return;
     }
 
     log_line("=== 开始多通道推送（%d 个，%s）===", count, is_notice ? "系统通知" : "短信");
     for (int i = 0; i < count; i++) {
-        push_send_channel(&channels[i], title, message, timestamp, is_notice);
+        push_send_channel(&snap[i], title, message, timestamp, is_notice);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
     log_line("=== 多通道推送完成 ===");
+    free(snap);
 }

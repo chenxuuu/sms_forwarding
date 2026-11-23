@@ -336,7 +336,11 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
       <div class="card" style="margin-top:14px">
         <div class="row" style="justify-content:space-between">
           <div class="head">推送通道 <span class="chip" id="pushStat">--</span></div>
-          <button class="btn pri sm" data-save="push"><span class="spinner"></span>保存全部通道</button>
+          <div class="row">
+            <span class="chip" id="chanCount">--</span>
+            <button class="btn sm" id="addChan">添加通道</button>
+            <button class="btn pri sm" data-save="push"><span class="spinner"></span>保存全部通道</button>
+          </div>
         </div>
         <div class="tip" style="margin:6px 0 12px">启动、IP 变化、网络恢复、配置更新会发送到所有已启用通道</div>
         <div id="channels"><div class="empty">加载中…</div></div>
@@ -597,9 +601,48 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     });
   }
   function renderChannels(chs){
+    S.channels = chs;
     var host = $('channels');
     host.innerHTML = '';
     chs.forEach(function(ch, i){ host.appendChild(channelRow(i, ch)); });
+    $('chanCount').textContent = chs.length + ' / 50';
+  }
+  function readChannel(i){
+    return {
+      enabled: $('c' + i + 'en').checked,
+      type: parseInt($('c' + i + 'type').value, 10) || 1,
+      name: $('c' + i + 'name').value,
+      url: $('c' + i + 'url').value,
+      key1: $('c' + i + 'key1').value,
+      key2: $('c' + i + 'key2').value,
+      custom_body: $('c' + i + 'bodyText').value
+    };
+  }
+  function snapshotChannels(){
+    var list = [];
+    for (var i = 0; i < (S.channels || []).length; i++) list.push(readChannel(i));
+    return list;
+  }
+  function renderList(list){
+    renderChannels(list);
+    toast('通道数量已改为 ' + list.length + '，记得保存', 'info');
+  }
+  function addChannel(){
+    if (!S.channels || S.channels.length >= 50) { toast('最多 50 个通道', 'err'); return; }
+    var list = snapshotChannels();
+    list.push({ enabled:false, type:1, name:'通道' + (list.length + 1), url:'', key1:'', key2:'', custom_body:'' });
+    renderList(list);
+    var rows = document.querySelectorAll('#channels .chan');
+    var last = rows[rows.length - 1];
+    if (last) { last.classList.add('open'); last.scrollIntoView({ behavior:'smooth', block:'nearest' }); }
+  }
+  function delChannel(i){
+    confirmDlg('删除通道 ' + (i + 1), '删除后需要点击“保存全部通道”才会写入设备。确定删除？').then(function(ok){
+      if (!ok) return;
+      var list = snapshotChannels();
+      list.splice(i, 1);
+      renderList(list);
+    });
   }
   function channelRow(i, ch){
     var el = document.createElement('div');
@@ -612,6 +655,7 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
         '<span class="chip" id="c' + i + 'state">' + (ch.enabled ? '已启用' : '已停用') + '</span>' +
         '<span class="spacer" style="flex:1"></span>' +
         '<button class="btn sm" id="c' + i + 'toggle">展开设置</button>' +
+        '<button class="btn sm danger" id="c' + i + 'del">删除</button>' +
       '</div>' +
       '<div class="chan-b" id="c' + i + 'body">' +
         '<div class="two">' +
@@ -633,6 +677,7 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
       var open = el.classList.toggle('open');
       tg.textContent = open ? '收起设置' : '展开设置';
     });
+    el.querySelector('#c' + i + 'del').addEventListener('click', function(){ delChannel(i); });
     var sel = el.querySelector('#c' + i + 'type');
     sel.addEventListener('change', function(){ syncType(el, i, parseInt(sel.value, 10) || 1); });
     el._type = ch.type || 1;
@@ -659,17 +704,16 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
     if (scope === 'admin') p.append('adminPhone', $('adminPhone').value);
     if (scope === 'blacklist') p.append('numberBlackList', $('blacklist').value);
     if (scope === 'push') {
-      for (var i = 0; i < 5; i++) {
-        var en = $('c' + i + 'en');
-        if (!en) continue;
-        var row = en.closest('.chan');
-        p.append('push' + i + 'en', en.checked ? 'on' : 'off');
-        p.append('push' + i + 'type', $('c' + i + 'type').value);
-        p.append('push' + i + 'name', $('c' + i + 'name').value);
-        p.append('push' + i + 'url', $('c' + i + 'url').value);
-        p.append('push' + i + 'key1', $('c' + i + 'key1').value);
-        p.append('push' + i + 'key2', $('c' + i + 'key2').value);
-        p.append('push' + i + 'body', $('c' + i + 'bodyText').value);
+      var list = snapshotChannels();
+      p.append('pushCount', String(list.length));
+      for (var i = 0; i < list.length; i++) {
+        p.append('push' + i + 'en', list[i].enabled ? 'on' : 'off');
+        p.append('push' + i + 'type', String(list[i].type));
+        p.append('push' + i + 'name', list[i].name);
+        p.append('push' + i + 'url', list[i].url);
+        p.append('push' + i + 'key1', list[i].key1);
+        p.append('push' + i + 'key2', list[i].key2);
+        p.append('push' + i + 'body', list[i].custom_body);
       }
     }
     return p.toString();
@@ -961,6 +1005,7 @@ pre.raw{margin:10px 0 0;background:var(--bg2);border:1px solid var(--line);borde
       if (!navigator.clipboard) { toast('浏览器不支持复制', 'err'); return; }
       navigator.clipboard.writeText('http://' + ip + '/').then(function(){ toast('已复制 http://' + ip + '/', 'ok'); });
     });
+    $('addChan').addEventListener('click', addChannel);
     $('mSend').addEventListener('click', sendSms);
     $('mClear').addEventListener('click', function(){ $('mText').value = ''; smsMeta(); });
     $('mText').addEventListener('input', smsMeta);

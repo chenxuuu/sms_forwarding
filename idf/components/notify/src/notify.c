@@ -86,7 +86,7 @@ void notify_sms(const char *sender, const char *message, const char *timestamp)
     app_config_t *cfg = config_lock();
     bool do_email = config_email_valid(cfg);
     bool do_push = false;
-    for (int i = 0; i < PUSH_CHANNEL_MAX && !do_push; i++) {
+    for (int i = 0; i < cfg->channel_count && !do_push; i++) {
         do_push = config_push_channel_valid(&cfg->channels[i]);
     }
     config_unlock();
@@ -118,7 +118,7 @@ void notify_system(const char *title, const char *body)
     app_config_t *cfg = config_lock();
     bool do_email = config_email_valid(cfg);
     bool do_push = false;
-    for (int i = 0; i < PUSH_CHANNEL_MAX && !do_push; i++) {
+    for (int i = 0; i < cfg->channel_count && !do_push; i++) {
         do_push = config_push_channel_valid(&cfg->channels[i]);
     }
     config_unlock();

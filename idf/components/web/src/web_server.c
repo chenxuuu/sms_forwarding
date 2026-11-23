@@ -108,7 +108,7 @@ bool web_query_get(httpd_req_t *req, const char *key, char *out, size_t cap)
 char *web_read_body(httpd_req_t *req)
 {
     int total = req->content_len;
-    if (total <= 0 || total > 16384) {
+    if (total <= 0 || total > 40960) {
         return NULL;
     }
     char *buf = malloc((size_t)total + 1);
@@ -315,7 +315,14 @@ esp_err_t handler_save(httpd_req_t *req)
         snprintf(cfg->blacklist, sizeof(cfg->blacklist), "%s", value);
     }
 
-    for (int i = 0; i < PUSH_CHANNEL_MAX; i++) {
+    char cnt_str[8] = {0};
+    if (web_form_get(body, "pushCount", cnt_str, sizeof(cnt_str))) {
+        int n = atoi(cnt_str);
+        if (n != cfg->channel_count) {
+            config_set_channel_count(n);
+        }
+    }
+    for (int i = 0; i < cfg->channel_count; i++) {
         char en_key[24], type_key[24], url_key[24], name_key[24], k1_key[24], k2_key[24],
             body_key[24];
         snprintf(en_key, sizeof(en_key), "push%den", i);
@@ -429,7 +436,7 @@ esp_err_t handler_status(httpd_req_t *req)
     app_config_t *cfg = config_lock();
     bool email_ok = config_email_valid(cfg);
     int push_count = 0;
-    for (int i = 0; i < PUSH_CHANNEL_MAX; i++) {
+    for (int i = 0; i < cfg->channel_count; i++) {
         if (config_push_channel_valid(&cfg->channels[i])) {
             push_count++;
         }
@@ -473,7 +480,7 @@ esp_err_t handler_config(httpd_req_t *req)
     append_str_field(&out, "admin_phone", cfg->admin_phone, true);
     append_str_field(&out, "blacklist", cfg->blacklist, true);
     sbuf_append(&out, "\"channels\":[");
-    for (int i = 0; i < PUSH_CHANNEL_MAX; i++) {
+    for (int i = 0; i < cfg->channel_count; i++) {
         const push_channel_t *ch = &cfg->channels[i];
         sbuf_printf(&out, "%s{\"enabled\":%s,\"type\":%u,", i ? "," : "",
                     ch->enabled ? "true" : "false", (unsigned)ch->type);

@@ -45,7 +45,7 @@
 
 | 概览 | 推送通道 | eSIM 管理 |
 |---|---|---|
-| [<img src="assets/web-overview.png" alt="概览页">](https://sms.j2.cx/#overview) | [<img src="assets/web-push.png" alt="推送通道页">](https://sms.j2.cx/#push) | (<img src="assets/web-esim.png" alt="eSIM 管理页">](https://sms.j2.cx/#esim) |
+| [<img src="assets/web-overview.png" alt="概览页">](https://sms.j2.cx/#overview) | [<img src="assets/web-push.png" alt="推送通道页">](https://sms.j2.cx/#push) | [<img src="assets/web-esim.png" alt="eSIM 管理页">](https://sms.j2.cx/#esim) |
 
 ## 功能一览
 

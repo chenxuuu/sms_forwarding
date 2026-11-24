@@ -17,7 +17,7 @@
 
 </div>
 
-<img src="assets/flow.svg" width="100%" alt="原理：SIM 或 eSIM 卡收到短信，4G 模组经 UART 交给 ESP32-C3，再通过 WiFi 推送到邮件与各种平台；eSIM 可以在网页上切卡、删卡，写卡交给电脑上的 lpac">
+<img src="assets/flow.svg" width="100%" alt="原理：SIM 或 eSIM 卡收到短信，4G 模组经 UART 交给 ESP32-C3，再通过 WiFi 推送到邮件与各种平台；一张 eSIM 里有多套配置、会自动切换（不是多张卡），也可以在网页上切卡、删卡；ESP32-C3 负责解码和定时保号，再推到多个通道">
 
 > **老方案在哪**：[`old-luatos` 分支](https://github.com/chenxuuu/sms_forwarding/tree/old-luatos)（2022 年的 LuatOS 版）、
 > [`code/`](code/)（Arduino 框架版，文档见 [code/README.md](code/README.md)）。当前主线是 [`idf/`](idf/)。

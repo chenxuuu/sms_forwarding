@@ -1,5 +1,6 @@
 #include "notify/email.h"
 
+#include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +12,7 @@
 #include "core/sbuf.h"
 #include "core/util.h"
 #include "esp_crt_bundle.h"
+#include "esp_system.h"
 #include "esp_tls.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -80,6 +82,15 @@ static bool conn_open(smtp_conn_t *c, const char *host, uint16_t port)
             return false;
         }
         if (esp_tls_conn_new_sync(host, strlen(host), port, &cfg, c->tls_conn) != 1) {
+            /* 只打印「连接失败」没法定位：DNS/TCP 不通、证书校验失败、堆不够都会走到这里 */
+            int tls_code = 0, tls_flags = 0;
+            esp_tls_error_handle_t handle = NULL;
+            if (esp_tls_get_error_handle(c->tls_conn, &handle) == ESP_OK && handle) {
+                esp_tls_get_and_clear_last_error(handle, &tls_code, &tls_flags);
+            }
+            log_line("[邮件] TLS 握手失败 %s:%u（tls=0x%x flags=0x%x 可用堆 %u KB）", host,
+                     (unsigned)port, (unsigned)tls_code, (unsigned)tls_flags,
+                     (unsigned)(esp_get_free_heap_size() / 1024));
             conn_close(c);
             return false;
         }
@@ -91,6 +102,7 @@ static bool conn_open(smtp_conn_t *c, const char *host, uint16_t port)
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     if (!resolve(host, &addr.sin_addr)) {
+        log_line("[邮件] 解析 %s 失败", host);
         return false;
     }
     c->sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
@@ -101,6 +113,7 @@ static bool conn_open(smtp_conn_t *c, const char *host, uint16_t port)
     setsockopt(c->sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     setsockopt(c->sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     if (connect(c->sock, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        log_line("[邮件] 连接 %s:%u 失败，errno=%d", host, (unsigned)port, errno);
         conn_close(c);
         return false;
     }

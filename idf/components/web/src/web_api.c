@@ -205,7 +205,8 @@ esp_err_t handler_sendsms(httpd_req_t *req)
     char json_flag[8] = {0};
     bool want_json = web_query_get(req, "json", json_flag, sizeof(json_flag)) &&
                      strcmp(json_flag, "1") == 0;
-    web_spawn_async3(req, sendsms_async, phone, content, want_json ? "json" : "");
+    /* 组 PDU + 走 AT 发短信，栈留宽一点 */
+    web_spawn_async3_ex(req, sendsms_async, phone, content, want_json ? "json" : "", 10240);
     return ESP_OK;
 }
 
@@ -260,7 +261,7 @@ esp_err_t handler_keepalive_http(httpd_req_t *req)
         httpd_resp_sendstr(req, "{\"success\":false,\"message\":\"网址不能为空\"}");
         return ESP_OK;
     }
-    web_spawn_async(req, keepalive_http_async, url, "");
+    web_spawn_async3_ex(req, keepalive_http_async, url, "", "", 8192); /* 可能是 https，栈留够 TLS */
     return ESP_OK;
 }
 
@@ -980,7 +981,7 @@ esp_err_t handler_selftest(httpd_req_t *req)
     }
     char url[256] = {0};
     web_query_get(req, "url", url, sizeof(url));
-    web_spawn_async(req, selftest_async, url, "");
+    web_spawn_async3_ex(req, selftest_async, url, "", "", 8192); /* 要跑 TLS 握手 */
     return ESP_OK;
 }
 
@@ -1049,8 +1050,8 @@ esp_err_t handler_push_test(httpd_req_t *req)
         httpd_resp_sendstr(req, "{\"success\":false,\"message\":\"通道参数过长\"}");
         return ESP_OK;
     }
-    /* 任务起不来时 web_spawn_async 内部已经回过 503 JSON，这里不能再发第二遍 */
-    web_spawn_async(req, push_test_async, "", body);
+    /* 走 HTTPS 通道需要 TLS 握手，栈给 8 KB；任务起不来时 spawn 内部已经回过 503 JSON，不能再发第二遍 */
+    web_spawn_async3_ex(req, push_test_async, "", body, "", 8192);
     free(body);
     return ESP_OK;
 }
@@ -1108,7 +1109,7 @@ esp_err_t handler_mail_test(httpd_req_t *req)
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "请求体为空");
         return ESP_OK;
     }
-    web_spawn_async(req, mail_test_async, "", body);
+    web_spawn_async3_ex(req, mail_test_async, "", body, "", 8192); /* 465 端口要跑 TLS 握手 */
     free(body);
     return ESP_OK;
 }

@@ -14,7 +14,9 @@
 #include "core/sbuf.h"
 
 #define LOG_RING_LINES 200
-#define LOG_LINE_MAX 256
+/* 单行上限 192 字节：200 × 192 = 37.5 KB，比 256 省 12.5 KB 静态内存。
+ * 日志页还是 200 行，只有超长的 AT 应答会被截断（本来也超过一屏宽度）。 */
+#define LOG_LINE_MAX 192
 
 void log_init(void);
 

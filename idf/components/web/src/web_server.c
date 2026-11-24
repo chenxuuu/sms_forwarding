@@ -215,6 +215,12 @@ static void async_task(void *arg)
     const char *content_type = "application/json; charset=utf-8";
     ctx->fn(ctx, &out, &content_type);
 
+    /* 栈余量不足时留条线索，避免以后加大处理逻辑时莫名其妙崩在别的任务里 */
+    UBaseType_t stack_left = uxTaskGetStackHighWaterMark(NULL);
+    if (stack_left < 512) {
+        log_line("异步处理栈只剩 %u 字节，请给该处理器加大栈大小", (unsigned)stack_left);
+    }
+
     httpd_resp_set_type(ctx->req, content_type);
     httpd_resp_set_hdr(ctx->req, "Cache-Control", "no-cache, no-store, must-revalidate");
     httpd_resp_send(ctx->req, sbuf_cstr(&out), out.len);
@@ -270,7 +276,10 @@ esp_err_t web_spawn_async3_ex(httpd_req_t *req, web_async_fn fn, const char *arg
 esp_err_t web_spawn_async3(httpd_req_t *req, web_async_fn fn, const char *arg1, const char *arg2,
                            const char *arg3)
 {
-    return web_spawn_async3_ex(req, fn, arg1, arg2, arg3, 10240);
+    /* 默认 6 KB：绝大多数处理器只是拼字符串查 AT，1~2 KB 就够。
+     * C3 空闲堆里最大的连续块常常只有 6~8 KB，10 KB 栈会让请求直接起不来。
+     * 走 TLS 的处理器（推送测试、邮件测试、自检）单独要 8 KB，见各自调用处。 */
+    return web_spawn_async3_ex(req, fn, arg1, arg2, arg3, 6144);
 }
 /* ---- 页面与配置 ---- */
 esp_err_t handler_root(httpd_req_t *req)

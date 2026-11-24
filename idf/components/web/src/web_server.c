@@ -342,9 +342,6 @@ static uint32_t hash_section(const app_config_t *c, int section)
         h = fnv1a(&c->operator_act, sizeof(c->operator_act), h);
         h = fnv1a(c->operator_code, sizeof(c->operator_code), h);
         break;
-        h = fnv1a(c->channels, (size_t)c->channel_count * sizeof(push_channel_t), h);
-        h = fnv1a(&c->channel_count, sizeof(c->channel_count), h);
-        break;
     }
     return h;
 }
@@ -456,8 +453,13 @@ esp_err_t handler_save(httpd_req_t *req)
     char cnt_str[8] = {0};
     if (web_form_get(body, "pushCount", cnt_str, sizeof(cnt_str))) {
         int n = atoi(cnt_str);
-        if (n != cfg->channel_count) {
-            config_set_channel_count(n);
+        if (n != cfg->channel_count && !config_set_channel_count(n)) {
+            /* 调整通道数要重新分配数组；失败时不能继续，否则会出现
+             * 「提示保存成功、实际通道数没变」的假成功。 */
+            config_unlock();
+            free(body);
+            web_send_json(req, false, "内存不足，无法调整通道数量");
+            return ESP_OK;
         }
     }
     for (int i = 0; i < cfg->channel_count; i++) {
@@ -715,13 +717,18 @@ esp_err_t handler_status(httpd_req_t *req)
     ota_info_t ota;
     ota_get_info(&ota);
 
-    sbuf_printf(&out,
-                "\"email_ok\":%s,\"mail_enabled\":%s,\"push_count\":%d,\"self_phone\":\"%s\","
-                "\"version\":\"%s\",\"ota_state\":%d,"
-                "\"device_name\":\"%s\",\"model\":\"%s\"}",
-                email_ok ? "true" : "false", mail_enabled ? "true" : "false", push_count,
-                self_phone, ota.current, (int)ota.state,
-                host, modem_model());
+    /* self_phone 是用户手填的，可能带引号；device_name / model 也一样，
+     * 直接塞进 JSON 会把整段状态响应弄坏，前端连状态都读不出来。 */
+    sbuf_printf(&out, "\"email_ok\":%s,\"mail_enabled\":%s,\"push_count\":%d,\"self_phone\":\"",
+                email_ok ? "true" : "false", mail_enabled ? "true" : "false", push_count);
+    util_json_escape(&out, self_phone);
+    sbuf_append(&out, "\",\"version\":\"");
+    util_json_escape(&out, ota.current);
+    sbuf_printf(&out, "\",\"ota_state\":%d,\"device_name\":\"", (int)ota.state);
+    util_json_escape(&out, host);
+    sbuf_append(&out, "\",\"model\":\"");
+    util_json_escape(&out, modem_model());
+    sbuf_append(&out, "\"}");
     httpd_resp_set_type(req, "application/json; charset=utf-8");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_send(req, sbuf_cstr(&out), out.len);

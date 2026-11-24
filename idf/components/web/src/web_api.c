@@ -1049,12 +1049,9 @@ esp_err_t handler_push_test(httpd_req_t *req)
         httpd_resp_sendstr(req, "{\"success\":false,\"message\":\"通道参数过长\"}");
         return ESP_OK;
     }
-    esp_err_t err = web_spawn_async(req, push_test_async, "", body);
+    /* 任务起不来时 web_spawn_async 内部已经回过 503 JSON，这里不能再发第二遍 */
+    web_spawn_async(req, push_test_async, "", body);
     free(body);
-    if (err != ESP_OK) {
-        httpd_resp_set_type(req, "application/json; charset=utf-8");
-        httpd_resp_sendstr(req, "{\"success\":false,\"message\":\"设备忙，请稍后重试\"}");
-    }
     return ESP_OK;
 }
 
@@ -1111,12 +1108,8 @@ esp_err_t handler_mail_test(httpd_req_t *req)
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "请求体为空");
         return ESP_OK;
     }
-    esp_err_t err = web_spawn_async(req, mail_test_async, "", body);
+    web_spawn_async(req, mail_test_async, "", body);
     free(body);
-    if (err != ESP_OK) {
-        httpd_resp_set_type(req, "application/json; charset=utf-8");
-        httpd_resp_sendstr(req, "{\"success\":false,\"message\":\"设备忙，请稍后重试\"}");
-    }
     return ESP_OK;
 }
 

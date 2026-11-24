@@ -19,14 +19,14 @@
 
 <img src="assets/flow.svg" width="100%" alt="原理：SIM 或 eSIM 卡收到短信，4G 模组经 UART 交给 ESP32-C3，再通过 WiFi 推送到邮件与各种平台；一张 eSIM 里有多套配置、会自动切换（不是多张卡），也可以在网页上切卡、删卡；ESP32-C3 负责解码和定时保号，再推到多个通道">
 
-> **老方案在哪**：[`old-luatos` 分支](https://github.com/chenxuuu/sms_forwarding/tree/old-luatos)（2022 年的 LuatOS 版）、
-> [`code/`](code/)（Arduino 框架版，文档见 [code/README.md](code/README.md)）。当前主线是 [`idf/`](idf/)。
+> **老方案在哪**：[`old-luatos` 分支](https://github.com/chenxuuu/sms_forwarding/tree/old-luatos)、[`code/`](code/)（[Arduino 框架版](code/README.md)）  
+> 当前主线是 [`idf/`](idf/)。
 >
 > **免责声明**：本项目仅供个人学习与自用。请遵守所在地法律法规、运营商条款与短信服务协议；
 > 转发内容可能涉及他人隐私，请自行确认你有权处理。因使用本项目产生的费用、封号或法律风险由使用者自行承担。
 >
-> **功能边界**：只做短信接收、转发与保号。多张实体卡同时待机（多卡控制）、通话、拨号、开放接口、自动化（自动回复 / 自动操作）
-> **永远不会支持**，请勿提出 issue 或 PR。
+> **功能边界**：只做短信接收、转发与保号。  
+>多张实体卡同时待机（多卡控制）、通话、拨号、开放接口、自动化（自动回复 / 自动操作） **永远不会支持**，请勿提出相关 issue 或 PR。
 
 ## 它解决什么问题
 
@@ -45,7 +45,7 @@
 
 | 概览 | 推送通道 | eSIM 管理 |
 |---|---|---|
-| <img src="assets/web-overview.png" alt="概览页"> | <img src="assets/web-push.png" alt="推送通道页"> | <img src="assets/web-esim.png" alt="eSIM 管理页"> |
+| [<img src="assets/web-overview.png" alt="概览页">](https://sms.j2.cx/#overview) | [<img src="assets/web-push.png" alt="推送通道页">](https://sms.j2.cx/#push) | (<img src="assets/web-esim.png" alt="eSIM 管理页">](https://sms.j2.cx/#esim) |
 
 ## 功能一览
 

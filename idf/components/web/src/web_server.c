@@ -94,16 +94,23 @@ static void url_decode(const char *src, char *out, size_t cap)
 
 bool web_query_get(httpd_req_t *req, const char *key, char *out, size_t cap)
 {
-    char query[512];
-    if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) {
+    /* 查询串长度不固定：/decode 的 PDU、/at 的命令都可能上百上千字节。
+     * 以前 query/value 都写死 512，长参数会被静默截断，这里按实际长度从堆上分配。 */
+    size_t qlen = httpd_req_get_url_query_len(req);
+    if (qlen == 0 || qlen > 4096) {
         return false;
     }
-    char value[512];
-    if (httpd_query_key_value(query, key, value, sizeof(value)) != ESP_OK) {
-        return false;
+    char *query = malloc(qlen + 1);
+    char *value = malloc(qlen + 1);
+    bool ok = query && value &&
+              httpd_req_get_url_query_str(req, query, qlen + 1) == ESP_OK &&
+              httpd_query_key_value(query, key, value, qlen + 1) == ESP_OK;
+    if (ok) {
+        url_decode(value, out, cap);
     }
-    url_decode(value, out, cap);
-    return true;
+    free(query);
+    free(value);
+    return ok;
 }
 
 char *web_read_body(httpd_req_t *req)
@@ -763,7 +770,9 @@ esp_err_t handler_config(httpd_req_t *req)
         append_str_field(&out, "url", ch->url, true);
         append_str_field(&out, "key1", ch->key1, true);
         append_str_field(&out, "key2", ch->key2, true);
-        append_str_field(&out, "body", ch->custom_body, false);
+        /* 键名必须和前端 / 配置结构体一致（custom_body）：之前这里写成 body，
+         * 前端读不到模板内容，每次保存都会被空串覆盖，自定义模板等于存不进去。 */
+        append_str_field(&out, "custom_body", ch->custom_body, false);
         sbuf_append(&out, "}");
     }
     sbuf_append(&out, "]}");

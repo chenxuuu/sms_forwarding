@@ -4,7 +4,7 @@
 
 # 低成本短信转发器
 
-**一张 4G 卡 + 一块 ESP32-C3，把收到的短信在几秒内推到邮件、钉钉、飞书、微信、Telegram**
+**一张 4G 卡（实体 SIM 或 eSIM）+ 一块 ESP32-C3，把收到的短信在几秒内推到邮件、钉钉、飞书、微信、Telegram**
 
 [![License](https://img.shields.io/github/license/chenxuuu/sms_forwarding?style=flat-square&color=4f7cff)](LICENSE)
 [![ESP-IDF](https://img.shields.io/badge/ESP--IDF-v6.1.1-e7352c?style=flat-square)](idf/)
@@ -17,7 +17,7 @@
 
 </div>
 
-<img src="assets/flow.svg" width="100%" alt="原理：SIM 卡收到短信，4G 模组经 UART 交给 ESP32-C3，再通过 WiFi 推送到邮件与各种平台">
+<img src="assets/flow.svg" width="100%" alt="原理：SIM 或 eSIM 卡收到短信，4G 模组经 UART 交给 ESP32-C3，再通过 WiFi 推送到邮件与各种平台；eSIM 可以在网页上切卡、删卡，写卡交给电脑上的 lpac">
 
 > **老方案在哪**：[`old-luatos` 分支](https://github.com/chenxuuu/sms_forwarding/tree/old-luatos)（2022 年的 LuatOS 版）、
 > [`code/`](code/)（Arduino 框架版，文档见 [code/README.md](code/README.md)）。当前主线是 [`idf/`](idf/)。
@@ -25,26 +25,30 @@
 > **免责声明**：本项目仅供个人学习与自用。请遵守所在地法律法规、运营商条款与短信服务协议；
 > 转发内容可能涉及他人隐私，请自行确认你有权处理。因使用本项目产生的费用、封号或法律风险由使用者自行承担。
 >
-> **功能边界**：只做短信接收、转发与保号。多卡控制、通话、拨号、开放接口、自动化（自动回复 / 自动操作）
+> **功能边界**：只做短信接收、转发与保号。多张实体卡同时待机（多卡控制）、通话、拨号、开放接口、自动化（自动回复 / 自动操作）
 > **永远不会支持**，请勿提出 issue 或 PR。
 
 ## 它解决什么问题
 
-给设备插一张手机卡（Nano SIM），开机后连上 WiFi 并盯着 4G 模组。
+给设备插一张手机卡（Nano SIM，或支持 eUICC 的 eSIM 卡），开机后连上 WiFi 并盯着 4G 模组。
 任何人给这张卡发短信，设备会解析内容、合并长短信、过滤黑名单，然后**同时**转发到你配置的渠道。
 
 - **不需要服务器、不需要公网 IP**：设备直连邮件服务器和推送平台，短信内容不经过任何中转
 - **硬件约 28 元**，插一根 USB 线就能 7×24 挂着，长期挂着建议配个 5V 电源
 - **专为"养卡"设计**：低流量保号操作 + 定时任务，让卡保持活跃又不烧钱
+- **eSIM 也能管**：网页里读 EID 和配置列表、一键切卡 / 删卡；扫运营商的二维码或粘贴激活码，直接生成写卡命令（写卡在电脑上跑，不占设备资源）
 
 ## 界面
 
-固件内置完整网页（不到 100 KB，直接嵌在 Flash 里），手机上也能用。
+固件内置完整网页（约 250 KB，含本地二维码解码库，直接嵌在 Flash 里），手机上也能用。
 主题支持深色 / 浅色 / 跟随系统。
 
 | 概览 | 推送通道 |
 |---|---|
 | <img src="assets/web-overview.png" alt="概览页"> | <img src="assets/web-push.png" alt="推送通道页"> |
+
+<p align="center"><img src="assets/web-esim.png" alt="eSIM 管理页" width="92%"><br>
+<sub>eSIM 管理：EID、卡内配置列表、切换 / 删除，以及扫码或粘贴激活码的导入入口</sub></p>
 
 ## 功能一览
 
@@ -73,11 +77,23 @@
 - ESP32-C3 开发板：[SuperMini](https://item.taobao.com/item.htm?id=852057780489&skuId=5813710390565)，¥9.5 包邮
 - 4G 模组：[小蓝鲸 ML307R-DC 核心板](https://item.taobao.com/item.htm?id=797466121802&skuId=5722077108045)，¥16.3 包邮
 - [4G FPC 天线](https://item.taobao.com/item.htm?id=797466121802&skuId=5722077108045)，¥2，与核心板同购
-- Nano SIM 卡一张 + 5 根杜邦线
+- Nano SIM 卡一张（支持 eUICC 的 eSIM 卡也可以，见下一节）+ 5 根杜邦线
 
 <p align="center"><img src="assets/wiring.svg" width="780" alt="接线：GPIO5→EN、GPIO3→RX、GPIO4→TX、GND 共地、5V→VCC"></p>
 
 > 模组跑的是出厂 AT 固件，**不用刷机、不用改**，只当"能收短信的串口猫"用。
+
+## eSIM（可选）
+
+除了普通 Nano SIM，插一张 **eUICC 卡**（9eSIM、5ber、ESTK 等）就能在网页上管理多个运营商配置：
+
+- 读 EID、列出卡里的所有配置（名称、ICCID、AID、是否启用）
+- 一键切换；不需要的可以删掉——**正在使用中的配置不允许删除**，删除还要手输 ICCID 确认
+- 扫运营商的二维码（浏览器本地解码，不上传）或粘贴 `LPA:1$…` 激活码，页面直接生成写卡命令
+- 写卡（下载新配置）不在设备上做：SGP.22 要连 SM-DP+ 做 TLS 和几十 KB 的加密安装包，ESP32-C3 扛不住。
+  用仓库里的 `tools/esim_bridge.py` 把电脑上 lpac 的 APDU 转发到设备即可，效果和在网页上点一下一样
+
+完整步骤（装 lpac、下载、切卡、删除、常见报错）见 **[idf/docs/esim-import.md](idf/docs/esim-import.md)**。
 
 ## 烧录
 
@@ -115,6 +131,7 @@ idf.py -p COM3 flash    # 串口按实际改：Windows 是 COMx，Linux 是 /dev
 2. 默认账号 `admin` / `admin123`，**登录后立刻到「后台管理」改掉**
 3. 「推送通道」填邮箱或任一通道，点「测试」确认能收到
 4. 「后台管理」填管理员手机号（之后可用短信远程操作）和本机号码（推送里会带上）
+5. 用 eSIM 的话打开「eSIM 管理」：能读到 EID 和配置列表就说明卡正常；装新配置按 [导入指南](idf/docs/esim-import.md) 走
 
 ## 常见问题
 
@@ -126,6 +143,9 @@ idf.py -p COM3 flash    # 串口按实际改：Windows 是 COMx，Linux 是 /dev
 | 想换运营商 / 锁网 | 「设备 → 选网配置」选手动，填 PLMN（移动 `46000`、联通 `46001`、电信 `46011`），保存后重启 |
 | 推送失败但网页正常 | 先点该通道的「测试」看具体报错；多数是 token / webhook 填错或平台侧限制 |
 | 固件升级页「检查失败」 | 版本检查是你的**浏览器**在请求 `api.github.com`，打不开就不会有提示，设备本身不受影响——直接去 [Releases](https://github.com/chenxuuu/sms_forwarding/releases) 下载 `*-ota.bin` 上传即可 |
+| eSIM 页读不到 EID | 卡不是 eUICC（普通 SIM 本来就不支持），或上一次操作没关干净逻辑通道。到「设备」页软重启模组再试 |
+| 切卡后一直"重连中" | 外卡漫游附着本来就慢，几分钟属正常；**能读到 ICCID 就说明卡没问题**。等不及可以到「设备」页软重启模组 |
+| 写卡报 `es9p_authenticate_client: Refused` | 激活码失效或被运营商限制，换一个激活码；lpac 用 2.2.1（2.3.0 的 Windows 包 stdio 后端有问题） |
 
 更多踩坑记录见 [idf/docs/build-flash.md](idf/docs/build-flash.md)。
 

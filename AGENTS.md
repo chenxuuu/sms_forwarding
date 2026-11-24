@@ -84,6 +84,7 @@ assets/
 ├── flow.svg                  # 原理图（SMIL 动画，README 首屏）
 ├── wiring.svg                # 接线图（README 硬件章节）
 ├── web-overview.png          # 后台截图：概览页
+├── web-esim.png              # 后台截图：eSIM 管理页（demo 假数据，不含真实 EID/ICCID）
 ├── web-push.png              # 后台截图：推送通道页
 └── demo.html                 # 纯前端演示页：注入 fetch 模拟层，所有接口返回假数据，
                               可直接双击打开；不要出现“演示”字样；index.html 改动后要重新生成

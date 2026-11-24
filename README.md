@@ -43,12 +43,9 @@
 固件内置完整网页（约 250 KB，含本地二维码解码库，直接嵌在 Flash 里），手机上也能用。
 主题支持深色 / 浅色 / 跟随系统。
 
-| 概览 | 推送通道 |
-|---|---|
-| <img src="assets/web-overview.png" alt="概览页"> | <img src="assets/web-push.png" alt="推送通道页"> |
-
-<p align="center"><img src="assets/web-esim.png" alt="eSIM 管理页" width="92%"><br>
-<sub>eSIM 管理：EID、卡内配置列表、切换 / 删除，以及扫码或粘贴激活码的导入入口</sub></p>
+| 概览 | 推送通道 | eSIM 管理 |
+|---|---|---|
+| <img src="assets/web-overview.png" alt="概览页"> | <img src="assets/web-push.png" alt="推送通道页"> | <img src="assets/web-esim.png" alt="eSIM 管理页"> |
 
 ## 功能一览
 

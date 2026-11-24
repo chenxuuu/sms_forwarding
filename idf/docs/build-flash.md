@@ -157,12 +157,33 @@ idf.py build flash
 `skip_cert_common_name_check`**，SNI 才会正常发送。若确实需要连自签名内网服务，
 再单独评估（会牺牲 SNI）。
 
+第二个坑是**入站记录缓冲太小**。`CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` 曾为了省内存压到 4096，
+结果 smtp.qq.com 把三张证书记录（DigiCert RSA4096 三级链，5489 字节）塞进**一个** TLS 记录发出来，
+4096 装不下，握手直接失败。日志形如：
+
+```
+[邮件] TLS 握手失败 smtp.qq.com:465（tls=0x87 flags=0x0 可用堆 22 KB）
+```
+
+`tls=0x87` 就是 mbedTLS 的 `PSA_ERROR_NOT_SUPPORTED`（记录长度超限）。**不要误判成"协议版本不支持"**：
+同一台服务器只开 TLS 1.2、用 `ECDHE-RSA-AES128-GCM-SHA256` 也能正常握手。
+
+现在设为 **8192**。自查办法（电脑上就能看）：
+
+```bash
+# 证书链总大小；超过 IN_CONTENT_LEN 就会握手失败
+echo | openssl s_client -connect smtp.qq.com:465 -showcerts 2>/dev/null | grep -c "BEGIN CERTIFICATE"
+openssl s_client -connect smtp.qq.com:465 -tls1_2 -msg 2>&1 | grep "Certificate"
+```
+
+参考值：smtp.qq.com 5489 字节、www.baidu.com 4773 字节、常见反代 2~3KB。
+
 ## 9. 其它实测与坑
 
 | 场景 | 结论 |
 |---|---|
 | 动态通道 | 加到 6 个 -> /config 返回 6；缩回 5 后多余 NVS 键被删除 |
-| 路由数量 | 注册了 24 个 URI，max_uri_handlers 曾为 20，导致 /wifi、/system 404；现为 32 且注册失败会打日志 |
+| 路由数量 | 现在注册 34 个 URI（GET+POST），`max_uri_handlers` 设为 40；曾因写死 20 导致 /wifi、/system 404，注册失败会打日志 |
 | 界面交互 | agent-browser 实测：查询信号结果落面板、飞行模式开关回显 已开启/已关闭、主题三态切换正确 |
 | 保存表单 | 50 个通道的表单可能超过 16KB，请求体上限已放宽到 40KB |
 | 长短信乱码 | 7bit+UDH 的分段消息解出 `¡Ñ§ΩΛ` 乱码：UDH 结束后要从第 **49** bit（7 个 septet）开始解，按 48 bit 会整体错位 1 bit。已修，用 4 段真实 PDU + 构造的 4 段 GSM7 / 3 段 UCS2 用例回归 |

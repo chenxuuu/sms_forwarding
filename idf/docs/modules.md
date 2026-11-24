@@ -4,7 +4,7 @@
 
 ### log（`core/log.h`）
 
-串口控制台 + Web 环形缓冲（200 行 × 256 字节）双写。
+串口控制台 + Web 环形缓冲（200 行 × 192 字节，超长行从 UTF-8 字符边界截断）双写。
 
 | 接口 | 说明 |
 |---|---|
@@ -173,7 +173,10 @@ EN 引脚（GPIO5，低电平断电）与板载 LED（GPIO8，低电平点亮）
 POST JSON 多一个 `self_phone` 字段，GET 多一个 `self_phone` 查询参数，Bark 追加到 body，
 自定义模板用 `{self_phone}` 占位符自行摆放。
 
-响应体业务码校验（钉钉/飞书/PushPlus/Server酱/Telegram）与 4xx 不重试策略与旧版一致。
+响应体业务码校验（钉钉/飞书/PushPlus/Server酱/Telegram）：`esp_http_client_perform()` 会把响应体读走，
+所以响应体要在 `HTTP_EVENT_ON_DATA` 回调里自己攒一份，`esp_http_client_read_response()` 只能拿到空串。
+重试只看「可能没送到」：传输层失败（status=0）、5xx、429 最多 3 次；2xx 已送达不再重试，
+否则一条短信会推 2~3 条通知。
 
 ## forwarder
 

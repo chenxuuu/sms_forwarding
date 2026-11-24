@@ -14,9 +14,15 @@
 | `/modem?action=restart\|hardreset`、`/wifi?action=restart`、`/system?action=restart` | 先回包，后台任务执行动作 |
 | `/`、`/log`、`/save` | 同步，但不碰 AT，毫秒级完成 |
 
+异步任务栈默认 6KB，走 TLS 的（`/push_test`、`/mail_test`、`/selftest`、`/keepalive_http`）8KB，
+`/sendsms` 10KB。任务创建失败时直接回 `503` + `{"success":false,"message":"设备内存紧张，请稍后重试"}`，
+不会让请求悬着。任务结束时若栈余量低于 512 字节，日志会记一条告警。
+
 需要注意：**AT 串口仍然是独占资源**（模组作业队列深度 4）。例如一次 35 秒的 `/ping`
 或最长 45 秒的 `/keepalive_http` 会让之后提交的 AT 作业排队，若排队等待超时则返回"超时或无响应"；
 HTTP 服务本身不受影响，页面还能正常打开和刷新。
+
+查询串按实际长度解析（上限 4KB），`/decode?pdu=…` 这类长参数不会被截断。
 
 ## 页面
 
@@ -47,7 +53,7 @@ HTTP 服务本身不受影响，页面还能正常打开和刷新。
 | `operatorMode` | 选网模式：0=自动（默认）/ 1=手动 |
 | `operatorCode` | 手动模式的 PLMN，5~6 位数字（如 46000） |
 | `operatorAct` | 手动模式网络类型：0=2G(GSM) / 2=3G(UTRAN) / 7=LTE（默认） |
-| `pushNen` / `pushNtype` / `pushNname` / `pushNurl` / `pushNkey1` / `pushNkey2` / `pushNbody` | 第 N 个推送通道（N=0..4） |
+| `pushNen` / `pushNtype` / `pushNname` / `pushNurl` / `pushNkey1` / `pushNkey2` / `pushNbody` | 第 N 个推送通道（N=0..49，实际数量由 `pushCount` 决定） |
 
 返回 3 秒后跳回首页的提示页。手动选网若 PLMN 非 5~6 位数字、或网络类型非法，
 接口直接返回 JSON 错误且不落盘。保存选网配置后需重启设备，在模组初始化时通过 `AT+COPS` 生效。
@@ -67,10 +73,21 @@ HTTP 服务本身不受影响，页面还能正常打开和刷新。
 
 ### GET /config
 
-返回完整配置快照（含 5 个推送通道），前端据此渲染表单，避免服务端拼 HTML。
+返回完整配置快照（含当前全部推送通道），前端据此渲染表单，避免服务端拼 HTML。
 另含本机号码 `self_phone`（`AT+CNUM` 自动获取或后台手填，可能为空）、
 邮件开关 `mail_enabled`（布尔，缺省视为开启），以及选网字段 `operator_mode`（0 自动/1 手动）、`operator_code`（PLMN）、`operator_act`（0=2G/2=3G/7=LTE）。
 密码等敏感字段也在其中，接口本身受 Basic 认证保护。
+
+通道对象字段固定为 `enabled` / `type` / `name` / `url` / `key1` / `key2` / **`custom_body`**：
+
+```json
+{"channels":[{"enabled":true,"type":10,"name":"Telegram","url":"https://api.telegram.org",
+  "key1":"<chat_id>","key2":"<bot_token>","custom_body":""}]}
+```
+
+> 注意：**提交**用的表单字段叫 `pushNbody`，**读回**用的 JSON 键叫 `custom_body`（与结构体
+> `push_channel_t.custom_body` 一致）。两边名字不一致曾经导致自定义模板保存后读回为空
+> （issue #77），改代码时别再把它们当成同一个名字。
 
 ### POST /save?json=1
 
@@ -116,7 +133,7 @@ HTTP 服务本身不受影响，页面还能正常打开和刷新。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/log` | 最近 200 行日志（JSON 字符串数组）；含 `AT> 命令 → 应答 [结果]` 格式的原始 AT 交互，前端可按「AT指令」过滤 |
+| GET | `/log` | 最近 200 行日志（JSON 字符串数组），单行超过 192 字节会从 UTF-8 字符边界截断；含 `AT> 命令 → 应答 [结果]` 格式的原始 AT 交互，前端可按「AT指令」过滤 |
 | GET | `/decode?pdu=<hex>` | 解析一条 SMS-DELIVER PDU，返回发送者/时间/文本/长短信信息 |
 | GET | `/selftest?url=<https地址>` | HTTPS 连通性自检（CA bundle / TLS / DNS），默认测试 baidu |
 | POST | `/push_test` | 用请求里的通道参数发一条测试消息，用于验证新通道是否可用 |

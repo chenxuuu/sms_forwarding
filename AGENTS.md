@@ -22,6 +22,13 @@ python tools/serial_capture.py COM3 60  # 抓日志（直接 monitor/开串口�
 - 关键约定：日志必须走 `log_write()` / `log_line()`（否则 Web 日志页看不到）；
   配置读写必须 `config_lock()` / `config_unlock()`，改完调用 `config_save_locked()`。
 - 新增推送通道：`push_type_t` → `push.c` 的 `build_request()` → `config_push_channel_valid()` → Web 表单选项。
+  推送失败的重试只看「可能没送到」（status=0 / 5xx / 429）；2xx 已送达不要重试，否则一条短信推 2~3 条。
+  校验响应体要在 `HTTP_EVENT_ON_DATA` 里自己攒——`esp_http_client_perform()` 会把 body 读走。
+- **Web 接口字段名**：`/config` 里通道模板的 JSON 键是 `custom_body`（同结构体），
+  而提交表单用的是 `pushNbody`；两者名字不同，改前端/后端时务必对上（issue #77 就是这么来的）。
+- **内存红线**：`CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` 不能低于 8192——服务器会把整条证书链
+  塞进一个 TLS 记录（smtp.qq.com 5489 字节），4096 会握手失败。WiFi 动态收发缓冲 8/8，
+  日志环 200 行 × 192 字节，`web_async` 默认栈 6 KB（TLS 类 8 KB、发短信 10 KB）。
 - **分区表红线**：`partitions.csv` 里 nvs 的 `0x9000/0x6000` 不能动（老设备配置都在这），
   两个 app 槽各 `0x1F0000`。老设备迁移必须 `idf.py flash` 或分段写 `0x0/0x8000/0x20000`；
   **禁止用 merged bin 覆盖 `0x0`**——它会用 0xFF 填满空隙，把 NVS 抹掉。

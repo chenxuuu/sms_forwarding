@@ -466,6 +466,9 @@ GET https://github.com/chenxuuu/sms_forwarding/releases/latest/download/latest.j
 2. **C3 的堆碎片比预想严重**：空闲 30 KB 时最大连续块只有 7–8 KB。
    `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` 从 8192 降到 **4096**，并用
    `heap_caps_get_largest_free_block()`（≥6 KB 才检查）代替总空闲量判断。
+
+   > 2026-11-24 更新：4096 装不下服务器证书链（smtp.qq.com 是 5489 字节的**单条** TLS 记录，
+   > 百度 4773），邮件 465 一直握手失败。已改回 **8192**，详见 `build-flash.md` §8。
 3. **回滚确认放在组件内部**：`ota_init()` 检测到 `PENDING_VERIFY` 才起确认任务，
    45 秒稳定窗口 + 联网（含配网热点）即确认，`app_main` 不需要额外代码。
 4. **上传协议**：前端 `xhr.send(File)` + `application/octet-stream`，

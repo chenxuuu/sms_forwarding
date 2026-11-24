@@ -3,6 +3,7 @@
 
 #include "core/config.h"
 #include "core/log.h"
+#include "esim/esim.h"
 #include "esp_heap_caps.h"
 #include "esp_system.h"
 #include "forwarder/forwarder.h"
@@ -113,6 +114,7 @@ void app_main(void)
     heartbeat_start(on_net_event, ip);
     modem_set_net_event_handler(on_modem_event);
     modem_start();
+    esim_init();
 
     char url[48];
     snprintf(url, sizeof(url), "http://%s/", ip);

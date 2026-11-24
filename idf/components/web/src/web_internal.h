@@ -43,6 +43,14 @@ esp_err_t web_spawn_async(httpd_req_t *req, web_async_fn fn, const char *arg1, c
 esp_err_t web_spawn_async3(httpd_req_t *req, web_async_fn fn, const char *arg1, const char *arg2,
                            const char *arg3);
 
+/**
+ * 同上，但可以指定任务栈。
+ * C3 空闲堆虽大，最大连续块常常只有 6–8 KB，10 KB 栈会直接分配失败；
+ * 只做短操作的处理器（如 eSIM 读卡）用 4 KB 就够。
+ */
+esp_err_t web_spawn_async3_ex(httpd_req_t *req, web_async_fn fn, const char *arg1, const char *arg2,
+                              const char *arg3, size_t stack);
+
 /* ---- 路由处理器 ---- */
 esp_err_t handler_root(httpd_req_t *req);
 esp_err_t handler_push_test(httpd_req_t *req);
@@ -66,4 +74,7 @@ esp_err_t handler_wifi(httpd_req_t *req);
 esp_err_t handler_system(httpd_req_t *req);
 esp_err_t handler_ota(httpd_req_t *req);
 esp_err_t handler_ota_upload(httpd_req_t *req);
+esp_err_t handler_esim(httpd_req_t *req);
+esp_err_t handler_esim_enable(httpd_req_t *req);
+esp_err_t handler_esim_apdu(httpd_req_t *req);
 

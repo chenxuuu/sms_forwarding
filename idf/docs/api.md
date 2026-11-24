@@ -236,6 +236,53 @@ Bark 的 body 与钉钉/飞书/PushPlus/Server酱/Gotify/Telegram 的正文末�
 好处是设备端省掉一次 TLS 握手：`ota` 组件的 8 KB 工作任务和 HTTP 客户端都已删除，
 实测空闲堆从 24 KB 回到 40 KB。
 
+## eSIM 管理
+
+只做**读列表 + 切卡**。固件里没有删除配置、没有 eUICC 复位的接口（避免误操作清卡）。
+下载安装新配置不在设备上跑，见 [esim-plan.md](esim-plan.md) 第 6 节。
+
+### GET /esim
+
+异步读取（要发 3–4 条 APDU，约 1–3 秒）：
+
+```json
+{"success":true,"supported":true,"eid":"89049032123456789012345678901234","busy":false,
+ "profiles":[{"iccid":"89860012345678901234","aid":"A0000005591010FFFFFFFF8900001000",
+  "name":"中国移动 主卡","provider":"CMCC","state":1,"class":2}],"message":""}
+```
+
+- `supported`：模组是否支持 `AT+CCHO`/`AT+CGLA`（不支持时 `profiles` 为空、`message` 给原因）
+- `state`：1 使用中 / 0 未启用 / -1 未知；`class`：0 测试 / 1 预置 / 2 运营 / -1 未知
+- `name`：优先用卡里的 profileName，其次昵称，最后运营商名或 ICCID
+
+### POST /esim
+
+表单 `id=<ICCID 或 32 位 AID>`，启用指定配置（eUICC 会自动停用当前生效的那条）：
+
+```json
+{"success":true,"message":"已切换，模组正在重新注册网络（约 20 秒）"}
+```
+
+成功后固件会在 2 秒后软重启模组（`AT+CFUN=1,1`）。失败时 `message` 是 eUICC 结果码的中文解释
+（找不到 / 状态不对 / 策略禁止 / CAT busy 等）；返回 5（CAT busy）会自动改用「不刷新」重试一次。
+
+### POST /esim/apdu
+
+给 PC 上的 `tools/esim_bridge.py` 用的原始 APDU 透传，表单：
+
+| 字段 | 说明 |
+|---|---|
+| `func` | `connect` / `logic_channel_open` / `logic_channel_close` / `transmit` / `disconnect` |
+| `param` | `logic_channel_open` 传 AID 十六进制；`logic_channel_close` 传通道号（十六进制）；`transmit` 传整条 APDU |
+
+```json
+{"success":true,"ecode":1}
+{"success":true,"ecode":0,"data":"BF3E...9000"}
+```
+
+`transmit` 使用最近一次打开的通道；单条 APDU 最长 255 字节（RSP 的分段由 lpac 负责）。
+
+
 ## 定时任务
 
 ### GET /tasks

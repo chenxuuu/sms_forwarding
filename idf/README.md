@@ -125,13 +125,14 @@ http://sms-9e3c.local/     # 本机 MAC 9c:cc:01:c4:9e:3c → 后缀 9e3c
 
 ## Web 页面结构
 
-左侧导航固定 8 个页面：
+左侧导航固定 9 个页面：
 
 | 页面 | 内容 |
 |---|---|
 | 概览 | 设备地址、运行时长、内存、模组状态、最近动态、通知链路 |
 | 推送通道 | 邮件通知（可单独「测试邮件」）、推送通道列表（每个通道可单独「测试」）、号码黑名单 |
 | 设备 | 选网配置、模组信息查询、维护（飞行模式 / 重启） |
+| eSIM 管理 | EID、卡内配置列表、切换启用（不删卡）、二维码解析（本地解码）与导入命令 |
 | 保号发送 | 发送短信、Ping、HTTP 访问（保号操作）、定时任务、本次会话发送记录 |
 | 固件升级 | 当前版本、手动上传 `*-ota.bin`；最新版本由浏览器直接查 GitHub（有新版本时侧边栏显示红点） |
 | 后台管理 | 后台账号密码、管理员手机号 |
@@ -205,7 +206,8 @@ idf/
 | [docs/modules.md](docs/modules.md) | 各组件职责与接口 |
 | [docs/api.md](docs/api.md) | HTTP 接口说明 |
 | [docs/build-flash.md](docs/build-flash.md) | 编译、烧录、调试与实测记录 |
-| [docs/ota-plan.md](docs/ota-plan.md) | 固件升级（OTA）开发计划 —— **待实现**，实现前先读 |
+| [docs/ota-plan.md](docs/ota-plan.md) | 固件升级（OTA）开发计划与实现记录 |
+| [docs/esim-plan.md](docs/esim-plan.md) | eSIM 管理：协议笔记、导入方案评审、测试计划 |
 
 ## 与 Arduino 版本的差异
 

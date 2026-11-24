@@ -41,6 +41,7 @@ JSON 转义、URL 编码、Base64、HMAC-SHA256→Base64（钉钉/飞书签名�
 | `at_client_init()` | 安装 UART1（TX=3/RX=4/115200）+ 启动读任务 |
 | `at_command()` | 发指令，收集应答直到 OK/ERROR/超时；期间 URC 转交回调 |
 | `at_command_wait_for()` | 等到包含关键字的行（用于 `+MPING:` 这类上报） |
+| `at_command_capture()` | 捕获含指定前缀的**整行原文**，用于 `+CGLA` 这类几 KB 的单行应答 |
 | `at_send_pdu()` | `AT+CMGS=<len>` → 等 `>` → PDU+0x1A → 等 OK |
 | `at_set_urc_handler()` | 注册 URC 回调 |
 
@@ -215,9 +216,20 @@ POST JSON 多一个 `self_phone` 字段，GET 多一个 `self_phone` 查询参�
 - 组件只依赖 `core` / `app_update` / `bootloader_support` / `esp_app_format` / `net` / `notify`，
   不再需要 `esp_http_client` 与 `mbedtls`。
 
+## esim（eSIM 管理）
+
+- 通过模组逻辑通道指令 `AT+CCHO` / `AT+CGLA` / `AT+CCHC` 把 ES10b/ES10c 请求送进 eUICC，
+  DER 编解码自己实现（只覆盖用到的定长 tag + 长度 + 值）；
+- `esim_get_eid()`：`BF3E 03 5C 01 5A`；`esim_list_profiles()`：`BF2D` + tagList；
+  `esim_enable_profile()`：`BF31 { A0 { 5A/4F, 81 01 refresh } }`；
+- **没有删除接口**：不实现 `BF33`（DeleteProfile）与 `BF34`（EuiccMemoryReset），避免误清卡；
+- 组件内一把互斥锁，列表/切卡整段串行；临时缓冲全部走 heap（峰值约 11 KB），不占 httpd 栈；
+- 切卡成功后由 web 层起 3 KB 任务，延迟 2 秒软重启模组（`AT+CFUN=1,1`）重新注册；
+- 透传接口 `esim_channel_open/close/transmit` 供 `/esim/apdu` 使用，单条 APDU ≤255 字节。
+
 ## web
 
-- `web_server_start()`：80 端口，Basic 认证，5 个 socket，LRU 清理，`max_uri_handlers = 40`；
+- `web_server_start()`：80 端口，Basic 认证，5 个 socket，LRU 清理，`max_uri_handlers = 40`（当前注册 34 条）；
 - 首页：读取 `EMBED_TXTFILES` 内嵌的 `web/index.html`，替换 17 个 `%KEY%` 占位符，
   推送通道表单片段动态生成，按 2KB 分块发送；
 - 长耗时接口用 `httpd_req_async_handler_begin()` 转独立任务，响应完成后
@@ -257,8 +269,9 @@ POST JSON 多一个 `self_phone` 字段，GET 多一个 `self_phone` 查询参�
   过滤 chip「全部/错误/短信/网络/通知/AT指令」，原始 AT 交互以 `AT>` 开头统一弱显示
 - 开/关飞行模式后立即把模组就绪状态同步为 false，首页不再误报「已就绪」；
   关飞行模式后由 netmon 检测到重新注册再置 true
-- 侧栏固定 8 个页面：概览 / 推送通道（邮件、推送通道、号码黑名单）/ 设备（选网配置、模组信息查询、维护）/
-  保号发送（发短信、Ping、HTTP 访问）/ 后台管理（账号、管理员号码）/ 日志（日志 + AT 指令）/
+- 侧栏固定 9 个页面：概览 / 推送通道（邮件、推送通道、号码黑名单）/ 设备（选网配置、模组信息查询、维护）/
+  eSIM 管理（EID、配置列表、切卡、二维码解析导入）/ 保号发送（发短信、Ping、HTTP 访问）/
+  后台管理（账号、管理员号码）/ 日志（日志 + AT 指令）/
   固件升级（当前/最新版本、检查更新、上传 `*-ota.bin`，有新版本时导航项带红点）/ 关于项目；
   「发短信」并入保号页，「AT 指令」并入日志页，避免功能分散；
   固件升级页的强调色固定为黑色（`PAGES` 里 `mono:true`，覆盖 `--pri`/`--pri2`），与其余页面的彩色主题区分

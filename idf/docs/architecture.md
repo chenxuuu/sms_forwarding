@@ -35,8 +35,9 @@
 - `core`：无业务依赖，最底层；
 - `net` / `notify` / `modem`：各自独立，只依赖 `core`；
 - `forwarder`：依赖 `core` + `modem` + `notify`（唯一放业务策略的地方）；
-- `web`：依赖 `core` + `modem` + `notify` + `net` + `sched` + `ota`；
+- `web`：依赖 `core` + `modem` + `notify` + `net` + `sched` + `ota` + `esim`；
 - `ota`：依赖 `core` + `net` + `notify` + `app_update`，只负责写分区与回滚确认（版本检查在浏览器侧）；
+- `esim`：依赖 `core` + `modem`（借用 AT 串口），只负责 eUICC 的 ES10b/ES10c 与 APDU 透传；
 - `main`：只做装配与启动顺序编排。
 
 ## 3. 任务模型
@@ -45,7 +46,8 @@
 |---|---|---|---|
 | `main` | 6 KB | 1 | 启动编排，初始化完即退出 |
 | `httpd` | 8 KB | 5 | 处理 HTTP 请求（长耗时请求转异步） |
-| `web_async` | 10 KB | 4 | 按需创建，执行发送短信/ping/查询等阻塞操作 |
+| `web_async` | 10 KB | 4 | 按需创建，执行发送短信/ping/查询/eSIM 读卡等阻塞操作 |
+| `esim_reset` | 3 KB | 4 | 切卡成功后延迟 2 秒软重启模组 |
 | `at_reader` | 6 KB | 5 | 空闲时读串口、分发 URC |
 | `modem` | 8 KB | 4 | AT 作业队列：初始化、发短信、ping、HTTP 保号访问、软/硬重启 |
 | `forwarder` | 6 KB | 3 | 短信策略：黑名单、管理员命令、分发通知 |

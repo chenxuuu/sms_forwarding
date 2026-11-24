@@ -46,6 +46,22 @@ bool at_send_pdu(const char *pdu_hex, int tpdu_len, uint32_t timeout_ms);
 bool at_command_wait_for(const char *cmd, const char *keyword, char *line_out, size_t cap,
                          uint32_t timeout_ms);
 
+/**
+ * 发送指令并捕获“含 prefix 的那一行”的完整原文（不含换行）。
+ *
+ * 专供 +CGLA / +CSIM 这类单行可达数 KB 的应答使用：不走 AT_LINE_MAX 的定长行缓冲，
+ * 直接按字节写入调用方给的 out（cap 至少 2×最大 APDU 应答 + 32）。
+ * 返回 AT_RESULT_OK 表示拿到了该行且模组返回 OK；out 为空表示没有匹配行。
+ */
+at_result_t at_command_capture(const char *cmd, const char *prefix, char *out, size_t cap,
+                               uint32_t timeout_ms);
+
+/**
+ * 同上，但允许多一种匹配方式：纯数字行（部分模组的 +CCHO 应答不带前缀，只回一个通道号）。
+ */
+at_result_t at_command_capture_ex(const char *cmd, const char *prefix, bool numeric_line,
+                                  char *out, size_t cap, uint32_t timeout_ms);
+
 void at_set_urc_handler(at_urc_cb_t cb);
 
 /** 多步操作期间独占串口（递归锁，可嵌套）。 */

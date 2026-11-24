@@ -57,6 +57,7 @@
 | **保号** | 模组 Ping / 访问指定网址（默认只下 10 字节），按需消耗余额 |
 | **定时任务** | 指定时间自动发短信 / Ping / 访问网址；错过时间会补执行，失败只重试 1 次；可设「每 N 天」循环 |
 | **固件升级** | 网页上传 `*-ota.bin` 即可升级，写备用分区、断电不砖；打开后台就能看到有没有新版本（浏览器直接查 GitHub，设备不联网），起不来自动回滚 |
+| **eSIM 管理** | 读出卡里的配置、网页一键切换（只切不删，切完自动重启模组重新注册）；扫码或粘贴激活码即可拿到下载命令 |
 | **自动恢复** | WiFi 掉线重连；4G 掉网按「飞行模式（10 秒起，翻倍至 5 分钟）→ 软重启 → 断电重启」分级自愈，连续 5 轮失败才提醒 |
 | **配置兼容** | NVS 命名空间与键名和 Arduino 版一致，可从老固件直接升级，配置不丢 |
 
@@ -133,13 +134,15 @@ idf.py -p COM3 flash    # 串口按实际改：Windows 是 COMx，Linux 是 /dev
 ```
 sms_forwarding/
 ├── idf/                    # 主线：ESP-IDF v6.1.1 实现
-│   ├── components/         # core / modem / net / notify / forwarder / sched / web
+│   ├── components/         # core / modem / net / notify / forwarder / sched / ota / esim / web
 │   ├── docs/               # 架构、模块、接口、编译烧录文档
 │   └── tools/              # 串口抓日志脚本
 ├── code/                   # 历史实现：Arduino 框架
 │   ├── dev_doc/            # Arduino 版的架构与接口文档
 │   └── README.md
 ├── assets/                 # 图片、原理图、纯前端演示页
+├── tools/
+│   └── esim_bridge.py      # 把 lpac 的 APDU 转发到设备（电脑上跑）
 ├── README.md
 └── .github/workflows/      # 固件构建、页面部署、Arduino 构建
 ```
@@ -149,4 +152,14 @@ sms_forwarding/
 
 ## License
 
-[MIT](LICENSE)
+本项目以 [MIT](LICENSE) 协议开源。
+
+eSIM 与二维码部分用到或参考了下面的项目，按各自协议使用：
+
+| 项目 | 协议 | 用途 |
+|---|---|---|
+| [jsQR](https://github.com/cozmo/jsQR) | Apache-2.0 | 网页端二维码解码（内嵌在后台页面里，协议全文见 [`idf/components/web/web/jsQR.LICENSE.txt`](idf/components/web/web/jsQR.LICENSE.txt)） |
+| [lpac](https://github.com/estkme-group/lpac) | AGPL-3.0 / LGPL-2.1 | eSIM（SGP.22）流程参考；作为**独立程序**在电脑上运行，固件不包含其代码 |
+| [euicc-go](https://github.com/damonto/euicc-go) | MIT | eSIM APDU 流程参考 |
+
+协议细节与设计取舍见 [idf/docs/esim-plan.md](idf/docs/esim-plan.md)。

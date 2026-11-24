@@ -218,18 +218,31 @@ static void async_task(void *arg)
     vTaskDelete(NULL);
 }
 
-esp_err_t web_spawn_async3(httpd_req_t *req, web_async_fn fn, const char *arg1, const char *arg2,
-                           const char *arg3)
+/* 异步任务起不来时也要给浏览器一个明确答复，否则前端只会看到连接被断开 */
+static void async_spawn_fail(httpd_req_t *req, bool copy_ready, httpd_req_t *copy)
+{
+    httpd_resp_set_status(copy_ready ? copy : req, "503 Service Unavailable");
+    httpd_resp_set_type(copy_ready ? copy : req, "application/json; charset=utf-8");
+    httpd_resp_sendstr(copy_ready ? copy : req,
+                       "{\"success\":false,\"message\":\"设备内存紧张，请稍后重试\"}");
+    if (copy_ready) {
+        httpd_req_async_handler_complete(copy);
+    }
+}
+
+esp_err_t web_spawn_async3_ex(httpd_req_t *req, web_async_fn fn, const char *arg1, const char *arg2,
+                              const char *arg3, size_t stack)
 {
     httpd_req_t *copy = NULL;
     esp_err_t err = httpd_req_async_handler_begin(req, &copy);
     if (err != ESP_OK) {
         log_line("异步响应初始化失败: %s", esp_err_to_name(err));
+        async_spawn_fail(req, false, NULL);
         return err;
     }
     web_async_ctx_t *ctx = calloc(1, sizeof(*ctx));
     if (!ctx) {
-        httpd_req_async_handler_complete(copy);
+        async_spawn_fail(req, true, copy);
         return ESP_ERR_NO_MEM;
     }
     ctx->req = copy;
@@ -237,12 +250,20 @@ esp_err_t web_spawn_async3(httpd_req_t *req, web_async_fn fn, const char *arg1, 
     snprintf(ctx->arg1, sizeof(ctx->arg1), "%s", arg1 ? arg1 : "");
     snprintf(ctx->arg2, sizeof(ctx->arg2), "%s", arg2 ? arg2 : "");
     snprintf(ctx->arg3, sizeof(ctx->arg3), "%s", arg3 ? arg3 : "");
-    if (xTaskCreate(async_task, "web_async", 10240, ctx, 4, NULL) != pdPASS) {
-        httpd_req_async_handler_complete(copy);
+    if (xTaskCreate(async_task, "web_async", stack, ctx, 4, NULL) != pdPASS) {
+        log_line("异步任务创建失败（栈 %u 字节），当前最大连续堆 %u 字节", (unsigned)stack,
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
         free(ctx);
+        async_spawn_fail(req, true, copy);
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
+}
+
+esp_err_t web_spawn_async3(httpd_req_t *req, web_async_fn fn, const char *arg1, const char *arg2,
+                           const char *arg3)
+{
+    return web_spawn_async3_ex(req, fn, arg1, arg2, arg3, 10240);
 }
 /* ---- 页面与配置 ---- */
 esp_err_t handler_root(httpd_req_t *req)
@@ -820,6 +841,9 @@ esp_err_t web_server_start(void)
     register_uri(s_server, "/system", HTTP_POST, handler_system);
     register_uri(s_server, "/ota", HTTP_GET, handler_ota);
     register_uri(s_server, "/ota", HTTP_POST, handler_ota_upload);
+    register_uri(s_server, "/esim", HTTP_GET, handler_esim);
+    register_uri(s_server, "/esim", HTTP_POST, handler_esim_enable);
+    register_uri(s_server, "/esim/apdu", HTTP_POST, handler_esim_apdu);
 
     log_line("HTTP 服务器已启动: http://%s/", wifi_ip());
     return ESP_OK;

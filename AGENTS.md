@@ -30,6 +30,14 @@ python tools/serial_capture.py COM3 60  # 抓日志（直接 monitor/开串口�
   新固件联网稳定 45 秒后才 `esp_ota_mark_app_valid_cancel_rollback()`，别提前确认。
   版本检查在**浏览器侧**做（页面 fetch `api.github.com` 的 Release `name`），设备不联网、不跑 TLS，
   因此没有 `CONFIG_OTA_MANIFEST_URL` 和 `/ota_check`；CI 必须把 Release 标题写成版本号，否则页面判不了新旧。
+- eSIM：**只切卡、不删卡**（用户测试要求）。组件 `idf/components/esim/` 只实现 EID / `BF2D` 列表 /
+  `BF31` 启用，没有 `BF33` 删除与 `BF34` 复位；APDU 走 `AT+CCHO`/`AT+CGLA`/`AT+CCHC`，
+  长应答必须用 `at_command_capture()`（`AT_LINE_MAX` 只有 512）。
+  新配置的下载不在固件里做（BPP 几十 KB + TLS，C3 跑不动），走 `tools/esim_bridge.py` + lpac，
+  固件只暴露 `/esim/apdu` 透传；切卡成功后必须软重启模组（`AT+CFUN=1,1`）重新注册。
+  C3 堆碎片化严重：`+CGLA` 应答缓冲只能用 1280 字节（512 字节应答转十六进制），
+  异步任务栈 4 KB，起不来时必须回显式错误而不是让请求悬着。
+  验证 eSIM 是否正常**看能否读到 EID/ICCID**，不要等驻网——外卡漫游附着慢属正常现象。
 - NVS 命名空间与键名和 Arduino 版本完全一致，可从 Arduino 固件原地升级。
 - WiFi 账号优先级：NVS `sms_wifi`（`ssid`/`pass`，热点配网写入）> menuconfig 的 `CONFIG_WIFI_*`；
   用到编译期账号时**首次启动会写进 NVS**，否则 OTA 到不带 `CONFIG_WIFI_*` 的固件（CI 包）会断网进配网；

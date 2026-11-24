@@ -321,6 +321,132 @@ bool at_command_wait_for(const char *cmd, const char *keyword, char *line_out, s
     return found;
 }
 
+/* 有的模组（ML307Y）会先回 OK，再把 CCHO/CGLA 的数据行吐出来；收到 OK 后再等这么久 */
+#define AT_PAYLOAD_GRACE_MS 3000
+
+/** 整个字符串都是数字（允许前后空白） */
+static bool line_is_number(const char *s)
+{
+    while (*s == ' ') s++;
+    if (!*s) return false;
+    while (*s) {
+        if (*s < '0' || *s > '9') return false;
+        s++;
+    }
+    return true;
+}
+
+at_result_t at_command_capture_ex(const char *cmd, const char *prefix, bool numeric_line,
+                                  char *out, size_t cap, uint32_t timeout_ms)
+{
+    if (!out || cap < 2) {
+        return AT_RESULT_ERROR;
+    }
+    out[0] = '\0';
+
+    at_lock();
+    pump_available();
+
+    const size_t cmd_len = strlen(cmd);
+    if (cmd_len <= 72) {
+        log_line("AT> %s", cmd);
+    } else {
+        log_line("AT> %.60s…（%u 字符）", cmd, (unsigned)cmd_len);
+    }
+    uart_write_bytes(BOARD_MODEM_UART_NUM, cmd, cmd_len);
+    uart_write_bytes(BOARD_MODEM_UART_NUM, "\r", 1);
+
+    size_t len = 0;
+    bool overflow = false;
+    bool captured = false;
+    bool saw_ok = false;
+    const bool expect_payload = (prefix && prefix[0]) || numeric_line;
+    at_result_t result = AT_RESULT_TIMEOUT;
+    int64_t deadline = now_ms() + timeout_ms;
+
+    while (now_ms() < deadline) {
+        int64_t remain = deadline - now_ms();
+        uint8_t c = 0;
+        int n = uart_read_bytes(BOARD_MODEM_UART_NUM, &c, 1,
+                                pdMS_TO_TICKS(remain > 20 ? 20 : (remain > 0 ? remain : 1)));
+        if (n != 1) {
+            continue;
+        }
+        if (c == '\r' || c == 0) {
+            continue;
+        }
+        if (c == '\n') {
+            out[len < cap ? len : cap - 1] = '\0';
+            if (!overflow && prefix && prefix[0] && strstr(out, prefix)) {
+                captured = true;
+                result = AT_RESULT_OK;
+                break;
+            }
+            if (!overflow && numeric_line && line_is_number(out)) {
+                captured = true;
+                result = AT_RESULT_OK;
+                break;
+            }
+            if (!overflow && strcmp(out, "OK") == 0) {
+                if (!expect_payload) {
+                    result = AT_RESULT_OK;
+                    break;
+                }
+                /* 要等数据行：ML307Y 偶尔先回 OK，随后才吐 +CGLA/+CCHO */
+                if (!saw_ok) {
+                    saw_ok = true;
+                    int64_t grace = now_ms() + AT_PAYLOAD_GRACE_MS;
+                    if (grace < deadline) {
+                        deadline = grace;
+                    }
+                    log_line("AT 先返回 OK，继续等待数据行（最多 %d ms）", AT_PAYLOAD_GRACE_MS);
+                }
+                len = 0;
+                overflow = false;
+                out[0] = '\0';
+                continue;
+            }
+            if (!overflow && strstr(out, "ERROR")) {
+                /* 保留这一行，调用方要拿它当失败原因 */
+                result = AT_RESULT_ERROR;
+                break;
+            }
+            if (overflow) {
+                log_line("AT 应答行过长（超过 %u 字节），已截断", (unsigned)cap);
+            } else if (out[0]) {
+                /* 事务期间的非应答行（+CMT 等）照常交给 URC 处理，不能丢短信 */
+                urc_defer(out);
+            }
+            len = 0;
+            overflow = false;
+            out[0] = '\0';
+            continue;
+        }
+        if (len + 1 < cap) {
+            out[len++] = (char)c;
+        } else {
+            overflow = true;
+        }
+    }
+
+    if (!captured) {
+        if (saw_ok) {
+            result = AT_RESULT_OK;
+        }
+        out[0] = '\0'; /* 只有最终 OK，没有匹配行 */
+    }
+    log_line("AT> %s → %s", cmd_len <= 20 ? cmd : "(长指令)",
+             captured ? "已捕获应答" : (result == AT_RESULT_OK ? "无目标行" : "失败"));
+    at_unlock();
+    return result;
+}
+
+at_result_t at_command_capture(const char *cmd, const char *prefix, char *out, size_t cap,
+                               uint32_t timeout_ms)
+{
+    return at_command_capture_ex(cmd, prefix, false, out, cap, timeout_ms);
+}
+
 bool at_send_pdu(const char *pdu_hex, int tpdu_len, uint32_t timeout_ms)
 {
     at_lock();

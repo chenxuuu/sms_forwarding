@@ -238,8 +238,8 @@ Bark 的 body 与钉钉/飞书/PushPlus/Server酱/Gotify/Telegram 的正文末�
 
 ## eSIM 管理
 
-只做**读列表 + 切卡**。固件里没有删除配置、没有 eUICC 复位的接口（避免误操作清卡）。
-下载安装新配置不在设备上跑，见 [esim-plan.md](esim-plan.md) 第 6 节。
+支持**读列表、切换、删除未启用的配置**。没有 eUICC 复位（`purge`）接口——那会清空整张卡。
+下载安装新配置不在设备上跑，步骤见 [esim-import.md](esim-import.md)。
 
 ### GET /esim
 
@@ -265,6 +265,16 @@ Bark 的 body 与钉钉/飞书/PushPlus/Server酱/Gotify/Telegram 的正文末�
 
 成功后固件会在 2 秒后软重启模组（`AT+CFUN=1,1`）。失败时 `message` 是 eUICC 结果码的中文解释
 （找不到 / 状态不对 / 策略禁止 / CAT busy 等）；返回 5（CAT busy）会自动改用「不刷新」重试一次。
+
+表单再加 `action=delete` 时删除指定配置（`id` 同上）：
+
+```json
+{"success":true,"message":"已删除该配置"}
+```
+
+- **正在使用中的配置会被拒绝**（`「xxx」正在使用中，不能删除；请先切换到其它配置`），
+  避免删掉唯一能用的卡。删除前固件会先读一次列表做这个检查。
+- 删除只发 `BF33`，不重启模组；返回码 1 表示找不到该 ICCID / AID。
 
 ### POST /esim/apdu
 

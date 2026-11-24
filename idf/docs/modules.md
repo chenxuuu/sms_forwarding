@@ -222,7 +222,8 @@ POST JSON 多一个 `self_phone` 字段，GET 多一个 `self_phone` 查询参�
   DER 编解码自己实现（只覆盖用到的定长 tag + 长度 + 值）；
 - `esim_get_eid()`：`BF3E 03 5C 01 5A`；`esim_list_profiles()`：`BF2D` + tagList；
   `esim_enable_profile()`：`BF31 { A0 { 5A/4F, 81 01 refresh } }`；
-- **没有删除接口**：不实现 `BF33`（DeleteProfile）与 `BF34`（EuiccMemoryReset），避免误清卡；
+- `esim_delete_profile()`：`BF33 { 5A/4F }`（**不套 `A0`**，套了 eUICC 回结果码 1）；
+  先读列表拒删「使用中」的配置，没有 `BF34`（EuiccMemoryReset，会清空整张卡）；
 - 组件内一把互斥锁，列表/切卡整段串行；临时缓冲全部走 heap（峰值约 11 KB），不占 httpd 栈；
 - 切卡成功后由 web 层起 3 KB 任务，延迟 2 秒软重启模组（`AT+CFUN=1,1`）重新注册；
 - 透传接口 `esim_channel_open/close/transmit` 供 `/esim/apdu` 使用，单条 APDU ≤255 字节。

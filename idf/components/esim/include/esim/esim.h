@@ -84,6 +84,8 @@ esim_err_t esim_read_all(char *eid, size_t eid_cap, esim_profile_t *out, int max
  * @param ecc      业务错误码（0 成功；其它见 SGP.22 ProfileInfoListError/EnableProfile 结果）
  */
 esim_err_t esim_enable_profile(const char *id, bool refresh, int *ecc);
+/** 删除一条**未启用**的配置（BF33）。使用中的配置会被拒绝，避免把正在用的卡删掉。 */
+esim_err_t esim_delete_profile(const char *id);
 
 /* ---- 原始 APDU 透传（给 PC 侧 lpac 桥接用，见 tools/esim_bridge.py） ---- */
 

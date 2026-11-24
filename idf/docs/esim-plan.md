@@ -1,6 +1,6 @@
 # eSIM 管理：开发计划、协议笔记与实现记录
 
-> 状态：已在真实 eUICC（9eSIM + ML307Y）上验证：读 EID、读列表、来回切卡都正常，见 §10。
+> 状态：已在真实 eUICC（9eSIM + ML307Y）上验证：读 EID、读列表、切卡、下载安装、删除都正常，见 §10 / §12。
 > 代码：`idf/components/esim/`、`idf/components/web/web/index.html`、`tools/esim_bridge.py`。
 
 ## 1. 先给结论
@@ -9,7 +9,7 @@
 |---|---|---|
 | 读出 eSIM 卡里的配置列表 | ✅ | ES10c `ProfileInfoListRequest`（`BF2D`），单条 APDU，几百字节 |
 | 切换启用哪一套配置 | ✅ | ES10c `EnableProfile`（`BF31`），eUICC 自己停用当前那条 |
-| **删除**配置 | ⛔ 不实现 | 用户要求测试期间只允许切卡；固件里没有任何删除接口 |
+| **删除**配置 | ✅ | ES10c `DeleteProfile`（`BF33`）；**使用中的配置拒绝删除**，网页还要手输 ICCID 确认 |
 | 网页输入 / 解析二维码 | ✅ | 前端内嵌 jsQR 本地解码，不联网、不上传 |
 | 网页里「导入」（下载安装新配置） | ⚠️ 设备端不可行 | 交给电脑上的 lpac，通过新增的 APDU 透传接口下发 |
 
@@ -20,9 +20,11 @@ AT 指令能解决的。所以网页负责「扫码 + 解析 + 生成命令」�
 
 ## 2. 边界
 
-- 只做 eSIM 的 **UICC 侧**操作：EID、profile 列表、启用/切换。
-- 不做：删除 profile、改昵称、通知管理、eUICC 复位（`EuiccMemoryReset` 会清空所有配置）。
-- 不做：eSIM 的下载安装（原因见 §6）。
+- 只做 eSIM 的 **UICC 侧**操作：EID、profile 列表、启用/切换、删除未启用的配置。
+- 删除有硬性保护：**当前使用中的配置不允许删**（固件读列表后直接拒绝），
+  网页再要求把 ICCID 手输一遍；没有 `EuiccMemoryReset`（会清空整张卡）。
+- 不做：改昵称、通知管理。
+- 不做：eSIM 的下载安装（原因见 §6），下载走电脑上的 lpac，见 [esim-import.md](esim-import.md)。
 - 切换后**一定会重启模组**：SIM 换了，不重新 `CFUN=1,1` 的话网络注册会停在旧卡上。
 
 ## 3. 协议与硬件前提
@@ -288,3 +290,47 @@ BF31 03 80 01 00   +   SW = 91 0B
 - 没有通知（Notification）管理：下载完成后 lpac 会自己发通知，固件不做。
 - 摄像头扫码不可用（HTTP 非安全上下文），只能上传图片/粘贴截图。
 - 外卡附着慢（几分钟）属于正常现象，与 eSIM 功能无关，见 10.5。
+
+## 12. 写卡与删卡实测（2026-11-24）
+
+设备同上（9eSIM + ML307Y），用公网免费测试配置验证「下载 → 读 ICCID → 删除」整条链路。
+
+### 12.1 下载（写卡）
+
+- 电脑端：lpac **v2.2.1**（Windows mingw 包）+ `tools/esim_bridge.py`，
+  激活码 `LPA:1$rsp.truphone.com$QRF-SPEEDTEST`。
+- 过程：`es10b_get_euicc_challenge_and_info → es9p_initiate_authentication → es10b_authenticate_server
+  → es9p_authenticate_client → … → es10b_load_bound_profile_package`，共 **199 条 APDU**，耗时约 2 分钟。
+- 结果：`{"code":0,"message":"success"}`；网页重新读取后列表多出一条
+  ICCID `8944…（已脱敏，19 位）`、名字 `BetterRoaming`、运营商 `Speedtest Travel`，**ICCID 读取正确**。
+- 另两个免费码（`QR-G-5C-1LS-1W1Z9P7`、`QR-G-5C-KR-1PCDWP9`）在 `es9p_authenticate_client` 返回
+  `Refused`，是服务端策略，换码即可，与设备无关。
+
+### 12.2 删除（删卡）
+
+顺序（也是推荐的用法）：
+
+1. 直接删当前使用中的配置 → 固件拒绝：`「Helium」正在使用中，不能删除；请先切换到其它配置`。
+2. 切到 Saily，等模组重启、状态确认 `state=1`。
+3. 删 Helium（未启用）→ 成功；再删刚下载的测试配置 → 成功。
+4. 最终卡里只剩 Saily 一条且仍是 `state=1`，**没有动到能用的卡**。
+
+### 12.3 新增的坑
+
+- **`BF33` 不能套 `A0`**：
+  - 我们最初按「`[51] { A0 { profileIdentifier } }`」拼，eUICC 返回结果码 1（找不到该 ICCID / AID）；
+  - 抓 lpac 的 APDU 发现它最后成功的一帧是 `BF33 0C 5A 0A <BCD>`，**CHOICE 直接放在 BF33 里**；
+  - 改成不包 `A0` 后，网页删除一次成功。`BF31`（启用）仍保留 `A0`，因为实测可用。
+- **`AT+CCHC` 会补一条 `+CCHC` 主动上报**：它偶尔正好落进下一次 `AT+CCHO` 的应答窗口，
+  导致拿不到通道号（日志「无目标行」）。现在 `esim_channel_open()` 失败会隔 300 ms 重试一次。
+- **lpac v2.3.0 的 Windows 包 stdio 后端是坏的**：收到第一条 APDU 应答就退出（`euicc_init`）。
+  同样的输入 v2.2.1 正常。导入指南里已固定推荐 2.2.1。
+- **`esim_bridge.py` 必须用二进制管道**：Windows 文本模式会把换行改写成 CRLF，
+  lpac 的 JSON 解析器会因此判错；改成二进制读写后稳定。
+
+### 12.4 页面
+
+- 配置卡片改成两行 `ICCID` / `AID`（等宽、按标签对齐），不再挤成一行；
+- 未启用的配置有「切换」「删除」两个按钮，使用中的显示「不可删除」；
+- 删除弹窗要求把 ICCID 原样输入一遍才能点确认；
+- 导入卡片底部给出完整步骤链接（`idf/docs/esim-import.md`）。

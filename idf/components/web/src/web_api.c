@@ -1430,6 +1430,16 @@ static void esim_json_fail(sbuf_t *out)
 static void esim_async(web_async_ctx_t *ctx, sbuf_t *out, const char **content_type)
 {
     (void)content_type;
+    if (strcmp(ctx->arg3, "delete") == 0) {
+        esim_err_t e = esim_delete_profile(ctx->arg1);
+        if (e != ESIM_OK) {
+            esim_json_fail(out);
+            log_line("eSIM 删除失败：%s", esim_last_error());
+            return;
+        }
+        sbuf_append(out, "{\"success\":true,\"message\":\"已删除该配置\"}");
+        return;
+    }
     if (strcmp(ctx->arg3, "enable") == 0) {
         int ecc = -1;
         /* 先按「带刷新」切；有的模组会回 CAT busy（5），再按不带刷新重试 */
@@ -1503,17 +1513,20 @@ esp_err_t handler_esim_enable(httpd_req_t *req)
     }
     char *body = web_read_body(req);
     char id[48] = {0};
+    char action[16] = {0};
     bool got = web_form_get(body, "id", id, sizeof(id));
+    web_form_get(body, "action", action, sizeof(action));
     free(body);
+    const bool del = strcmp(action, "delete") == 0;
     if (!got || !id[0]) {
-        web_send_json(req, false, "缺少要切换的 ICCID / AID");
+        web_send_json(req, false, del ? "缺少要删除的 ICCID / AID" : "缺少要切换的 ICCID / AID");
         return ESP_OK;
     }
     if (esim_busy()) {
         web_send_json(req, false, "eSIM 正忙，请稍后再试");
         return ESP_OK;
     }
-    web_spawn_async3_ex(req, esim_async, id, "", "enable", 4096);
+    web_spawn_async3_ex(req, esim_async, id, "", del ? "delete" : "enable", 4096);
     return ESP_OK;
 }
 

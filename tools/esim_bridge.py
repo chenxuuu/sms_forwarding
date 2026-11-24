@@ -86,9 +86,11 @@ def main():
     log("→ 命令 %s" % " ".join(cmd))
 
     try:
+        # 必须用二进制管道：Windows 的文本模式会把 "\n" 改写成 "\r\n"，
+        # lpac 的 JSON 解析器不接受行尾的 \r，收到第一行就退出（再写会报 EINVAL）。
         proc = subprocess.Popen(
             cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
-            env=env, text=True, encoding="utf-8", errors="replace", bufsize=1,
+            env=env, bufsize=0,
         )
     except OSError as exc:
         log("启动 lpac 失败：%s" % exc)
@@ -96,10 +98,10 @@ def main():
 
     try:
         while True:
-            line = proc.stdout.readline()
-            if not line:
+            raw = proc.stdout.readline()
+            if not raw:
                 break
-            line = line.strip()
+            line = raw.decode("utf-8", "replace").strip()
             if not line:
                 continue
             try:
@@ -132,7 +134,7 @@ def main():
             except (urllib.error.URLError, OSError, ValueError) as exc:
                 log("请求设备失败（%s）：%s" % (func, exc))
 
-            proc.stdin.write(json.dumps(reply) + "\n")
+            proc.stdin.write((json.dumps(reply) + "\n").encode("utf-8"))
             proc.stdin.flush()
     except KeyboardInterrupt:
         log("已中断")

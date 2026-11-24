@@ -10,6 +10,7 @@
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "modem/at_client.h"
 
 /* eUICC 的 ISD-R 应用标识（GSMA SGP.22 固定值） */
@@ -293,14 +294,27 @@ esim_err_t esim_channel_open(const char *aid_hex, int *channel)
         return fail(ESIM_ERR_NOMEM, "内存不足");
     }
     /* 有的模组回 "+CCHO: 1"，有的（ML307Y）只回一个光秃秃的通道号 */
-    at_result_t r = at_command_capture_ex(cmd, "+CCHO:", true, line, 160, ESIM_AT_TIMEOUT);
     int ch = -1;
-    if (r == AT_RESULT_OK) {
-        const char *p = strstr(line, "+CCHO:");
-        ch = p ? atoi(p + 6) : atoi(line);
+    bool busy = false;
+    bool no_sim = false;
+    for (int attempt = 0; attempt < 2 && ch <= 0; attempt++) {
+        if (attempt) {
+            /* AT+CCHC 之后模组会补一条 "+CCHC" 主动上报，偶尔正好撞进下一次
+             * CCHO 的应答窗口，导致拿不到通道号。隔 300 ms 再试一次即可。 */
+            vTaskDelay(pdMS_TO_TICKS(300));
+        }
+        at_result_t r = at_command_capture_ex(cmd, "+CCHO:", true, line, 160, ESIM_AT_TIMEOUT);
+        if (r == AT_RESULT_OK) {
+            const char *p = strstr(line, "+CCHO:");
+            ch = p ? atoi(p + 6) : atoi(line);
+        }
+        if (strstr(line, "CME ERROR: 4")) {
+            busy = true;
+        }
+        if (strstr(line, "CME ERROR: 10")) {
+            no_sim = true;
+        }
     }
-    const bool busy = strstr(line, "CME ERROR: 4") != NULL;
-    const bool no_sim = strstr(line, "CME ERROR: 10") != NULL;
     free(line);
     if (ch <= 0) {
         if (busy) {
@@ -818,6 +832,124 @@ static const char *enable_reason(int code)
     default:
         return "未知原因";
     }
+}
+
+static const char *delete_reason(int code)
+{
+    switch (code) {
+    case 1:
+        return "找不到该 ICCID / AID";
+    case 2:
+        return "该配置正在使用中，请先切换到其它配置";
+    case 3:
+        return "被 profile 策略禁止删除";
+    case 4:
+        return "eUICC 不支持删除该配置";
+    case 5:
+        return "终端忙（CAT busy），请稍后重试";
+    default:
+        return "未知原因";
+    }
+}
+
+esim_err_t esim_delete_profile(const char *id)
+{
+    if (!id || !id[0]) {
+        return fail(ESIM_ERR_ARG, "缺少 ICCID 或 AID");
+    }
+
+    char trimmed[40];
+    snprintf(trimmed, sizeof(trimmed), "%s", id);
+    util_trim(trimmed);
+
+    /* 先确认不是当前启用中的配置：删掉正在用的卡会直接断网，这里直接拒绝。
+     * 列表放堆上：10 条配置的数组约 2.6 KB，调用它的网页任务栈只有 4 KB。 */
+    esim_profile_t *list = calloc(ESIM_MAX_PROFILES, sizeof(*list));
+    if (!list) {
+        return fail(ESIM_ERR_NOMEM, "内存不足");
+    }
+    int count = esim_list_profiles(list, ESIM_MAX_PROFILES);
+    for (int i = 0; i < count; i++) {
+        if (strcmp(list[i].iccid, trimmed) == 0 || strcmp(list[i].aid, trimmed) == 0) {
+            if (list[i].state == 1) {
+                esim_err_t active = fail(ESIM_ERR_CARD, "「%s」正在使用中，不能删除；请先切换到其它配置",
+                                          list[i].name[0] ? list[i].name : trimmed);
+                free(list);
+                return active;
+            }
+            break;
+        }
+    }
+    free(list);
+
+    uint8_t ident_val[16];
+    size_t ident_val_len;
+    uint32_t ident_tag;
+    if (strlen(trimmed) == 32) {
+        int n = hex_to_bin(trimmed, ident_val, sizeof(ident_val));
+        if (n != 16) {
+            return fail(ESIM_ERR_ARG, "AID 不是 32 位十六进制");
+        }
+        ident_tag = 0x4F;
+        ident_val_len = (size_t)n;
+    } else {
+        int n = iccid_to_bcd(trimmed, ident_val);
+        if (n != 10) {
+            return fail(ESIM_ERR_ARG, "ICCID 必须是 18-20 位数字，或 32 位十六进制 AID");
+        }
+        ident_tag = 0x5A;
+        ident_val_len = (size_t)n;
+    }
+
+    esim_err_t e = lock_take();
+    if (e != ESIM_OK) {
+        return e;
+    }
+    s_busy = true;
+    if (!card_probe()) {
+        s_busy = false;
+        lock_give();
+        return ESIM_ERR_UNSUPPORTED;
+    }
+
+    /* DeleteProfileRequest ::= [51] { profileIdentifier }
+     * 注意：CHOICE 直接放在 BF33 里，**不能再包一层 A0**——实测 9eSIM 收到
+     * A0 包裹的形式会返回「找不到该 ICCID / AID」（结果码 1）。 */
+    uint8_t ident[24];
+    size_t ident_len = der_put(ident, sizeof(ident), 0, ident_tag, ident_val, ident_val_len);
+
+    uint8_t req[40];
+    size_t req_len = der_put(req, sizeof(req), 0, 0xBF33, ident, ident_len);
+    if (!req_len) {
+        s_busy = false;
+        lock_give();
+        return fail(ESIM_ERR_FORMAT, "构造删除请求失败");
+    }
+
+    uint8_t *resp = malloc(256);
+    size_t len = 0;
+    e = resp ? es10x(req, req_len, resp, 256, &len) : fail(ESIM_ERR_NOMEM, "内存不足");
+    if (e == ESIM_OK) {
+        tlv_t top, code;
+        if (!tlv_read(resp, len, 0, &top) || top.tag != 0xBF33 ||
+            !tlv_find(top.val, top.len, 0x80, &code) || code.len < 1) {
+            e = fail(ESIM_ERR_FORMAT, "删除应答解析失败");
+        } else {
+            int ret = 0;
+            for (size_t i = 0; i < code.len; i++) {
+                ret = (ret << 8) | code.val[i];
+            }
+            if (ret != 0) {
+                e = fail(ESIM_ERR_CARD, "eUICC 拒绝删除：%s（结果码 %d）", delete_reason(ret), ret);
+            } else {
+                log_line("eSIM：已删除 %s（没有触碰当前启用的配置）", trimmed);
+            }
+        }
+    }
+    free(resp);
+    s_busy = false;
+    lock_give();
+    return e;
 }
 
 esim_err_t esim_enable_profile(const char *id, bool refresh, int *ecc)

@@ -244,6 +244,11 @@ body.chan-dirty main{padding-bottom:150px}
 .outbox table.kv{font-size:13px}
 .outbox .empty{color:var(--dim);font-size:12px}
 .chan .spacer{flex:1}
+/* eSIM 配置卡片：ICCID / AID 用两行等宽字体，跟标题左对齐 */
+.esim-meta{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;padding:0 14px 13px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--muted)}
+.esim-meta .k{color:var(--dim)}
+.esim-meta .v{word-break:break-all}
+.esim-acts{display:flex;align-items:center;gap:8px;flex-shrink:0}
 @media (max-width:640px){ .chan-h{flex-wrap:wrap} }
 
 
@@ -531,7 +536,10 @@ body.chan-dirty main{padding-bottom:150px}
           <button class="btn sm" id="esimRefresh">重新读取</button>
         </div>
         <div id="esimList" style="margin-top:12px"><span class="empty">正在读取 eSIM 配置…</span></div>
-        <div class="tip" id="esimTip" style="margin-top:10px">只支持切换：不会删除或修改卡里已有的配置。切换后模组会自动重启并重新注册网络（约 20 秒）。</div>
+        <div class="tip" id="esimTip" style="margin-top:10px">
+          可以切换或删除配置，但<b>正在使用中的配置不允许删除</b>（要删先切到别的配置）。删除前需手动输入 ICCID 确认，删除后只能用激活码重新下载。
+          切换配置后模组会自动重启并重新注册网络（约 20 秒）。
+        </div>
       </div>
 
       <div class="card" style="margin-top:14px">
@@ -563,6 +571,10 @@ body.chan-dirty main{padding-bottom:150px}
             下载要用 GSMA SGP.22 的加密流程（连 SM-DP+ 的 TLS + 几十 KB 的加密安装包），单片机内存和算力都扛不住，
             所以这一步交给电脑：仓库里的 <b>tools/esim_bridge.py</b> 把 lpac 的 APDU 转发到本机设备，效果和在网页上点一下一样。
             装好 <b>lpac</b> 后，在仓库根目录执行上面那条命令即可。
+            <br>
+            第一次用请按
+            <a href="https://github.com/chenxuuu/sms_forwarding/blob/master/idf/docs/esim-import.md" target="_blank" rel="noopener">《eSIM 导入指南》</a>
+            一步步来（装 lpac、验证连接、下载、切卡、删除）。
           </div>
         </div>
       </div>
@@ -1208,6 +1220,15 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
     if (path === "/esim") {
       if (opts && opts.method === "POST") {
         var id = body.id || "";
+        if (body.action === "delete") {
+          var before = state.esim.profiles.length;
+          state.esim.profiles = state.esim.profiles.filter(function(p){ return (p.iccid || p.aid) !== id; });
+          if (state.esim.profiles.length === before) {
+            return json({success: false, message: "找不到该 ICCID / AID"});
+          }
+          pushLog("[eSIM] 删除配置 " + id);
+          return json({success: true, message: "已删除该配置"});
+        }
         state.esim.profiles.forEach(function(p){ p.state = (p.iccid === id || p.aid === id) ? 1 : 0; });
         pushLog("[eSIM] 切换配置 " + id + "，模组重启中");
         return json({success: true, message: "已切换，模组正在重新注册网络（约 20 秒）"});
@@ -1276,7 +1297,6 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
   refreshDerived();
 })();
 </script>
-
 <script>
 (function(){
   'use strict';
@@ -1358,16 +1378,30 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
     }
   }
   /* yesText/noText 用具体动作命名，避免"确定"到底是保存还是丢弃 */
-  function confirmDlg(title, text, yesText, noText, yesClass, noClass){
+  function confirmDlg(title, text, yesText, noText, yesClass, noClass, expect){
     return new Promise(function(resolve){
       $('mTitle').textContent = title;
-      $('mBody').textContent = text;
+      var body = $('mBody');
+      body.textContent = text;
       $('mYes').textContent = yesText || '确定';
       $('mNo').textContent = noText || '取消';
       $('mYes').className = yesClass || 'btn danger';
       $('mNo').className = noClass || 'btn';
+      $('mYes').disabled = false;
+      if (expect) {
+        /* 危险操作：必须把 ICCID / AID 原样敲一遍才能点确定 */
+        var inp = document.createElement('input');
+        inp.placeholder = '输入 ' + expect + ' 以确认';
+        inp.autocomplete = 'off';
+        inp.setAttribute('autocapitalize', 'off');
+        inp.style.marginTop = '12px';
+        body.appendChild(inp);
+        $('mYes').disabled = true;
+        inp.oninput = function(){ $('mYes').disabled = inp.value.trim() !== expect; };
+        setTimeout(function(){ try { inp.focus(); } catch(e){} }, 80);
+      }
       $('modal').classList.add('show');
-      function end(ok){ $('modal').classList.remove('show'); $('mYes').onclick = null; $('mNo').onclick = null; resolve(ok); }
+      function end(ok){ $('modal').classList.remove('show'); body.textContent = ''; $('mYes').onclick = null; $('mNo').onclick = null; resolve(ok); }
       $('mYes').onclick = function(){ end(true); };
       $('mNo').onclick = function(){ end(false); };
     });
@@ -2239,15 +2273,23 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
           '<span class="tag">' + esimStateText(p.state) + '</span>' +
           (p.provider ? '<span class="tip">' + esc(p.provider) + '</span>' : '') +
           '<span class="spacer"></span>' +
-          (on ? '<span class="tip">当前生效</span>'
-              : '<button class="btn sm" data-esim-id="' + esc(id) + '">切换到此配置</button>') +
+          (on ? '<span class="tip">不可删除</span>' :
+            '<span class="esim-acts">' +
+              '<button class="btn sm" data-esim-id="' + esc(id) + '">切换</button>' +
+              '<button class="btn sm danger" data-esim-del="' + esc(id) + '">删除</button>' +
+            '</span>') +
         '</div>' +
-        '<div style="font-size:11.5px;color:var(--dim);word-break:break-all">' +
-          'ICCID ' + esc(p.iccid || '--') + ' · AID ' + esc(p.aid || '--') +
-        '</div></div>';
+        '<div class="esim-meta">' +
+          '<span class="k">ICCID</span><span class="v">' + esc(p.iccid || '--') + '</span>' +
+          '<span class="k">AID</span><span class="v">' + esc(p.aid || '--') + '</span>' +
+        '</div>' +
+      '</div>';
     }).join('');
     Array.prototype.forEach.call(box.querySelectorAll('[data-esim-id]'), function(b){
       b.addEventListener('click', function(){ esimSwitch(b.getAttribute('data-esim-id'), b); });
+    });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-esim-del]'), function(b){
+      b.addEventListener('click', function(){ esimDelete(b.getAttribute('data-esim-del'), b); });
     });
   }
 
@@ -2272,6 +2314,36 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
         return;
       }
       $('esimList').innerHTML = '<span class="empty">读取失败，请稍后重试</span>';
+    });
+  }
+
+  function esimDelete(id, btn){
+    if (!id) return;
+    var p = null;
+    ((ESIM.data && ESIM.data.profiles) || []).forEach(function(x){
+      if ((x.iccid || x.aid) === id) p = x;
+    });
+    if (p && p.state === 1) {
+      toast('当前使用中的配置不能删除，请先切换到其它配置', 'err');
+      return;
+    }
+    confirmDlg('删除 eSIM 配置',
+      '将从卡里永久删除「' + ((p && p.name) || id) + '」。删除后只能用运营商的激活码重新下载，无法撤销。当前使用中的配置不允许删除。',
+      '确认删除', '取消', 'btn danger', 'btn', id).then(function(ok){
+      if (!ok) return;
+      busy(btn, true);
+      api('/esim', { method:'POST', body:'action=delete&id=' + encodeURIComponent(id) }).then(function(r){
+        busy(btn, false);
+        if (r && r.success) {
+          toast(r.message || '已删除', 'ok');
+          loadEsim();
+        } else {
+          toast((r && r.message) || '删除失败', 'err');
+        }
+      }).catch(function(){
+        busy(btn, false);
+        toast('请求失败', 'err');
+      });
     });
   }
 

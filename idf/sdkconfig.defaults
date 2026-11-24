@@ -31,7 +31,10 @@ CONFIG_LOG_MAXIMUM_LEVEL_INFO=y
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=30
 # ---- 内存优化（C3 只有 ~300KB RAM，TLS 握手需要空间）----
 CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
-CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=4096
+# 入站记录缓冲：服务器常把整条证书链塞进一个 TLS 记录里，
+# smtp.qq.com 那条记录是 5489 字节（DigiCert RSA4096 三级链），4096 装不下，
+# 握手直接失败（日志里是 tls=0x87）。8192 能覆盖绝大多数站点。
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=8192
 CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=2048
 
 # WiFi 收发缓冲：默认 16 个动态 RX + 16 个动态 TX，光这一项就占 40 KB 以上堆。

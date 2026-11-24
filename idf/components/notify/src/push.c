@@ -36,6 +36,28 @@ static void request_free(push_request_t *req)
     sbuf_free(&req->body);
 }
 
+/* 判断 JSON 里某个布尔字段是否为 true（容忍 ": true" 这种带空格的写法） */
+static bool json_bool_true(const char *resp, const char *key)
+{
+    size_t klen = strlen(key);
+    const char *p = resp;
+    while ((p = strstr(p, key)) != NULL) {
+        const char *q = p + klen;
+        while (*q == ' ' || *q == '\t' || *q == '\r' || *q == '\n') {
+            q++;
+        }
+        if (*q == ':') {
+            q++;
+            while (*q == ' ' || *q == '\t' || *q == '\r' || *q == '\n') {
+                q++;
+            }
+            return strncmp(q, "true", 4) == 0;
+        }
+        p += klen;
+    }
+    return false;
+}
+
 /* 部分平台 HTTP 200 但业务失败，需要检查响应体 */
 static bool body_is_success(const push_channel_t *ch, const char *resp)
 {
@@ -48,19 +70,44 @@ static bool body_is_success(const push_channel_t *ch, const char *resp)
     case PUSH_TYPE_PUSHPLUS:
         return strstr(resp, "\"code\":200") != NULL;
     case PUSH_TYPE_TELEGRAM:
-        return strstr(resp, "\"ok\":true") != NULL;
+        return json_bool_true(resp, "\"ok\"");
     default:
         return true;
     }
 }
 
+typedef struct {
+    char buf[512];
+    size_t len;
+} http_body_t;
+
+/* esp_http_client_perform() 会自己把响应体读掉，不留给 esp_http_client_read_response()。
+ * 所以在事件回调里顺手存一份，用来做业务成功判断。 */
+static esp_err_t http_on_data(esp_http_client_event_t *evt)
+{
+    if (evt->event_id == HTTP_EVENT_ON_DATA && evt->user_data) {
+        http_body_t *body = (http_body_t *)evt->user_data;
+        if (evt->data_len > 0 && body->len < sizeof(body->buf) - 1) {
+            size_t room = sizeof(body->buf) - 1 - body->len;
+            size_t n = (size_t)evt->data_len < room ? (size_t)evt->data_len : room;
+            memcpy(body->buf + body->len, evt->data, n);
+            body->len += n;
+            body->buf[body->len] = '\0';
+        }
+    }
+    return ESP_OK;
+}
+
 static bool execute_once(const push_channel_t *ch, const push_request_t *req,
                          const char *name, int *status_out)
 {
+    http_body_t acc = {0};
     esp_http_client_config_t cfg = {
         .url = sbuf_cstr(&req->url),
         .timeout_ms = 10000,
         .crt_bundle_attach = esp_crt_bundle_attach,
+        .event_handler = http_on_data,
+        .user_data = &acc,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client) {
@@ -90,11 +137,11 @@ static bool execute_once(const push_channel_t *ch, const push_request_t *req,
     *status_out = status;
     log_line("[%s] 响应码: %d", name, status);
 
-    char resp[512] = {0};
-    int n = esp_http_client_read_response(client, resp, sizeof(resp) - 1);
-    if (n > 0) {
-        resp[n] = '\0';
+    const char *resp = acc.buf;
+    if (acc.len > 0) {
         log_line("[%s] 响应: %s", name, resp);
+    } else {
+        log_line("[%s] 响应体为空", name);
     }
 
     if (status >= 200 && status < 300) {
@@ -376,8 +423,15 @@ bool push_send_channel(const push_channel_t *channel, const char *title, const c
             request_free(&req);
             return true;
         }
-        if (status >= 400 && status < 500 && status != 429) {
-            log_line("[%s] 客户端错误 %d，跳过重试", name, status);
+        /* 只有"可能没送到"的情况才重试：网络错误（status==0）、5xx、429。
+         * 2xx 说明平台已经收到并给出应答，即使业务字段判失败，重试也只会让用户收到重复通知。 */
+        const bool retryable = (status == 0) || status >= 500 || status == 429;
+        if (!retryable) {
+            if (status >= 200 && status < 300) {
+                log_line("[%s] 请求已送达（HTTP %d），不再重试", name, status);
+            } else {
+                log_line("[%s] 客户端错误 %d，跳过重试", name, status);
+            }
             break;
         }
     }

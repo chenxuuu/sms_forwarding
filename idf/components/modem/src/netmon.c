@@ -237,7 +237,20 @@ static bool rf_cycle(void)
     }
     free(resp);
 
-    /* CFUN 循环可能丢掉运行期设置：短信直报、PDU 模式、禁用数据连接 */
+    /* CFUN 循环会丢掉运行期设置：短信直报、PDU 模式、禁用数据连接。
+     * 注意顺序：实测 ML307Y 要等 SIM 重新 READY（CFUN=1 后约 8 秒）才把 +CNMI
+     * 清回默认值，太早下发会被这次清零覆盖，之后就一直收不到短信。
+     * 所以先等 SIM 就绪，再多等几秒再配置。 */
+    for (int i = 0; i < 10; i++) {
+        char *sim = modem_at("AT+CPIN?", 3000);
+        bool ready = sim && strstr(sim, "READY");
+        free(sim);
+        if (ready) {
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+    vTaskDelay(pdMS_TO_TICKS(3000));
     at_ok("AT+CNMI=2,2,0,0,0", 3000);
     at_ok("AT+CMGF=0", 3000);
     if (strcmp(modem_model(), "ML307Y") != 0) {
@@ -287,6 +300,9 @@ static void netmon_task(void *arg)
     time_t offline_wall = 0;
 
     while (1) {
+        /* 模组复位后 +CNMI 会被清成 0,0,0,0,0（短信静默丢失），每轮复核一次 */
+        modem_sms_config_check();
+
         modem_reg_t r;
         net_check(&r);
         char csq[24];

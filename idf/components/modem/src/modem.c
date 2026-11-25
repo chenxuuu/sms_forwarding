@@ -59,6 +59,7 @@ static char s_version[MODEM_VERSION_MAX];
 #define PDU_WAIT_MAX_MS 5000
 
 static bool s_expect_pdu;
+static volatile bool s_sms_cfg_dirty = true; /* 需要复核 +CNMI（SIM 重新初始化后会丢） */
 static int s_pdu_wait_lines;  /* +CMT 之后夹进来的非 PDU 行数 */
 static int64_t s_pdu_wait_ms; /* 开始等 PDU 的时刻 */
 static int s_last_urc_stat = -1;
@@ -118,9 +119,16 @@ static void handle_urc(const char *line)
         log_line("收到 +CMTI（短信存储通知）: %s", line);
         return;
     }
+    /* SIM 重新 READY（CFUN 循环、模组自重启）时，模组会把 +CNMI 恢复成默认的
+     * 0,0,0,0,0——短信从此不再上报，日志里连 +CMT 都没有。标记一下让守护任务复核。 */
+    if (util_starts_with(line, "+CPIN:")) {
+        if (strstr(line, "READY")) {
+            s_sms_cfg_dirty = true;
+        }
+        return;
+    }
     /* 网络守护每分钟轮询的应答：不逐条记录，只在注册状态真正变化时打一行 */
-    if (util_starts_with(line, "+CPIN:") || util_starts_with(line, "+CSQ:") ||
-        util_starts_with(line, "+CFUN:")) {
+    if (util_starts_with(line, "+CSQ:") || util_starts_with(line, "+CFUN:")) {
         return;
     }
     if (util_starts_with(line, "+CREG:") || util_starts_with(line, "+CEREG:") ||
@@ -348,6 +356,67 @@ static void detect_self_phone(void)
     }
 }
 
+/* ---- 短信直报（+CNMI / +CMGF） ---- */
+
+/* 读回 +CNMI，确认仍是「模式 2 + MT 直报(+CMT)」；0,0,0,0,0 就代表短信不再上报。 */
+static bool sms_config_intact(void)
+{
+    char resp[128] = {0};
+    if (at_command("AT+CNMI?", resp, sizeof(resp), 3000) != AT_RESULT_OK) {
+        return false;
+    }
+    const char *p = strstr(resp, "+CNMI:");
+    int mode = -1, mt = -1;
+    if (!p || sscanf(p, "+CNMI: %d,%d", &mode, &mt) != 2) {
+        return false;
+    }
+    return mode == 2 && mt == 2;
+}
+
+/** 下发短信直报配置（CNMI 直报 + PDU 模式）。 */
+static void apply_sms_config(void)
+{
+    while (!at_command_ok("AT+CNMI=2,2,0,0,0", 1000)) {
+        log_line("设置短信上报失败，重试...");
+        led_blink(300);
+    }
+    log_line("短信直报已开启（CNMI=2,2,0,0,0）");
+
+    while (!at_command_ok("AT+CMGF=0", 1000)) {
+        log_line("设置 PDU 模式失败，重试...");
+        led_blink(300);
+    }
+    log_line("PDU 模式已设置（CMGF=0）");
+    s_sms_cfg_dirty = false;
+}
+
+/**
+ * 复核短信直报配置，被模组清掉就补上。
+ *
+ * 实测 ML307Y：AT+CFUN=1 之后约 8 秒（SIM 重新 +CPIN: READY 时）模组会把 +CNMI
+ * 恢复成默认的 0,0,0,0,0，这条链路上从此不再报 +CMT——表现为「收不到短信，
+ * 日志里一点动静都没有」。自愈流程在 CFUN=1 后 2 秒就补发 CNMI，正好被这次
+ * 清零覆盖。所以除了 +CPIN READY 时打标记，还要定期读一次 +CNMI? 兜底。
+ */
+void modem_sms_config_check(void)
+{
+    static int tick;
+    if (!s_init_done) {
+        return;
+    }
+    /* 打标记（SIM 重新就绪）时立刻查；平时每 10 轮（约 10 分钟）查一次 */
+    if (!s_sms_cfg_dirty && ++tick < 10) {
+        return;
+    }
+    tick = 0;
+    if (sms_config_intact()) {
+        s_sms_cfg_dirty = false;
+        return;
+    }
+    log_line("短信直报配置被模组复位（+CNMI 不是 2,2），重新开启");
+    apply_sms_config();
+}
+
 static void do_init(bool power_cycle)
 {
     s_ready = false;
@@ -399,17 +468,7 @@ static void do_init(bool power_cycle)
         log_line("ML307Y 跳过 AT+CGACT=0,1");
     }
 
-    while (!at_command_ok("AT+CNMI=2,2,0,0,0", 1000)) {
-        log_line("设置短信上报失败，重试...");
-        led_blink(300);
-    }
-    log_line("短信直报已开启（CNMI=2,2,0,0,0）");
-
-    while (!at_command_ok("AT+CMGF=0", 1000)) {
-        log_line("设置 PDU 模式失败，重试...");
-        led_blink(300);
-    }
-    log_line("PDU 模式已设置（CMGF=0）");
+    apply_sms_config();
 
     /* 本机号码：用户未配置时尝试自动读取，失败就保持为空 */
     detect_self_phone();
@@ -432,6 +491,9 @@ static void do_init(bool power_cycle)
         led_set(true);
     }
     s_init_done = true;
+    /* 注册/附着过程中模组可能又把 +CNMI 清回默认值，这里强制复核一次 */
+    s_sms_cfg_dirty = true;
+    modem_sms_config_check();
 }
 
 /* 解析 +MPING: <result>,<ip>,<len>,<time>,<ttl> */

@@ -188,6 +188,7 @@ openssl s_client -connect smtp.qq.com:465 -tls1_2 -msg 2>&1 | grep "Certificate"
 | 保存表单 | 50 个通道的表单可能超过 16KB，请求体上限已放宽到 40KB |
 | 长短信乱码 | 7bit+UDH 的分段消息解出 `¡Ñ§ΩΛ` 乱码：UDH 结束后要从第 **49** bit（7 个 septet）开始解，按 48 bit 会整体错位 1 bit。已修，用 4 段真实 PDU + 构造的 4 段 GSM7 / 3 段 UCS2 用例回归 |
 | 短信被应答打断 | `+CMT` 与 PDU 之间夹了 `+CPIN: READY` 时旧逻辑会丢掉整条短信（长短信缺第 1 段）。现在等待期间不中断，5 秒 / 16 行才放弃 |
+| 短信突然收不到（连 URC 都没有） | ML307Y 在 `AT+CFUN=1` 之后约 8 秒、SIM 重新 `+CPIN: READY` 时会把 `+CNMI` 清回默认的 `0,0,0,0,0`，此后一条 `+CMT` 都不报。旧版 `rf_cycle()` 在 CFUN=1 后 2 秒就补发，正好被这次清零覆盖，设备从此「永久失聪」。现在 `rf_cycle()` 等 SIM READY 再多等 3 秒才配置，网络守护每轮用 `AT+CNMI?` 复核、发现被清就补发（日志：`短信直报配置被模组复位（+CNMI 不是 2,2），重新开启`）。排查同类问题先看一眼 `AT+CNMI?` |
 
 ## 10. 调试期关掉掉电检测（Brownout）
 

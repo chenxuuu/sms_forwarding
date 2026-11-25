@@ -24,6 +24,9 @@ python tools/serial_capture.py COM3 60  # 抓日志（直接 monitor/开串口�
 - 新增推送通道：`push_type_t` → `push.c` 的 `build_request()` → `config_push_channel_valid()` → Web 表单选项。
   推送失败的重试只看「可能没送到」（status=0 / 5xx / 429）；2xx 已送达不要重试，否则一条短信推 2~3 条。
   校验响应体要在 `HTTP_EVENT_ON_DATA` 里自己攒——`esp_http_client_perform()` 会把 body 读走。
+- **短信 URC 依赖 +CNMI**：ML307Y 在 `AT+CFUN=1` 后约 8 秒（SIM 重新 READY）会把 `+CNMI` 清回
+  `0,0,0,0,0`，此后一条 `+CMT` 都不报。`rf_cycle()` 必须等 SIM READY 再多等 3 秒才下发，
+  `netmon` 每轮用 `AT+CNMI?` 兜底复核（见 `modem_sms_config_check()`）。
 - **Web 接口字段名**：`/config` 里通道模板的 JSON 键是 `custom_body`（同结构体），
   而提交表单用的是 `pushNbody`；两者名字不同，改前端/后端时务必对上（issue #77 就是这么来的）。
 - **内存红线**：`CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` 不能低于 8192——服务器会把整条证书链

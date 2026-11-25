@@ -66,6 +66,9 @@ JSON 转义、URL 编码、Base64、HMAC-SHA256→Base64（钉钉/飞书签名�
   （第 49 bit，即 7 个 septet）开始，中间那 1 bit 是填充位。按 48 bit 解会让每个字符错位 1 bit，
   解出来是 `¡Ñ§ΩΛ` 这类乱码（issue #37 的“邮件乱码”就是这个）。UDL 也要按
   `UDH septet 数 + 文本 septet 数` 校验，长度不符直接判畸形。
+- **emoji / 非 BMP 字符**：UCS2 用 UTF-16 代理对表示。解码时把 `D800-DBFF` + `DC00-DFFF` 合成一个码点，
+  落单的代理项替换成 U+FFFD；编码时把非 BMP 码点拆成代理对。不做这层处理会输出 CESU-8（`ED B9 89`），
+  既显示成 `������`，又因为不是合法 UTF-8 让 `/log` 的 JSON 解析失败、网页日志页白屏。
 
 ### sms_assembler
 
@@ -78,7 +81,13 @@ JSON 转义、URL 编码、Base64、HMAC-SHA256→Base64（钉钉/飞书签名�
 
 - 作业队列（初始化 / 发送短信 / 原始 AT / ping / HTTP 访问 / 软重启 / 硬重启），作业对象在堆上传递；
 - 初始化流程：EN 断电重启 → `AT` 握手 → `ATI` 识别型号 → `AT+CGACT=0,1`（ML307Y 跳过）
-  → `AT+CNMI=2,2,0,0,0` → `AT+CMGF=0` → `AT+COPS`（按配置选网）→ `AT+CEREG?` 等注册；
+  → `apply_sms_config()`（`AT+CNMI=2,2,0,0,0` + `AT+CMGF=0`）→ `AT+COPS`（按配置选网）
+  → `AT+CEREG?` 等注册 → 注册后再跑一次 `modem_sms_config_check()`；
+- **`+CNMI` 会被模组清掉，必须兜底复核**：实测 ML307Y 在 `AT+CFUN=1` 之后约 8 秒（SIM 重新
+  `+CPIN: READY`）把 `+CNMI` 恢复成默认的 `0,0,0,0,0`，此后一条 `+CMT` 都不上报，日志毫无动静。
+  `modem_sms_config_check()` 用 `AT+CNMI?` 读回校验（要求 mode=2、mt=2），不对就重新下发；
+  `+CPIN: READY` 时置脏标记立即复核，平时由 netmon 每轮顺带查一次（内部每 10 轮约 10 分钟才真查）；
+  `rf_cycle()` 在 `CFUN=1` 后先等 SIM READY、再多等 3 秒才配置，避开那次清零；
 - `modem_ping_ip(ip)`：`AT+MPING="<ip>",30,1` → 解析延迟/TTL；默认目标 `qq.com`，
   `modem_ping()` 是其兼容包装。**不执行 CGACT**（见下方说明）；
 - `modem_http_get(url)`：保号流量操作——`AT+MHTTPDEL=0` → `AT+MHTTPCREATE="<scheme>://<host>"`
@@ -97,7 +106,8 @@ JSON 转义、URL 编码、Base64、HMAC-SHA256→Base64（钉钉/飞书签名�
 ### netmon（蜂窝网络守护）
 
 - 每 60 秒用 `AT`、`AT+CPIN?`、`AT+CREG?`、`AT+CEREG?`、`AT+CSQ`、`AT+CFUN?` 检查一次，
-  全部是**信令查询，不发短信、不激活数据连接，零资费**；
+  全部是**信令查询，不发短信、不激活数据连接，零资费**；每轮开头还会调一次
+  `modem_sms_config_check()`（多数轮次只是空跑，不打 AT）；
 - 连续 2 次确认未注册才判定掉线；已注册但连续 3 次 `CSQ=99`（读不到信号）同样视为射频卡死；
 - 自愈阶梯：`AT+CFUN=4 → AT+CFUN=1 → AT+COPS`（射频重启 + 按配置重新选网；
   第 1 级的飞行模式保持时长按 TCP 式退避：首次 10 秒，每次失败翻倍，上限 5 分钟，
@@ -238,7 +248,13 @@ POST JSON 多一个 `self_phone` 字段，GET 多一个 `self_phone` 查询参�
   推送通道表单片段动态生成，按 2KB 分块发送；
 - 长耗时接口用 `httpd_req_async_handler_begin()` 转独立任务，响应完成后
   `httpd_req_async_handler_complete()`；
-- 请求体解析：`application/x-www-form-urlencoded`，字段按需更新（兼容旧版多表单提交）。
+- 请求体解析：`application/x-www-form-urlencoded`，字段按需更新（兼容旧版多表单提交）；
+- 页面约 270 KB（内联 CSS/JS + 本地二维码解码库），`EMBED_TXTFILES` 打进固件，按 2 KB 分块发送；
+- **中英双语**：`index.html` 内置 `I18N`（中文原文 → 英文，约 190 条）和 `I18N_FRAG`（拼接片段）；
+  首次打开按 `navigator.languages` 判断（`zh*` → 中文，其它 → 英文），顶栏「自动 / 中文 / EN」可手动切，
+  模式存 `localStorage.lang`。静态文案和动态渲染共用一套逻辑：`walkI18n()` 遍历文本与
+  placeholder/title/aria-label，`MutationObserver` 监听新插入节点自动补翻，切回中文时从节点缓存的原串恢复。
+  新增界面文案要同时补进字典，否则英文界面会残留中文。
 
 ### 界面结构（web/index.html）
 

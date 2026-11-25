@@ -46,7 +46,7 @@ Whenever anyone texts that number, the device parses the message, merges long SM
 
 ## Screenshots
 
-The firmware ships a complete web UI (~250 KB, including an embedded local QR decoder, served straight from flash) that works on phones too.
+The firmware ships a complete web UI (~270 KB, including an embedded local QR decoder, served straight from flash) that works on phones too.
 The UI is available in Chinese and English: the first visit follows your browser language (Chinese in Chinese-speaking regions, English elsewhere) and you can switch manually in the top bar.
 Dark / light / follow-system themes.
 

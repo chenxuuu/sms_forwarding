@@ -124,8 +124,23 @@ static int utf8_to_ucs2(const char *s, uint8_t *out, int cap)
             break;
         }
         s += used;
+        if (cp > 0x10FFFF) {
+            return -1; /* 不是合法码点 */
+        }
         if (cp > 0xFFFF) {
-            return -1; /* 超出 UCS2 单字符范围 */
+            /* 非 BMP（emoji 等）：按 UTF-16 代理对拆成两个 16 位单元，
+             * 收到的一端才能合回一个字符 */
+            if (n + 4 > cap) {
+                return -1;
+            }
+            uint32_t v = cp - 0x10000;
+            uint16_t hi = (uint16_t)(0xD800 + (v >> 10));
+            uint16_t lo = (uint16_t)(0xDC00 + (v & 0x3FF));
+            out[n++] = (uint8_t)(hi >> 8);
+            out[n++] = (uint8_t)(hi & 0xFF);
+            out[n++] = (uint8_t)(lo >> 8);
+            out[n++] = (uint8_t)(lo & 0xFF);
+            continue;
         }
         if (n + 2 > cap) {
             return -1;
@@ -144,6 +159,19 @@ static int ucs2_to_utf8(const uint8_t *in, int len, char *out, int cap)
         uint32_t cp = ((uint32_t)in[i] << 8) | in[i + 1];
         if (cp == 0) {
             continue;
+        }
+        /* UTF-16 代理对：emoji 等非 BMP 字符在 UCS2 里是两个 16 位单元。
+         * 不合并的话会各按普通码点编码成 3 字节（CESU-8），既显示成乱码，
+         * 又因为 0xED 开头的序列不是合法 UTF-8，让 /log 的 JSON 直接解析失败。 */
+        if (cp >= 0xD800 && cp <= 0xDBFF && i + 3 < len) {
+            uint32_t lo = ((uint32_t)in[i + 2] << 8) | in[i + 3];
+            if (lo >= 0xDC00 && lo <= 0xDFFF) {
+                cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                i += 2;
+            }
+        }
+        if (cp >= 0xD800 && cp <= 0xDFFF) {
+            cp = 0xFFFD; /* 落单的代理项：换成替换符，不能当普通码点编码 */
         }
         char tmp[4];
         int used = utf8_emit(cp, tmp);

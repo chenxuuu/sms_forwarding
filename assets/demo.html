@@ -287,6 +287,11 @@ body.chan-dirty main{padding-bottom:150px}
         <button type="button" data-pref="light">浅色</button>
         <button type="button" data-pref="system">跟随系统</button>
       </div>
+      <div class="seg" id="langSeg" role="group" aria-label="语言">
+        <button type="button" data-lang="auto">自动</button>
+        <button type="button" data-lang="zh">中文</button>
+        <button type="button" data-lang="en">EN</button>
+      </div>
       <button class="btn sm" id="refreshBtn"><span class="spinner"></span>刷新状态</button>
     </div>
 
@@ -2606,6 +2611,411 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
     $('feedCount').textContent = String(S.logs.length);
   }
 
+  /* ---------- 语言：自动（中文区→中文，其它英文）/ 中文 / English ---------- */
+  var LANG_KEY = 'lang';
+  /* 中文源串 -> 英文。页面文案全部走这张表，改文案时两边一起改 */
+  var I18N = {
+    '465 端口为 SSL；其它端口明文': 'Port 465 uses SSL, other ports are plaintext',
+    '4G 模组': '4G modem',
+    'AGPL-3.0 / LGPL-2.1 · eSIM（SGP.22）流程参考；PC 端工具，固件不包含其代码': 'AGPL-3.0 / LGPL-2.1 · eSIM (SGP.22) flow reference; a PC-side tool, not part of the firmware',
+    'AT 指令': 'AT command',
+    'AT指令': 'AT',
+    'Apache-2.0 · 网页端二维码解码（已内嵌，协议全文见页面内': 'Apache-2.0 · in-browser QR decoding (embedded; full license text in',
+    'ESP32-C3 + ML307 4G 模组 · 开源固件': 'ESP32-C3 + ML307 4G modem · open-source firmware',
+    'MIT · eSIM APDU 流程参考': 'MIT · eSIM APDU flow reference',
+    'Ping 主机': 'Ping host',
+    'Ping 目标': 'Ping target',
+    'SIM 卡号码': 'SIM number',
+    'SMTP 服务器': 'SMTP server',
+    'eSIM 配置': 'eSIM profiles',
+    'lpac 以独立进程方式在电脑上运行（tools/esim_bridge.py 通过 HTTP 转发 APDU），与本固件不构成链接关系。': 'lpac runs as a separate process on your PC (tools/esim_bridge.py forwards APDUs over HTTP) and is not linked with this firmware.',
+    '《eSIM 导入指南》': 'eSIM import guide',
+    '一步步来（装 lpac、验证连接、下载、切卡、删除）。': 'Step by step: install lpac, verify the connection, download, switch and delete.',
+    '上传固件（*-ota.bin）': 'Upload firmware (*-ota.bin)',
+    '上传并升级': 'Upload and update',
+    '下一步': 'Next',
+    '下载要用 GSMA SGP.22 的加密流程（连 SM-DP+ 的 TLS + 几十 KB 的加密安装包），单片机内存和算力都扛不住，': 'Downloading a profile needs the GSMA SGP.22 secure flow (TLS to the SM-DP+ plus a tens-of-KB encrypted package), which is beyond the MCU,',
+    '所以这一步交给电脑：仓库里的': 'so this step runs on your PC: the',
+    '中国移动 46000 / 中国联通 46001 / 中国电信 46011；仅手动模式需要': 'China Mobile 46000 / Unicom 46001 / Telecom 46011; only needed in manual mode',
+    '二维码图片': 'QR code image',
+    '任务类型': 'Task type',
+    '保号操作': 'Keep-alive action',
+    '保存任务': 'Save task',
+    '保存全部通道': 'Save all channels',
+    '保存号码': 'Save number',
+    '保存后生效': 'Takes effect after saving',
+    '保存本机号码': 'Save local number',
+    '保存账号': 'Save account',
+    '保存选网配置': 'Save network selection',
+    '保存邮件设置': 'Save email settings',
+    '保存黑名单': 'Save blacklist',
+    '全部': 'All',
+    '关于': 'About',
+    '内容': 'Content',
+    '到点自动发送短信 / Ping / 访问网址；设备错过时间（关机、重启）会在时间同步后补执行一次；执行结果推送到所有通道': 'Send SMS / ping / fetch a URL at the given time; if the device missed it (powered off or rebooted) it runs once after time sync; results go to all channels',
+    '刷新状态': 'Refresh',
+    '加载中…': 'Loading…',
+    '协议开源。eSIM 与二维码部分用到/参考了下面这些项目，按各自协议使用：': 'Open source. The eSIM and QR parts use or reference these projects, each under its own license:',
+    '去下载': 'Download',
+    '去发短信': 'Send SMS',
+    '发送短信': 'Send SMS',
+    '取消': 'Cancel',
+    '只能上传 ota 包（约 1.3 MB）；升级中不要断电': 'OTA images only (~1.3 MB); do not cut power during the update',
+    '可以切换或删除配置，但': 'You can switch or delete profiles, but',
+    '号码黑名单': 'Number blacklist',
+    '后，在仓库根目录执行上面那条命令即可。': 'then run the command above from the repo root.',
+    '向上翻看时会自动停止跟随，不会把你拉回底部': 'Scrolling up stops auto-follow without yanking you back to the bottom',
+    '启动、IP 变化、网络恢复、配置更新会发送到所有已启用通道；修改后必须点击「保存全部通道」才会生效': 'Boot, IP change, network recovery and config updates go to all enabled channels; click "Save all channels" for changes to apply',
+    '启用': 'Enabled',
+    '固件升级': 'Firmware update',
+    '固件版本': 'Firmware version',
+    '在 GitHub 打开': 'Open on GitHub',
+    '堆剩余': 'Heap free',
+    '复制命令': 'Copy command',
+    '复制日志': 'Copy log',
+    '复制设备地址': 'Copy device address',
+    '复制项目地址': 'Copy repo URL',
+    '定时任务': 'Scheduled tasks',
+    '密码': 'Password',
+    '密码/授权码': 'Password / token',
+    '导入新配置': 'Import profile',
+    '尚未检查': 'Not checked yet',
+    '已关闭邮件通道：短信与系统通知只发送到推送通道': 'Email channel is off: SMS and system notifications go to push channels only',
+    '开': 'On',
+    '开启后射频关闭，无法收发短信': 'When on, the radio is off and SMS cannot be sent or received',
+    '开源协议与致谢': 'Licenses and credits',
+    '开源地址': 'Repository',
+    '当前版本': 'Current version',
+    '循环（天，0 = 只执行一次）': 'Repeat (days, 0 = run once)',
+    '手动指定': 'Manual',
+    '手机号': 'Phone number',
+    '打开页面自动检查，12 小时内不重复；只提示不下载': 'Checked automatically when the page opens, at most once per 12 hours; it only notifies, never downloads',
+    '执行 Ping': 'Run ping',
+    '执行指令': 'Run command',
+    '执行时间': 'Run time',
+    '把 lpac 的 APDU 转发到本机设备，效果和在网页上点一下一样。': 'forwards lpac APDUs to this device, with the same effect as clicking in the web UI.',
+    '把收到的短信通过 WiFi 推送到邮件与多种平台（Bark、钉钉、飞书、Telegram、PushPlus、Server 酱等），': 'forwards incoming SMS over WiFi to email and many platforms (Bark, DingTalk, Feishu, Telegram, PushPlus, ServerChan, …),',
+    '推送通道': 'Push channels',
+    '推送通道有未保存的修改': 'Push channels have unsaved changes',
+    '收件地址': 'Recipient',
+    '放弃修改': 'Discard changes',
+    '暂无事件': 'No events yet',
+    '暂无任务': 'No tasks yet',
+    '暂无记录': 'No records yet',
+    '最新版本': 'Latest version',
+    '最近动态': 'Recent activity',
+    '最近执行过的指令': 'Recently run commands',
+    '有新日志 · 点击查看': 'New logs · click to view',
+    '有未保存修改': 'Unsaved changes',
+    '未发送': 'Not sent',
+    '本机号码': 'Local number',
+    '本次会话发送记录': 'Sent in this session',
+    '本项目以': 'This project is released under the',
+    '查看日志': 'View log',
+    '查询 SIM': 'Query SIM',
+    '查询 WiFi': 'Query WiFi',
+    '查询信号': 'Query signal',
+    '查询固件': 'Query firmware',
+    '查询结果会显示在这里': 'Query results appear here',
+    '查询网络': 'Query network',
+    '概览': 'Overview',
+    '模组信息查询': 'Modem info',
+    '正在使用中的配置不允许删除': 'The active profile cannot be deleted',
+    '正在读取 eSIM 配置…': 'Reading eSIM profiles…',
+    '正在读取…': 'Reading…',
+    '浅色': 'Light',
+    '测试邮件': 'Test email',
+    '深色': 'Dark',
+    '添加任务': 'Add task',
+    '添加通道': 'Add channel',
+    '清空内容': 'Clear',
+    '激活码': 'Activation code',
+    '生成导入命令': 'Generate import command',
+    '用于通知文案和自定义模版变量 {self_phone}；留空时每次启动都会尝试 AT+CNUM 自动获取，取不到就保持为空': 'Used in notifications and the {self_phone} template variable; when empty the device tries AT+CNUM on boot and stays blank if that fails',
+    '目标号码': 'Target number',
+    '短信': 'SMS',
+    '短信内容': 'Message',
+    '短信转发器': 'SMS Forwarder',
+    '硬重启模组': 'Hard-reset modem',
+    '确定': 'OK',
+    '确认': 'Confirm',
+    '确认码（可选）': 'Confirmation code (optional)',
+    '离开本页、刷新或重启都会丢失': 'Lost if you leave, refresh or reboot',
+    '空闲内存': 'Free memory',
+    '立即保存': 'Save now',
+    '立即检查更新': 'Check for updates',
+    '端口': 'Port',
+    '第一次用请按': 'First time? Follow the',
+    '等待指令…': 'Waiting for commands…',
+    '管理员号码': 'Admin number',
+    '管理账号': 'Admin account',
+    '结果会显示在这里': 'Results appear here',
+    '维护': 'Maintenance',
+    '网络': 'Network',
+    '网络类型': 'Network type',
+    '自上次重启': 'Since last boot',
+    '自动刷新': 'Auto refresh',
+    '自动选择': 'Automatic',
+    '解析激活码': 'Parse code',
+    '设备、网络与最近动态': 'Device, network and recent activity',
+    '设备名称': 'Device name',
+    '设备地址': 'Device address',
+    '设备型号': 'Modem model',
+    '访问网址': 'URL to fetch',
+    '该号码发送 SMS:号码:内容 可远程发短信；RESET 重启设备；RESETPASS 重置后台密码': 'This number can text SMS:number:content to send an SMS, RESET to reboot, RESETPASS to reset the web password',
+    '读取中…': 'Reading…',
+    '账号': 'Username',
+    '跟随最新': 'Follow latest',
+    '跟随系统': 'Auto',
+    '软重启模组': 'Soft-reset modem',
+    '运行时长': 'Uptime',
+    '连接中': 'Connecting',
+    '选择后可填入输入框': 'Pick one to fill in the input',
+    '选择运营商给的二维码图片（浏览器本地解码，不上传），或直接粘贴激活码': 'Pick the QR image from your carrier (decoded locally in the browser, never uploaded), or paste the activation code',
+    '选网模式': 'Network selection',
+    '选网配置': 'Network selection',
+    '通知': 'Notify',
+    '通知链路': 'Notification path',
+    '通过模组主动联网，用于保持 SIM 卡在线；执行时会短暂激活数据连接': 'Uses the modem to go online and keep the SIM alive; the data connection is briefly activated',
+    '邮件通知': 'Email',
+    '配置保存在 NVS，可从 Arduino 版本原地升级。项目完全开源，欢迎提交 Issue 与 Pull Request。': 'Settings live in NVS and survive an in-place upgrade from the Arduino version. Fully open source — issues and PRs welcome.',
+    '配置通知': 'Notifications',
+    '重启设备': 'Reboot device',
+    '重新解析': 'Reparse',
+    '重新读取': 'Reload',
+    '重连 WiFi': 'Reconnect WiFi',
+    '错误': 'Error',
+    '项目': 'Project',
+    '自动': 'Auto',
+    '飞行模式': 'Airplane mode',
+    '默认网址末尾 bytes=10 表示只下载 10 字节 body，流量非常可控；若当前网络访问失败（如模组错误码 5），可换成其他网址重试': 'The default URL ends with bytes=10, so only 10 bytes of body are downloaded — very light on data. If it fails on the current network (e.g. modem error 5), try another URL',
+    '默认自动选网；保存后需重启设备生效': 'Automatic by default; reboot the device after saving',
+    '（要删先切到别的配置）。删除前需手动输入 ICCID 确认，删除后只能用激活码重新下载。': ' (switch to another profile first). Deletion requires typing the ICCID, and a deleted profile can only be re-downloaded with its activation code.',
+    '切换配置后模组会自动重启并重新注册网络（约 20 秒）。': 'After switching, the modem restarts and re-registers (about 20 s).',
+    '请求失败': 'Request failed',
+    '切换失败': 'Switch failed',
+    '读取失败': 'Read failed',
+    '保存失败': 'Save failed',
+    '删除失败': 'Delete failed',
+    '查询失败': 'Query failed',
+    '测试失败': 'Test failed',
+    '已保存': 'Saved',
+    '已切换': 'Switched',
+    '已删除': 'Deleted',
+    '已启用': 'Enabled',
+    '已停用': 'Disabled',
+    '已开启': 'On',
+    '已关闭': 'Off',
+    '保存失败：网络错误': 'Save failed: network error',
+    '测试失败：网络错误': 'Test failed: network error',
+    '状态已刷新': 'Status refreshed',
+    '推送通道未保存': 'Push channels not saved',
+    '未命名通道': 'Unnamed channel',
+    '请填写目标号码': 'Enter a target number',
+    '请填写短信内容': 'Enter a message',
+    '发送中…': 'Sending…',
+    '正在发送…': 'Sending…',
+    '发送成功': 'Sent',
+    '成功': 'OK',
+    '失败': 'Failed',
+    '任务': 'Task',
+    '事件': 'Event',
+    '其他': 'Other',
+    '异常': 'Error',
+    '读取失败，请稍后重试': 'Read failed, try again later',
+    '读取失败，正在重试…': 'Read failed, retrying…',
+    '查询中…': 'Querying…',
+    'Ping 中…': 'Pinging…',
+    '访问中…': 'Fetching…',
+    '操作失败': 'Operation failed',
+    '访问失败': 'Fetch failed',
+    '上传失败': 'Upload failed',
+    '这台设备的模组不支持 eSIM 管理': 'The modem on this device does not support eSIM management',
+    '卡里还没有配置，可以先按下面导入': 'No profiles on the card yet — import one below',
+    'EID 读取失败': 'Failed to read EID',
+    '二维码解码库未加载': 'QR decoder not loaded',
+    '图片里没找到二维码，换一张更清晰的': 'No QR code found in the image, try a clearer one',
+    '图片解码失败': 'Failed to decode the image',
+    '图片读取失败': 'Failed to read the image'
+    ,'删除': 'Delete'
+    ,'测试': 'Test'
+    ,'编辑': 'Edit'
+    ,'展开设置': 'Advanced'
+    ,'通道名称': 'Channel name'
+    ,'推送方式': 'Push type'
+    ,'GET 请求': 'GET request'
+    ,'钉钉机器人': 'DingTalk bot'
+    ,'飞书机器人': 'Feishu bot'
+    ,'Server酱': 'ServerChan'
+    ,'自定义模板': 'Custom template'
+    ,'自建模板': 'Custom template'
+    ,'请求体模板': 'Request body template'
+    ,'推送 URL': 'Push URL'
+    ,'推送 URL（可空，使用默认地址）': 'Push URL (optional, default is used)'
+    ,'参数 1': 'Param 1'
+    ,'参数 2': 'Param 2'
+    ,'把收到的短信通过 WiFi 推送到邮件与多种平台（Bark、钉钉、飞书、Telegram、PushPlus、Server 酱等）， 支持管理员短信命令、号码黑名单、长短信合并、基站掉线自动重连与 mDNS 访问。': 'forwards incoming SMS over WiFi to email and many platforms (Bark, DingTalk, Feishu, Telegram, PushPlus, ServerChan, …), with admin SMS commands, a number blacklist, long-SMS merging, automatic reconnect and mDNS access.'
+    ,'支持 {sender} {message} {timestamp} {self_phone}': 'Supports {sender} {message} {timestamp} {self_phone}'
+    ,'设备': 'Device'
+    ,'日志': 'Log'
+    ,'后台管理': 'Admin'
+    ,'关于项目': 'About'
+    ,'保号发送': 'Keep-alive'
+    ,'eSIM 管理': 'eSIM'
+    ,'在线': 'Online'
+    ,'已就绪': 'Ready'
+    ,'已配置': 'Configured'
+    ,'（要删先切到别的配置）。删除前需手动输入 ICCID 确认，删除后只能用激活码重新下载。 切换配置后模组会自动重启并重新注册网络（约 20 秒）。': ' (switch to another profile first). Deletion requires typing the ICCID, and a deleted profile can only be re-downloaded with its activation code. After switching, the modem restarts and re-registers (about 20 s).'
+    ,'下载要用 GSMA SGP.22 的加密流程（连 SM-DP+ 的 TLS + 几十 KB 的加密安装包），单片机内存和算力都扛不住， 所以这一步交给电脑：仓库里的': 'Downloading a profile needs the GSMA SGP.22 secure flow (TLS to the SM-DP+ plus a tens-of-KB encrypted package), which is beyond the MCU, so this step runs on your PC: the'
+    ,'把 lpac 的 APDU 转发到本机设备，效果和在网页上点一下一样。 装好': 'forwards lpac APDUs to this device, with the same effect as clicking in the web UI. Once'
+  };
+  /* 拼接出来的短片段：按长度从长到短替换 */
+  var I18N_FRAG = [
+    [' 条新日志 · 点击跳到最新', ' new logs · jump to latest'],
+    [' 已写入，正在等待重启…', ' written, waiting for reboot…'],
+    [' 已写入，设备正在重启…', ' written, device is rebooting…'],
+    ['，下载 ota 包后在这里上传', ', download the OTA image and upload it here'],
+    [' 分钟前检查', ' min ago'],
+    [' 小时前检查', ' h ago'],
+    [' 天前检查', ' d ago'],
+    [' 行日志', ' log lines'],
+    [' · 已是最新', ' · up to date'],
+    [' · 无信号', ' · no signal'],
+    [' · 已停用', ' · off'],
+    [' · 信号 ', ' · Signal '],
+    [' · 单次', ' · once'],
+    [' · 每 ', ' · every '],
+    [' 个已启用', ' enabled'],
+    [' 个启用', ' enabled'],
+    [' 个通道', ' channels'],
+    [' 以确认', ' to confirm'],
+    [' 秒', ' s'],
+    [' 小时 ', ' h '],
+    [' 分钟 ', ' min '],
+    [' 天 ', ' d ']
+    ,['短信 ×', 'SMS ×']
+    ,['其他 ×', 'Other ×']
+    ,['通知 ×', 'Notify ×']
+    ,['网络 ×', 'Network ×']
+    ,['异常 ×', 'Error ×']
+    ,['小时', 'h']
+    ,['发现新版本 ', 'New version ']
+    ,['下次 ', 'Next ']
+    ,[' 天', ' d']
+    ,[' 秒', ' s']
+  ];
+  function langMode(){
+    var v = LS.getItem(LANG_KEY);
+    return (v === 'zh' || v === 'en' || v === 'auto') ? v : 'auto';
+  }
+  /* 中文区（zh、zh-CN/TW/HK/MO/SG 等）默认中文，其它一律英文 */
+  function sysLang(){
+    var list = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || ''];
+    for (var i = 0; i < list.length; i++) {
+      if (String(list[i]).toLowerCase().indexOf('zh') === 0) return 'zh';
+    }
+    return 'en';
+  }
+  function curLang(){
+    var m = langMode();
+    return m === 'auto' ? sysLang() : m;
+  }
+  function trText(s){
+    var key = String(s).replace(/\s+/g, ' ').replace(/^ | $/g, '');
+    if (Object.prototype.hasOwnProperty.call(I18N, key)) return I18N[key];
+    var out = key;
+    for (var i = 0; i < I18N_FRAG.length; i++) {
+      if (out.indexOf(I18N_FRAG[i][0]) >= 0) out = out.split(I18N_FRAG[i][0]).join(I18N_FRAG[i][1]);
+    }
+    return out;
+  }
+  function t(s){
+    return curLang() === 'en' ? trText(s) : s;
+  }
+  var I18N_SKIP = { SCRIPT: 1, STYLE: 1, PRE: 1, CODE: 1, TEXTAREA: 1 };
+  var I18N_ATTR = ['placeholder', 'title', 'aria-label', 'alt'];
+  function trNode(n){
+    var raw = n.nodeValue;
+    if (!raw || !/[\u4e00-\u9fff]/.test(raw)) return;
+    var out = trText(raw);
+    if (out === raw.replace(/\s+/g, ' ').replace(/^ | $/g, '')) return;
+    if (n.__zh === undefined) n.__zh = raw;
+    n.nodeValue = out;
+  }
+  function trAttrs(el){
+    for (var i = 0; i < I18N_ATTR.length; i++) {
+      var a = I18N_ATTR[i], v = el.getAttribute && el.getAttribute(a);
+      if (!v || !/[\u4e00-\u9fff]/.test(v)) continue;
+      var out = trText(v);
+      if (out === v) continue;
+      el.__zhAttr = el.__zhAttr || {};
+      if (el.__zhAttr[a] === undefined) el.__zhAttr[a] = v;
+      el.setAttribute(a, out);
+    }
+  }
+  function walkI18n(root){
+    if (!root) return;
+    if (root.nodeType === 3) { trNode(root); return; }
+    if (root.nodeType !== 1 || I18N_SKIP[root.tagName]) return;
+    trAttrs(root);
+    for (var n = root.firstChild; n; n = n.nextSibling) walkI18n(n);
+  }
+  function restoreI18n(root){
+    if (!root) return;
+    if (root.nodeType === 3) {
+      if (root.__zh !== undefined) { root.nodeValue = root.__zh; root.__zh = undefined; }
+      return;
+    }
+    if (root.nodeType !== 1 || I18N_SKIP[root.tagName]) return;
+    if (root.__zhAttr) {
+      for (var a in root.__zhAttr) {
+        if (Object.prototype.hasOwnProperty.call(root.__zhAttr, a)) root.setAttribute(a, root.__zhAttr[a]);
+      }
+      root.__zhAttr = null;
+    }
+    for (var n = root.firstChild; n; n = n.nextSibling) restoreI18n(n);
+  }
+  function applyLang(){
+    var mode = langMode();
+    var lang = curLang();
+    LS.setItem(LANG_KEY, mode);
+    document.documentElement.setAttribute('lang', lang === 'zh' ? 'zh-CN' : 'en');
+    document.documentElement.setAttribute('data-lang', lang);
+    if (lang === 'en') walkI18n(document.body);
+    else restoreI18n(document.body);
+    var btns = document.querySelectorAll('#langSeg button');
+    for (var i = 0; i < btns.length; i++) {
+      var on = btns[i].getAttribute('data-lang') === mode;
+      btns[i].classList.toggle('on', on);
+      btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    if (document.title) document.title = lang === 'zh' ? '短信转发器' : 'SMS Forwarder';
+  }
+  function initLang(){
+    applyLang();
+    var btns = document.querySelectorAll('#langSeg button');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].addEventListener('click', function(){
+        LS.setItem(LANG_KEY, this.getAttribute('data-lang'));
+        applyLang();
+      });
+    }
+    /* 动态渲染出来的文案：观察 DOM 变化后再翻一遍，避免每处渲染都手动调用 t() */
+    if (window.MutationObserver) {
+      var mo = new MutationObserver(function(muts){
+        if (curLang() !== 'en') return;
+        for (var i = 0; i < muts.length; i++) {
+          var m = muts[i];
+          if (m.type === 'characterData') trNode(m.target);
+          else if (m.addedNodes) {
+            for (var j = 0; j < m.addedNodes.length; j++) walkI18n(m.addedNodes[j]);
+          }
+        }
+      });
+      mo.observe(document.body, { childList: true, subtree: true, characterData: true });
+    }
+  }
+
   /* ---------- 主题：深色 / 浅色 / 跟随系统（默认跟随） ---------- */
   var MQ = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
   function themePref(){
@@ -2738,6 +3148,7 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
   function init(){
     loadLocal();
     initTheme();
+    initLang();
     bind();
     renderNav();
     renderNums();

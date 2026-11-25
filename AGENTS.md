@@ -87,11 +87,13 @@ arduino-cli monitor --port COM4 --config 115200
 ## 仓库结构
 
 ```
-README.md                     # 门面：原理图、截图、硬件采购、快速开始（功能变了要同步）
+README.md                     # 门面（中文，默认）
+README.en.md                  # 英文版门面：改了 README.md 必须同步改这里
 AGENTS.md                     # 本文件
 assets/
 ├── photo.png                 # 实物图
-├── flow.svg                  # 原理图（SMIL 动画，README 首屏）
+├── flow.svg                  # 原理图（SMIL 动画，README 首屏，中文）
+├── flow-en.svg               # 同一张图的英文版，README.en.md 用；改一张就要改另一张
 ├── wiring.svg                # 接线图（README 硬件章节）
 ├── web-overview.png          # 后台截图：概览页
 ├── web-esim.png              # 后台截图：eSIM 管理页（demo 假数据，不含真实 EID/ICCID）
@@ -134,5 +136,11 @@ code/                         # Arduino 框架实现（历史版本，功能与 
 
 ## 其他说明
 
+- **Web 中英双语**：index.html 里有一张 I18N 映射表（中文原文 → 英文）和 I18N_FRAG（拼接片段），
+  首次打开按 navigator.languages 自动选（zh* → 中文，其它 → 英文），右上角可手动切；模式存 localStorage.lang。
+  新增界面文案时把中文原样写进 HTML/JS，再把中文原文 + 英文加进 I18N；动态拼接的短句用 I18N_FRAG，
+  或者直接调 t()。DOM 里动态插入的节点由 MutationObserver 补翻，不用每处手动调用。
+- **双语同步**：`README.md`（中文，默认）与 `README.en.md` 内容一一对应；
+  `assets/flow.svg` 与 `assets/flow-en.svg` 同理。功能、截图、链接、FAQ 改了要同时改两份。
 - 默认 Web 账号 admin/admin123；管理员短信命令支持 `SMS:号码:内容`、`RESET` 和 `RESETPASS`（重置后台密码并推送默认账号密码）。
 - 项目明确不做：多卡控制、通话、拨号、开放接口——勿实现此类需求。

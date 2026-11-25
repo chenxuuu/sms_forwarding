@@ -1,3 +1,5 @@
+<p align="center"><b>简体中文</b> | <a href="README.en.md">English</a></p>
+
 <div align="center">
 
 <img src="assets/photo.png" width="168" alt="短信转发器实物">
@@ -41,6 +43,7 @@
 ## 界面
 
 固件内置完整网页（约 250 KB，含本地二维码解码库，直接嵌在 Flash 里），手机上也能用。
+界面中英双语：首次打开按浏览器语言自动选择（中文区默认中文，其它默认英文），右上角可随时手动切换。
 主题支持深色 / 浅色 / 跟随系统。
 
 | 概览 | 推送通道 | eSIM 管理 |

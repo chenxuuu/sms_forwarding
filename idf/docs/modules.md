@@ -81,8 +81,12 @@ JSON 转义、URL 编码、Base64、HMAC-SHA256→Base64（钉钉/飞书签名�
 
 - 作业队列（初始化 / 发送短信 / 原始 AT / ping / HTTP 访问 / 软重启 / 硬重启），作业对象在堆上传递；
 - 初始化流程：EN 断电重启 → `AT` 握手 → `ATI` 识别型号 → `AT+CGACT=0,1`（ML307Y 跳过）
-  → `apply_sms_config()`（`AT+CNMI=2,2,0,0,0` + `AT+CMGF=0`）→ `AT+COPS`（按配置选网）
-  → `AT+CEREG?` 等注册 → 注册后再跑一次 `modem_sms_config_check()`；
+  → `apply_sms_config()`（`AT+CNMI=2,2,0,0,0` + `AT+CMGF=0`）→ `apply_apn()`
+  → `AT+COPS`（按配置选网）→ `AT+CEREG?` 等注册 → 注册后再跑一次 `modem_sms_config_check()`；
+- **APN**：`apply_apn()` 在选网之前下发。配置留空时 `AT+CGDCONT=1,"IP",""`（模组按 SIM 自动选择）
+  并 `AT+CGAUTH=1,0` 清掉残留认证；手填时 `AT+CGDCONT=1,"IP","<apn>"`，若同时有用户名/密码则
+  `AT+CGAUTH=1,1,"<user>","<pass>"`（PAP）。ML307Y 的 `AT+CGAUTH=?` 限制用户名/密码各 16 字符，
+  网页与 `/save` 按这个上限校验；APN 含非法字符时只记日志、不改模组现有配置；
 - **`+CNMI` 会被模组清掉，必须兜底复核**：实测 ML307Y 在 `AT+CFUN=1` 之后约 8 秒（SIM 重新
   `+CPIN: READY`）把 `+CNMI` 恢复成默认的 `0,0,0,0,0`，此后一条 `+CMT` 都不上报，日志毫无动静。
   `modem_sms_config_check()` 用 `AT+CNMI?` 读回校验（要求 mode=2、mt=2），不对就重新下发；

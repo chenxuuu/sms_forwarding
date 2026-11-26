@@ -100,6 +100,10 @@ static void load_all(void)
     }
     s_config.operator_act = op_act;
     load_str("operatorCode", s_config.operator_code, sizeof(s_config.operator_code), "");
+    /* 数据 APN：留空 = 模组自动（老配置没有这个键，读出来就是空） */
+    load_str("apn", s_config.apn, sizeof(s_config.apn), "");
+    load_str("apnUser", s_config.apn_user, sizeof(s_config.apn_user), "");
+    load_str("apnPass", s_config.apn_pass, sizeof(s_config.apn_pass), "");
 
     uint8_t cnt = 0;
     bool has_cnt = nvs_get_u8(s_nvs, "pushCount", &cnt) == ESP_OK &&
@@ -211,6 +215,9 @@ void config_save_locked(void)
     nvs_set_u8(s_nvs, "operatorMode", s_config.operator_mode);
     nvs_set_u8(s_nvs, "operatorAct", s_config.operator_act);
     nvs_set_str(s_nvs, "operatorCode", s_config.operator_code);
+    nvs_set_str(s_nvs, "apn", s_config.apn);
+    nvs_set_str(s_nvs, "apnUser", s_config.apn_user);
+    nvs_set_str(s_nvs, "apnPass", s_config.apn_pass);
 
     nvs_set_u8(s_nvs, "pushCount", (uint8_t)s_config.channel_count);
     for (int i = 0; i < s_config.channel_count; i++) {

@@ -53,10 +53,14 @@ HTTP 服务本身不受影响，页面还能正常打开和刷新。
 | `operatorMode` | 选网模式：0=自动（默认）/ 1=手动 |
 | `operatorCode` | 手动模式的 PLMN，5~6 位数字（如 46000） |
 | `operatorAct` | 手动模式网络类型：0=2G(GSM) / 2=3G(UTRAN) / 7=LTE（默认） |
+| `apn` | 数据 APN，留空=模组按 SIM 自动选择（推荐）；手填限 1~63 个字母/数字/`.`/`-`/`_` |
+| `apnUser` / `apnPass` | APN 认证用户名/密码（可选，各 ≤16 字符 ASCII，固定 PAP），仅在填写了 APN 时下发 |
 | `pushNen` / `pushNtype` / `pushNname` / `pushNurl` / `pushNkey1` / `pushNkey2` / `pushNbody` | 第 N 个推送通道（N=0..49，实际数量由 `pushCount` 决定） |
 
 返回 3 秒后跳回首页的提示页。手动选网若 PLMN 非 5~6 位数字、或网络类型非法，
-接口直接返回 JSON 错误且不落盘。保存选网配置后需重启设备，在模组初始化时通过 `AT+COPS` 生效。
+接口直接返回 JSON 错误且不落盘。APN 同理：只允许字母、数字和 `.` `-` `_`（≤63），
+用户名/密码为 ≤16 字符的 ASCII 且不能含引号或反斜杠。保存选网 / APN 配置后需重启设备，
+在模组初始化时通过 `AT+COPS` / `AT+CGDCONT`（有认证时再 `AT+CGAUTH`）生效。
 
 ### GET /status
 
@@ -75,7 +79,8 @@ HTTP 服务本身不受影响，页面还能正常打开和刷新。
 
 返回完整配置快照（含当前全部推送通道），前端据此渲染表单，避免服务端拼 HTML。
 另含本机号码 `self_phone`（`AT+CNUM` 自动获取或后台手填，可能为空）、
-邮件开关 `mail_enabled`（布尔，缺省视为开启），以及选网字段 `operator_mode`（0 自动/1 手动）、`operator_code`（PLMN）、`operator_act`（0=2G/2=3G/7=LTE）。
+邮件开关 `mail_enabled`（布尔，缺省视为开启），以及选网字段 `operator_mode`（0 自动/1 手动）、`operator_code`（PLMN）、`operator_act`（0=2G/2=3G/7=LTE），
+和 APN 字段 `apn` / `apn_user` / `apn_pass`（`apn` 留空表示由模组按 SIM 自动选择）。
 密码等敏感字段也在其中，接口本身受 Basic 认证保护。
 
 通道对象字段固定为 `enabled` / `type` / `name` / `url` / `key1` / `key2` / **`custom_body`**：

@@ -262,10 +262,53 @@ static bool wait_registered(void)
     return false;
 }
 
-/**
- * @param power_cycle true=硬复位（EN 断电）；false=仅软复位后的重新配置，
- *                    用于 AT+CFUN=1,1 之后的重新初始化。
- */
+/* 应用数据 APN 与可选认证：APN 留空表示由模组按 SIM 自动选择（推荐）。
+ * 境外卡 / 物联网卡自动 APN 不对时，用户可以在网页上手动填写。
+ * 模组的 +CGAUTH 只支持 PAP / CHAP，这里统一用 PAP（绝大多数运营商是 PAP）；
+ * 用户名/密码上限 16 字符，见 AT+CGAUTH=? 的 (0-16)。 */
+static void apply_apn(void)
+{
+    char apn[sizeof(((app_config_t *)0)->apn)];
+    char user[sizeof(((app_config_t *)0)->apn_user)];
+    char pass[sizeof(((app_config_t *)0)->apn_pass)];
+    app_config_t *cfg = config_lock();
+    snprintf(apn, sizeof(apn), "%s", cfg->apn);
+    snprintf(user, sizeof(user), "%s", cfg->apn_user);
+    snprintf(pass, sizeof(pass), "%s", cfg->apn_pass);
+    config_unlock();
+    util_trim(apn);
+    util_trim(user);
+    util_trim(pass);
+    if (strchr(apn, '\"') || strchr(user, '\"') || strchr(pass, '\"') ||
+        strchr(user, '\\') || strchr(pass, '\\')) {
+        log_line("APN 配置含有非法字符，忽略该配置");
+        return;
+    }
+
+    char cmd[128];
+    snprintf(cmd, sizeof(cmd), "AT+CGDCONT=1,\"IP\",\"%s\"", apn);
+    if (!at_command_ok(cmd, 20000)) {
+        log_line("设置 APN 失败，继续使用模组当前配置");
+        return;
+    }
+    if (apn[0] == '\0') {
+        log_line("APN 使用自动选择（模组按 SIM 决定）");
+        at_command_ok("AT+CGAUTH=1,0", 5000); /* 清掉之前可能残留的认证 */
+        return;
+    }
+    if (user[0] != '\0' || pass[0] != '\0') {
+        snprintf(cmd, sizeof(cmd), "AT+CGAUTH=1,1,\"%s\",\"%s\"", user, pass);
+        if (at_command_ok(cmd, 10000)) {
+            log_line("APN 已设置为 %s（PAP 认证，用户名 %s）", apn, user);
+        } else {
+            log_line("APN 已设置为 %s，但认证信息下发失败", apn);
+        }
+    } else {
+        at_command_ok("AT+CGAUTH=1,0", 5000);
+        log_line("APN 已设置为 %s（无需认证）", apn);
+    }
+}
+
 /** 按配置应用选网：自动 AT+COPS=0；手动 AT+COPS=1,2,"PLMN",<AcT>。 */
 static void apply_operator_selection(void)
 {
@@ -417,6 +460,10 @@ void modem_sms_config_check(void)
     apply_sms_config();
 }
 
+/**
+ * @param power_cycle true=硬复位（EN 断电）；false=仅软复位后的重新配置，
+ *                    用于 AT+CFUN=1,1 之后的重新初始化。
+ */
 static void do_init(bool power_cycle)
 {
     s_ready = false;
@@ -477,6 +524,9 @@ static void do_init(bool power_cycle)
     at_command_ok("AT+CREG=2", 2000);
     at_command_ok("AT+CEREG=2", 2000);
     log_line("注册状态上报已开启（CREG=2 / CEREG=2）");
+
+    /* 先设 APN 再选网：选网命令可能阻塞到注册完成，APN 提前下发更稳妥 */
+    apply_apn();
 
     /* 应用持久化的选网配置（默认自动选择） */
     apply_operator_selection();

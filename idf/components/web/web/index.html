@@ -495,10 +495,23 @@ body.chan-dirty main{padding-bottom:150px}
           <input id="operCode" placeholder="例如 46000" inputmode="numeric" maxlength="6">
           <div class="tip" style="margin-top:4px">中国移动 46000 / 中国联通 46001 / 中国电信 46011；仅手动模式需要</div>
         </div>
+        <div class="field" style="margin-top:10px">
+          <label>APN（接入点名称）</label>
+          <input id="apn" placeholder="留空 = 自动（推荐）" maxlength="63" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="grid two" style="margin-top:10px">
+          <div class="field"><label>APN 用户名</label>
+            <input id="apnUser" placeholder="通常留空" maxlength="16" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field"><label>APN 密码</label>
+            <input id="apnPass" type="password" placeholder="通常留空" maxlength="16" autocomplete="new-password">
+          </div>
+        </div>
+        <div class="tip" style="margin-top:4px">APN 留空时由模组按 SIM 自动选择。自动 APN 不对、数据连不上时再手填，多数卡不需要用户名密码；认证方式用 PAP。例如 giffgaff：APN giffgaff.com、用户名 gg、密码 p</div>
         <div class="row" style="margin-top:12px">
           <button class="btn pri" data-save="operator"><span class="spinner"></span>保存选网配置</button>
         </div>
-        <div class="tip" style="margin-top:8px">默认自动选网；保存后需重启设备生效</div>
+        <div class="tip" style="margin-top:8px">默认自动选网、APN 自动；保存后需重启设备生效</div>
       </div>
 
       <div class="card" style="margin-top:14px">
@@ -1200,6 +1213,9 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
       $('operCode').value = cfg.operator_code || '';
       $('operAct').value = (cfg.operator_act === 0 || cfg.operator_act === 2 || cfg.operator_act === 7)
         ? String(cfg.operator_act) : '7';
+      $('apn').value = cfg.apn || '';
+      $('apnUser').value = cfg.apn_user || '';
+      $('apnPass').value = cfg.apn_pass || '';
       syncOperatorForm();
       if (cfg.admin_phone) $('kAdmin').textContent = cfg.admin_phone;
       /* 保存其它分区（邮件/账号等）时不能把用户正在编辑的通道冲掉 */
@@ -1361,6 +1377,9 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
       p.append('operatorMode', $('operMode').value);
       p.append('operatorCode', ($('operCode').value || '').trim());
       p.append('operatorAct', $('operAct').value);
+      p.append('apn', ($('apn').value || '').trim());
+      p.append('apnUser', ($('apnUser').value || '').trim());
+      p.append('apnPass', ($('apnPass').value || '').trim());
     }
     if (scope === 'push') {
       var list = snapshotChannels();
@@ -1507,11 +1526,21 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
       var pcode = ($('operCode').value || '').trim();
       if (!/^[0-9]{5,6}$/.test(pcode)) { toast('手动选网需填写 5~6 位数字 PLMN', 'err'); return; }
     }
+    if (scope === 'operator') {
+      var papn = ($('apn').value || '').trim();
+      if (papn && !/^[A-Za-z0-9._-]{1,63}$/.test(papn)) { toast('APN 只能包含字母、数字和 . - _（最多 63 个字符）', 'err'); return; }
+      var cred = [($('apnUser').value || '').trim(), ($('apnPass').value || '').trim()];
+      for (var ci = 0; ci < 2; ci++) {
+        if (cred[ci] && (!/^[\x20-\x7e]{1,16}$/.test(cred[ci]) || /["\\]/.test(cred[ci]))) {
+          toast('用户名/密码需为 16 字符以内的 ASCII，且不能含引号或反斜杠', 'err'); return;
+        }
+      }
+    }
     busy(btn, true);
     api('/save?json=1', { method:'POST', body: collect(scope) }).then(function(r){
       busy(btn, false);
       if (r && r.success) {
-        toast(scope === 'operator' ? '选网配置已保存，重启设备后生效' : (r.message || '已保存'), 'ok');
+        toast(scope === 'operator' ? '选网与 APN 已保存，重启设备后生效' : (r.message || '已保存'), 'ok');
         /* 保存通道：以设备回读为准并清除未保存标记；保存其它分区：保留正在编辑的通道 */
         loadConfig(scope !== 'push');
         loadStatus();
@@ -2418,6 +2447,17 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
     '飞行模式': 'Airplane mode',
     '默认网址末尾 bytes=10 表示只下载 10 字节 body，流量非常可控；若当前网络访问失败（如模组错误码 5），可换成其他网址重试': 'The default URL ends with bytes=10, so only 10 bytes of body are downloaded — very light on data. If it fails on the current network (e.g. modem error 5), try another URL',
     '默认自动选网；保存后需重启设备生效': 'Automatic by default; reboot the device after saving',
+    'APN（接入点名称）': 'APN (access point name)',
+    '留空 = 自动（推荐）': 'Blank = automatic (recommended)',
+    '留空时由模组按 SIM 自动选择。境外卡或物联网卡自动 APN 不对、数据连不上时再手填，例如 giffgaff 填 giffgaff.com': 'Blank lets the modem choose the APN from the SIM. Fill it in only when a foreign or IoT SIM cannot use data, e.g. giffgaff.com for giffgaff',
+    '默认自动选网、APN 自动；保存后需重启设备生效': 'Automatic network and APN by default; reboot after saving',
+    'APN 只能包含字母、数字和 . - _（最多 63 个字符）': 'APN may only contain letters, digits and . - _ (up to 63 characters)',
+    '选网与 APN 已保存，重启设备后生效': 'Network and APN saved; reboot the device to apply',
+    'APN 用户名': 'APN username',
+    'APN 密码': 'APN password',
+    '通常留空': 'Usually blank',
+    'APN 留空时由模组按 SIM 自动选择。自动 APN 不对、数据连不上时再手填，多数卡不需要用户名密码；认证方式用 PAP。例如 giffgaff：APN giffgaff.com、用户名 gg、密码 p': 'Blank lets the modem choose the APN from the SIM. Fill it in only if the automatic APN cannot get data. Most SIMs need no username or password; PAP is used. giffgaff for example: APN giffgaff.com, user gg, password p',
+    '用户名/密码需为 16 字符以内的 ASCII，且不能含引号或反斜杠': 'Username and password must be ASCII, up to 16 characters, without quotes or backslashes',
     '（要删先切到别的配置）。删除前需手动输入 ICCID 确认，删除后只能用激活码重新下载。': ' (switch to another profile first). Deletion requires typing the ICCID, and a deleted profile can only be re-downloaded with its activation code.',
     '切换配置后模组会自动重启并重新注册网络（约 20 秒）。': 'After switching, the modem restarts and re-registers (about 20 s).',
     '请求失败': 'Request failed',

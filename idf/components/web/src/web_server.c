@@ -350,6 +350,9 @@ static uint32_t hash_section(const app_config_t *c, int section)
         h = fnv1a(&c->operator_mode, sizeof(c->operator_mode), h);
         h = fnv1a(&c->operator_act, sizeof(c->operator_act), h);
         h = fnv1a(c->operator_code, sizeof(c->operator_code), h);
+        h = fnv1a(c->apn, sizeof(c->apn), h);
+        h = fnv1a(c->apn_user, sizeof(c->apn_user), h);
+        h = fnv1a(c->apn_pass, sizeof(c->apn_pass), h);
         break;
     }
     return h;
@@ -456,6 +459,58 @@ esp_err_t handler_save(httpd_req_t *req)
         cfg->operator_act = (uint8_t)act;
         if (has_op_code) {
             snprintf(cfg->operator_code, sizeof(cfg->operator_code), "%s", op_code);
+        }
+    }
+
+    /* 数据 APN：留空 = 模组自动；手填只允许合法字符，避免带引号拼进 AT 指令。
+     * 用户名/密码是可选的（多数卡不需要），模组限制各 16 字符、认证类型固定 PAP。 */
+    char apn_val[CFG_MED_LEN] = {0};
+    char apn_user_val[24] = {0};
+    char apn_pass_val[24] = {0};
+    bool has_apn = web_form_get(body, "apn", apn_val, sizeof(apn_val));
+    bool has_apn_user = web_form_get(body, "apnUser", apn_user_val, sizeof(apn_user_val));
+    bool has_apn_pass = web_form_get(body, "apnPass", apn_pass_val, sizeof(apn_pass_val));
+    if (has_apn || has_apn_user || has_apn_pass) {
+        util_trim(apn_val);
+        util_trim(apn_user_val);
+        util_trim(apn_pass_val);
+        const char *a = has_apn ? apn_val : cfg->apn;
+        const char *u = has_apn_user ? apn_user_val : cfg->apn_user;
+        const char *pw = has_apn_pass ? apn_pass_val : cfg->apn_pass;
+        bool apn_ok = strlen(a) < sizeof(cfg->apn) &&
+                      strlen(u) < sizeof(cfg->apn_user) && strlen(u) <= 16 &&
+                      strlen(pw) < sizeof(cfg->apn_pass) && strlen(pw) <= 16;
+        for (size_t k = 0; apn_ok && a[k]; k++) {
+            char ch = a[k];
+            if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'z') ||
+                  (ch >= 'A' && ch <= 'Z') || ch == '.' || ch == '-' || ch == '_')) {
+                apn_ok = false;
+            }
+        }
+        for (size_t k = 0; apn_ok && u[k]; k++) {
+            if (u[k] < 0x20 || u[k] > 0x7e || u[k] == '"' || u[k] == '\\') {
+                apn_ok = false;
+            }
+        }
+        for (size_t k = 0; apn_ok && pw[k]; k++) {
+            if (pw[k] < 0x20 || pw[k] > 0x7e || pw[k] == '"' || pw[k] == '\\') {
+                apn_ok = false;
+            }
+        }
+        if (!apn_ok) {
+            config_unlock();
+            free(body);
+            web_send_json(req, false, "APN 只能含字母数字和 . - _（≤63 字符）；用户名/密码为 ≤16 字符的 ASCII");
+            return ESP_OK;
+        }
+        if (has_apn) {
+            snprintf(cfg->apn, sizeof(cfg->apn), "%s", apn_val);
+        }
+        if (has_apn_user) {
+            snprintf(cfg->apn_user, sizeof(cfg->apn_user), "%s", apn_user_val);
+        }
+        if (has_apn_pass) {
+            snprintf(cfg->apn_pass, sizeof(cfg->apn_pass), "%s", apn_pass_val);
         }
     }
 
@@ -777,6 +832,9 @@ esp_err_t handler_config(httpd_req_t *req)
     sbuf_printf(&out, "\"operator_mode\":%u,\"operator_act\":%u,",
                 (unsigned)cfg->operator_mode, (unsigned)cfg->operator_act);
     append_str_field(&out, "operator_code", cfg->operator_code, true);
+    append_str_field(&out, "apn", cfg->apn, true);
+    append_str_field(&out, "apn_user", cfg->apn_user, true);
+    append_str_field(&out, "apn_pass", cfg->apn_pass, true);
     sbuf_append(&out, "\"channels\":[");
     for (int i = 0; i < cfg->channel_count; i++) {
         const push_channel_t *ch = &cfg->channels[i];

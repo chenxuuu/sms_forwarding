@@ -70,6 +70,11 @@ typedef struct {
     uint8_t operator_mode; /* 0=自动，1=手动 */
     uint8_t operator_act;  /* 0=2G / 2=3G / 7=LTE */
     char operator_code[8]; /* PLMN，5~6 位数字，如 46000 */
+    /* 数据 APN：留空表示由模组按 SIM 自动选择（推荐）。境外卡 / 物联网卡上不了网时手填。 */
+    char apn[CFG_MED_LEN];
+    /* APN 认证（多数卡不需要）。模组限制：用户名/密码各 16 字符以内，认证类型固定 PAP。 */
+    char apn_user[24];
+    char apn_pass[24];
 } app_config_t;
 
 /* ---- 选网配置 ---- */

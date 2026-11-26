@@ -9,7 +9,7 @@ ESP32-C3 的 RAM 和算力都扛不住。仓库里的 `tools/esim_bridge.py` 把
 
 - 设备已联网，网页能打开「eSIM 管理」，能读到 EID 和配置列表。
 - 卡是 eUICC（9eSIM、5ber、ESTK 等）；普通 SIM 会提示「打不开 eUICC 的逻辑通道」。
-- 电脑和设备（例如 192.168.1.9）在同一网络。默认账号 `admin / admin123`。
+- 电脑和设备（例如 192.168.1.202）在同一网络。默认账号 `admin / admin123`。
 
 ## 1. 准备 lpac（电脑端）
 
@@ -26,7 +26,7 @@ ESP32-C3 的 RAM 和算力都扛不住。仓库里的 `tools/esim_bridge.py` 把
 在仓库根目录执行（路径按实际改）：
 
 ```bash
-python tools/esim_bridge.py --host 192.168.1.9 -- "C:\lpac\lpac.exe" chip info
+python tools/esim_bridge.py --host 192.168.1.202 -- "C:\lpac\lpac.exe" chip info
 ```
 
 看到 `"eidValue":"…"` 和 `返回码 0` 就说明通道正常。这一步只读，不会改动卡里的任何东西。
@@ -45,7 +45,7 @@ python tools/esim_bridge.py --host 192.168.1.9 -- "C:\lpac\lpac.exe" chip info
 ## 4. 下载配置
 
 ```bash
-python tools/esim_bridge.py --host 192.168.1.9 -- "C:\lpac\lpac.exe" \
+python tools/esim_bridge.py --host 192.168.1.202 -- "C:\lpac\lpac.exe" \
   profile download -a 'LPA:1$rsp.truphone.com$QRF-SPEEDTEST'
 ```
 
@@ -68,7 +68,7 @@ python tools/esim_bridge.py --host 192.168.1.9 -- "C:\lpac\lpac.exe" \
 网页上点「切换」，或：
 
 ```bash
-python tools/esim_bridge.py --host 192.168.1.9 -- "C:\lpac\lpac.exe" profile enable <ICCID>
+python tools/esim_bridge.py --host 192.168.1.202 -- "C:\lpac\lpac.exe" profile enable <ICCID>
 ```
 
 切换成功后固件会在 2 秒后软重启模组（`AT+CFUN=1,1`）重新注册。
@@ -79,7 +79,7 @@ python tools/esim_bridge.py --host 192.168.1.9 -- "C:\lpac\lpac.exe" profile ena
 网页上点「删除」，按提示把 ICCID 原样输入一遍确认；或者：
 
 ```bash
-python tools/esim_bridge.py --host 192.168.1.9 -- "C:\lpac\lpac.exe" profile delete <ICCID>
+python tools/esim_bridge.py --host 192.168.1.202 -- "C:\lpac\lpac.exe" profile delete <ICCID>
 ```
 
 规则：

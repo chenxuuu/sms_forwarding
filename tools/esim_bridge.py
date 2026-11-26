@@ -8,13 +8,13 @@
 
 用法：
     # 先看卡信息（不写卡）
-    python tools/esim_bridge.py --host 192.168.1.9 -- lpac chip info
+    python tools/esim_bridge.py --host 192.168.1.202 -- lpac chip info
 
     # 列出配置
-    python tools/esim_bridge.py --host 192.168.1.9 -- lpac profile list
+    python tools/esim_bridge.py --host 192.168.1.202 -- lpac profile list
 
     # 下载新配置（二维码解析出来的激活码）
-    python tools/esim_bridge.py --host 192.168.1.9 -- \
+    python tools/esim_bridge.py --host 192.168.1.202 -- \
         lpac profile download -a "LPA:1$rsp.truphone.com$QR-G-5C-1LS-1W1Z9P7"
 
 依赖：Python 3.8+（只用标准库）、lpac（https://github.com/estkme-group/lpac/releases）。
@@ -56,7 +56,7 @@ class Device(object):
 
 def main():
     ap = argparse.ArgumentParser(description="把 lpac 的 APDU 转发到短信转发器")
-    ap.add_argument("--host", required=True, help="设备 IP，例如 192.168.1.9")
+    ap.add_argument("--host", required=True, help="设备 IP，例如 192.168.1.202")
     ap.add_argument("--port", type=int, default=80)
     ap.add_argument("--user", default="admin")
     ap.add_argument("--password", default="admin123")

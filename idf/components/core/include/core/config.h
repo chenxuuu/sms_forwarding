@@ -75,6 +75,13 @@ typedef struct {
     /* APN 认证（多数卡不需要）。模组限制：用户名/密码各 16 字符以内，认证类型固定 PAP。 */
     char apn_user[24];
     char apn_pass[24];
+    /* 静态 IP：net_static=false 时用 DHCP（默认）。改完需重启设备或重连 WiFi 生效。
+     * net_dns 可留空，留空时用网关当 DNS。 */
+    bool net_static;
+    char net_ip[16];
+    char net_gw[16];
+    char net_mask[16];
+    char net_dns[16];
 } app_config_t;
 
 /* ---- 选网配置 ---- */

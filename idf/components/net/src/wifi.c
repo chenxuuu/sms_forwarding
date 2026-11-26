@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "lwip/inet.h"
+
+#include "core/config.h"
 #include "core/log.h"
 #include "net/mdns.h"
 #include "esp_check.h"
@@ -196,6 +199,167 @@ esp_err_t wifi_save_credentials(const char *ssid, const char *pass)
     return err;
 }
 
+/* ---- 静态 IP ---- */
+
+static bool parse_ipv4(const char *s, uint32_t *out)
+{
+    if (!s || s[0] == '\0') {
+        return false;
+    }
+    uint32_t v = esp_ip4addr_aton(s);
+    if (v == 0) {
+        return false; /* 0.0.0.0 或格式错误 */
+    }
+    *out = v;
+    return true;
+}
+
+/* 掩码必须「前面全 1、后面全 0」：按网络字节序从最高位看，不能出现 0 之后又有 1。 */
+static bool mask_contiguous(uint32_t m)
+{
+    /* esp_ip4addr_aton 返回的是网络字节序，按位判断连续性前要转成本机序 */
+    uint32_t v = ntohl(m);
+    if (v == 0 || v == 0xFFFFFFFFu) {
+        return false;
+    }
+    bool zero_seen = false;
+    for (int i = 0; i < 32; i++) {
+        bool bit = (v >> (31 - i)) & 1u;
+        if (!bit) {
+            zero_seen = true;
+        } else if (zero_seen) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool wifi_net_config_check(const char *ip, const char *gw, const char *mask, const char *dns,
+                           char *err, size_t errcap)
+{
+    if (err && errcap) {
+        err[0] = '\0';
+    }
+    uint32_t a = 0, g = 0, m = 0, d = 0;
+    if (!parse_ipv4(ip, &a)) {
+        snprintf(err, errcap, "IP 地址格式不正确");
+        return false;
+    }
+    if (!parse_ipv4(gw, &g)) {
+        snprintf(err, errcap, "默认网关格式不正确");
+        return false;
+    }
+    if (!parse_ipv4(mask, &m)) {
+        snprintf(err, errcap, "子网掩码格式不正确");
+        return false;
+    }
+    if (!mask_contiguous(m)) {
+        snprintf(err, errcap, "子网掩码不连续（例如 255.255.255.0）");
+        return false;
+    }
+    if ((a & m) != (g & m)) {
+        snprintf(err, errcap, "IP 与网关不在同一网段");
+        return false;
+    }
+    if (a == g) {
+        snprintf(err, errcap, "IP 不能与网关相同");
+        return false;
+    }
+    uint32_t host = a & ~m;
+    if (host == 0) {
+        snprintf(err, errcap, "IP 不能是网络地址");
+        return false;
+    }
+    if (host == ~m) {
+        snprintf(err, errcap, "IP 不能是广播地址");
+        return false;
+    }
+    if (dns && dns[0] && !parse_ipv4(dns, &d)) {
+        snprintf(err, errcap, "DNS 地址格式不正确");
+        return false;
+    }
+    return true;
+}
+
+void wifi_apply_net_config(void)
+{
+    if (!s_netif) {
+        return;
+    }
+    bool use_static;
+    char ip[16], gw[16], mask[16], dns[16];
+    app_config_t *cfg = config_lock();
+    use_static = cfg->net_static;
+    snprintf(ip, sizeof(ip), "%s", cfg->net_ip);
+    snprintf(gw, sizeof(gw), "%s", cfg->net_gw);
+    snprintf(mask, sizeof(mask), "%s", cfg->net_mask);
+    snprintf(dns, sizeof(dns), "%s", cfg->net_dns);
+    config_unlock();
+
+    if (!use_static) {
+        esp_err_t err = esp_netif_dhcpc_start(s_netif);
+        if (err == ESP_OK || err == ESP_ERR_ESP_NETIF_DHCP_ALREADY_STARTED) {
+            log_line("WiFi 地址由 DHCP 自动获取");
+        } else {
+            log_line("启用 DHCP 失败: %s", esp_err_to_name(err));
+        }
+        return;
+    }
+
+    char reason[96] = {0};
+    if (!wifi_net_config_check(ip, gw, mask, dns, reason, sizeof(reason))) {
+        log_line("静态 IP 配置无效（%s），改用 DHCP", reason);
+        esp_netif_dhcpc_start(s_netif);
+        return;
+    }
+
+    esp_err_t err = esp_netif_dhcpc_stop(s_netif);
+    if (err != ESP_OK && err != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED) {
+        log_line("停止 DHCP 失败: %s，改用 DHCP", esp_err_to_name(err));
+        esp_netif_dhcpc_start(s_netif);
+        return;
+    }
+
+    esp_netif_ip_info_t info = {0};
+    info.ip.addr = esp_ip4addr_aton(ip);
+    info.gw.addr = esp_ip4addr_aton(gw);
+    info.netmask.addr = esp_ip4addr_aton(mask);
+    err = esp_netif_set_ip_info(s_netif, &info);
+    if (err != ESP_OK) {
+        log_line("设置静态 IP 失败: %s，改用 DHCP", esp_err_to_name(err));
+        esp_netif_dhcpc_start(s_netif);
+        return;
+    }
+
+    /* DHCP 已停用，DNS 不会自动下发；没填 DNS 就用网关（绝大多数路由器都做 DNS 转发） */
+    esp_netif_dns_info_t dinfo = {0};
+    dinfo.ip.type = ESP_IPADDR_TYPE_V4;
+    dinfo.ip.u_addr.ip4.addr = esp_ip4addr_aton((dns[0] != '\0') ? dns : gw);
+    esp_netif_set_dns_info(s_netif, ESP_NETIF_DNS_MAIN, &dinfo);
+    log_line("使用静态 IP %s，网关 %s，掩码 %s，DNS %s", ip, gw, mask,
+             (dns[0] != '\0') ? dns : gw);
+}
+
+esp_err_t wifi_save_net_config(bool use_static, const char *ip, const char *gw, const char *mask,
+                               const char *dns, char *err, size_t errcap)
+{
+    if (use_static && !wifi_net_config_check(ip, gw, mask, dns, err, errcap)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    app_config_t *cfg = config_lock();
+    cfg->net_static = use_static;
+    if (use_static) {
+        snprintf(cfg->net_ip, sizeof(cfg->net_ip), "%s", ip ? ip : "");
+        snprintf(cfg->net_gw, sizeof(cfg->net_gw), "%s", gw ? gw : "");
+        snprintf(cfg->net_mask, sizeof(cfg->net_mask), "%s",
+                 (mask && mask[0]) ? mask : "255.255.255.0");
+        snprintf(cfg->net_dns, sizeof(cfg->net_dns), "%s", dns ? dns : "");
+    }
+    config_save_locked();
+    config_unlock();
+    return ESP_OK;
+}
+
 esp_err_t wifi_start(uint32_t timeout_ms)
 {
     if (!wifi_configured()) {
@@ -228,6 +392,9 @@ esp_err_t wifi_start(uint32_t timeout_ms)
         esp_netif_set_hostname(s_netif, host);
         log_line("设备名: %s（mDNS 地址 http://%s.local/）", host, host);
     }
+
+    /* 固定 IP 要在 esp_wifi_start 之前设好，DHCP 客户端必须先停掉 */
+    wifi_apply_net_config();
 
     ESP_RETURN_ON_ERROR(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
                                                             event_handler, NULL, NULL),
@@ -326,6 +493,9 @@ esp_err_t wifi_reconnect(uint32_t timeout_ms)
     if (!s_events) {
         return ESP_ERR_INVALID_STATE;
     }
+    /* 网页上改了静态 IP / 切回 DHCP 后，重连时生效 */
+    wifi_apply_net_config();
+
     xEventGroupClearBits(s_events, WIFI_CONNECTED_BIT);
     esp_wifi_disconnect();
     vTaskDelay(pdMS_TO_TICKS(500));

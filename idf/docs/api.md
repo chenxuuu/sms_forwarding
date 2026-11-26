@@ -55,6 +55,9 @@ HTTP 服务本身不受影响，页面还能正常打开和刷新。
 | `operatorAct` | 手动模式网络类型：0=2G(GSM) / 2=3G(UTRAN) / 7=LTE（默认） |
 | `apn` | 数据 APN，留空=模组按 SIM 自动选择（推荐）；手填限 1~63 个字母/数字/`.`/`-`/`_` |
 | `apnUser` / `apnPass` | APN 认证用户名/密码（可选，各 ≤16 字符 ASCII，固定 PAP），仅在填写了 APN 时下发 |
+| `netMode` | IP 获取方式：0=DHCP（默认）/ 1=固定 IP |
+| `netIp` / `netMask` / `netGw` | 固定 IP 的地址 / 子网掩码 / 默认网关（仅 `netMode=1` 时校验并保存） |
+| `netDns` | DNS，可留空（留空时用网关）。固定 IP 下 DHCP 不再下发 DNS，所以会显式设置 |
 | `pushNen` / `pushNtype` / `pushNname` / `pushNurl` / `pushNkey1` / `pushNkey2` / `pushNbody` | 第 N 个推送通道（N=0..49，实际数量由 `pushCount` 决定） |
 
 返回 3 秒后跳回首页的提示页。手动选网若 PLMN 非 5~6 位数字、或网络类型非法，
@@ -81,6 +84,7 @@ HTTP 服务本身不受影响，页面还能正常打开和刷新。
 另含本机号码 `self_phone`（`AT+CNUM` 自动获取或后台手填，可能为空）、
 邮件开关 `mail_enabled`（布尔，缺省视为开启），以及选网字段 `operator_mode`（0 自动/1 手动）、`operator_code`（PLMN）、`operator_act`（0=2G/2=3G/7=LTE），
 和 APN 字段 `apn` / `apn_user` / `apn_pass`（`apn` 留空表示由模组按 SIM 自动选择）。
+网络字段 `net_static`（false=DHCP）、`net_ip` / `net_gw` / `net_mask` / `net_dns`。
 密码等敏感字段也在其中，接口本身受 Basic 认证保护。
 
 通道对象字段固定为 `enabled` / `type` / `name` / `url` / `key1` / `key2` / **`custom_body`**：

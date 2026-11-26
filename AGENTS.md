@@ -58,6 +58,11 @@ python tools/serial_capture.py COM3 60  # 抓日志（直接 monitor/开串口�
   用到编译期账号时**首次启动会写进 NVS**，否则 OTA 到不带 `CONFIG_WIFI_*` 的固件（CI 包）会断网进配网；
   没有账号或连续 3 次连不上时进配网模式（`net/wifi_portal.c`，热点 `SMS-Forwarder-XXXX`，192.168.4.1）。
   配网 httpd 与主 Web 不会同时占用 80 端口。
+- **静态 IP**：存在 `sms_config`（`netStatic` / `netIp` / `netGw` / `netMask` / `netDns`）。
+  `wifi_apply_net_config()` 在 `esp_wifi_start()` 前先 `esp_netif_dhcpc_stop()` 再 `esp_netif_set_ip_info()`；
+  DHCP 停掉后没有自动 DNS，`netDns` 留空时用网关。配置非法（掩码不连续、IP 与网关不同网段、网络/广播地址）
+  只记日志并回退 DHCP，不会把设备锁死。网页 `/save` 与首次配网页共用 `wifi_net_config_check()`；
+  改完需重启设备或点「重连 WiFi」生效（`wifi_reconnect()` 会重新应用）。
 
 ## 构建与烧录
 

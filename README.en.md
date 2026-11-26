@@ -66,7 +66,7 @@ Dark / light / follow-system themes.
 | **Scheduled tasks** | Send SMS / ping / fetch a URL at a given time; missed runs catch up, failures retry once; supports "every N days" |
 | **Firmware update** | Upload `*-ota.bin` in the browser; it writes the spare partition, so power loss cannot brick the device. The page shows whether a newer release exists (your browser calls GitHub, the device stays offline); a build that fails to boot rolls back automatically |
 | **eSIM management** | List profiles, switch or delete them (the active profile cannot be deleted; the modem restarts and re-registers after a switch); scan a QR code or paste an activation code to get the import command |
-| **Network & APN** | Automatic or manual PLMN selection; the APN is picked from the SIM by default, or you can set the APN plus username/password (PAP) — handy for foreign and IoT SIMs |
+| **Network & APN** | DHCP by default, or a static IP (address / mask / gateway / DNS) from the admin page or the first-time setup page; automatic or manual PLMN selection; the APN is picked from the SIM by default, or you can set the APN plus username/password (PAP) — handy for foreign and IoT SIMs |
 | **Self-healing** | WiFi reconnects automatically; 4G loss is handled in stages — airplane mode (10 s, doubling up to 5 min) → soft reset → power-cycle — and you are only notified after 5 consecutive failed rounds |
 | **Config compatible** | NVS namespace and keys match the Arduino version, so you can upgrade from an old firmware without losing settings |
 
@@ -147,6 +147,7 @@ Then provision WiFi as in step 3 above. For batch flashing, pre-fill WiFi under 
 | Changed router / WiFi password | After 3 failed boots it opens the `SMS-Forwarder-XXXX` hotspot; join it and re-enter the credentials, or pre-set them via `menuconfig` before flashing |
 | Want to change carrier / lock the network | "Device → Network selection": choose manual and fill in the PLMN (China Mobile `46000`, Unicom `46001`, Telecom `46011`), save and reboot |
 | Mobile data stops working after swapping SIMs | Leave the APN blank so the modem picks it from the SIM; if that fails, enter the carrier APN under "Device → Network selection" (common for foreign SIMs, e.g. giffgaff: `giffgaff.com`, user `gg`, password `p`), save and reboot |
+| Want a fixed IP for the device | In "Admin → Network IP" choose Static IP, fill in address / mask / gateway (DNS is optional, the gateway is used when blank), save, then reboot or hit "Reconnect WiFi" under Device → Maintenance. A wrong address makes the device unreachable; after 3 failed boots it opens the `SMS-Forwarder-XXXX` hotspot for setup |
 | Pushes fail but the web UI works | Hit "Test" on that channel to see the error; usually a wrong token / webhook or a platform-side limit |
 | "Check failed" on the firmware page | The version check is your **browser** calling `api.github.com`; if that is blocked you simply get no prompt, and the device is unaffected — download `*-ota.bin` from [Releases](https://github.com/chenxuuu/sms_forwarding/releases) and upload it |
 | The eSIM page cannot read the EID | The card is not eUICC (a normal SIM is not), or a previous operation left a logical channel open. Soft-reset the modem on the "Device" page and retry |

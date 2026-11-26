@@ -346,6 +346,13 @@ static uint32_t hash_section(const app_config_t *c, int section)
     case 6:
         h = fnv1a(c->self_phone, sizeof(c->self_phone), h);
         break;
+    case 7:
+        h = fnv1a(&c->net_static, sizeof(c->net_static), h);
+        h = fnv1a(c->net_ip, sizeof(c->net_ip), h);
+        h = fnv1a(c->net_gw, sizeof(c->net_gw), h);
+        h = fnv1a(c->net_mask, sizeof(c->net_mask), h);
+        h = fnv1a(c->net_dns, sizeof(c->net_dns), h);
+        break;
     default:
         h = fnv1a(&c->operator_mode, sizeof(c->operator_mode), h);
         h = fnv1a(&c->operator_act, sizeof(c->operator_act), h);
@@ -373,8 +380,8 @@ esp_err_t handler_save(httpd_req_t *req)
     char value[1024];
     app_config_t *cfg = config_lock();
 
-    uint32_t h_before[7];
-    for (int sc = 0; sc < 7; sc++) {
+    uint32_t h_before[8];
+    for (int sc = 0; sc < 8; sc++) {
         h_before[sc] = hash_section(cfg, sc);
     }
 
@@ -514,6 +521,36 @@ esp_err_t handler_save(httpd_req_t *req)
         }
     }
 
+    /* 静态 IP：只有「固定 IP」模式才校验；字段保留，方便以后切回来。
+     * 保存后需要重启设备或点「重连 WiFi」才生效。 */
+    char net_mode[8] = {0};
+    if (web_form_get(body, "netMode", net_mode, sizeof(net_mode))) {
+        char n_ip[16] = {0}, n_gw[16] = {0}, n_mask[16] = {0}, n_dns[16] = {0};
+        bool use_static = strcmp(net_mode, "1") == 0;
+        web_form_get(body, "netIp", n_ip, sizeof(n_ip));
+        web_form_get(body, "netGw", n_gw, sizeof(n_gw));
+        web_form_get(body, "netMask", n_mask, sizeof(n_mask));
+        web_form_get(body, "netDns", n_dns, sizeof(n_dns));
+        util_trim(n_ip);
+        util_trim(n_gw);
+        util_trim(n_mask);
+        util_trim(n_dns);
+        char nerr[96] = {0};
+        if (use_static && !wifi_net_config_check(n_ip, n_gw, n_mask, n_dns, nerr, sizeof(nerr))) {
+            config_unlock();
+            free(body);
+            web_send_json(req, false, nerr);
+            return ESP_OK;
+        }
+        cfg->net_static = use_static;
+        if (use_static) {
+            snprintf(cfg->net_ip, sizeof(cfg->net_ip), "%s", n_ip);
+            snprintf(cfg->net_gw, sizeof(cfg->net_gw), "%s", n_gw);
+            snprintf(cfg->net_mask, sizeof(cfg->net_mask), "%s", n_mask);
+            snprintf(cfg->net_dns, sizeof(cfg->net_dns), "%s", n_dns);
+        }
+    }
+
     char cnt_str[8] = {0};
     if (web_form_get(body, "pushCount", cnt_str, sizeof(cnt_str))) {
         int n = atoi(cnt_str);
@@ -588,7 +625,9 @@ esp_err_t handler_save(httpd_req_t *req)
     bool ch_push = h_before[4] != hash_section(cfg, 4);
     bool ch_oper = h_before[5] != hash_section(cfg, 5);
     bool ch_self = h_before[6] != hash_section(cfg, 6);
-    bool changed = ch_creds || ch_mail || ch_admin || ch_black || ch_push || ch_oper || ch_self;
+    bool ch_net = h_before[7] != hash_section(cfg, 7);
+    bool changed = ch_creds || ch_mail || ch_admin || ch_black || ch_push || ch_oper || ch_self ||
+                   ch_net;
 
     config_save_locked();
     config_unlock();
@@ -628,6 +667,9 @@ esp_err_t handler_save(httpd_req_t *req)
     if (ch_self) {
         sbuf_append(&items, "\n· 本机号码");
     }
+    if (ch_net) {
+        sbuf_append(&items, "\n· 网络 IP 配置（重启设备后生效）");
+    }
 
     sbuf_t text;
     sbuf_init(&text);
@@ -637,6 +679,9 @@ esp_err_t handler_save(httpd_req_t *req)
     }
     if (ch_oper) {
         sbuf_append(&text, "\n\n选网配置已保存，重启设备后生效。");
+    }
+    if (ch_net) {
+        sbuf_append(&text, "\n\n网络 IP 配置已保存，重启设备或点「重连 WiFi」后生效。");
     }
     notify_system("短信转发器配置已更新", sbuf_cstr(&text));
     log_line("配置已更新：%s", sbuf_cstr(&items));
@@ -835,6 +880,11 @@ esp_err_t handler_config(httpd_req_t *req)
     append_str_field(&out, "apn", cfg->apn, true);
     append_str_field(&out, "apn_user", cfg->apn_user, true);
     append_str_field(&out, "apn_pass", cfg->apn_pass, true);
+    sbuf_printf(&out, "\"net_static\":%s,", cfg->net_static ? "true" : "false");
+    append_str_field(&out, "net_ip", cfg->net_ip, true);
+    append_str_field(&out, "net_gw", cfg->net_gw, true);
+    append_str_field(&out, "net_mask", cfg->net_mask, true);
+    append_str_field(&out, "net_dns", cfg->net_dns, true);
     sbuf_append(&out, "\"channels\":[");
     for (int i = 0; i < cfg->channel_count; i++) {
         const push_channel_t *ch = &cfg->channels[i];

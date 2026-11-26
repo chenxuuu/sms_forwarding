@@ -136,6 +136,12 @@ EN 引脚（GPIO5，低电平断电）与板载 LED（GPIO8，低电平点亮）
   实现见 `net/wifi_portal.c`；
 - `wifi_get_info()`：SSID/IP/网关/掩码/DNS/MAC/BSSID/信道/RSSI；
 - `wifi_reconnect()`：供 Web “重启 WiFi” 使用；
+- **静态 IP**：配置存在 `sms_config`（`netStatic` / `netIp` / `netGw` / `netMask` / `netDns`）。
+  `wifi_apply_net_config()` 在 `esp_wifi_start()` 之前先 `esp_netif_dhcpc_stop()` 再 `esp_netif_set_ip_info()`；
+  DHCP 停用后没有自动 DNS，`netDns` 留空时用网关。校验（`wifi_net_config_check()`）要求掩码连续、
+  IP 与网关同网段、不是网络/广播地址，任一不满足只记日志并回退 DHCP，不会把设备锁死；
+  网页 `/save` 与配网页共用这套校验。`wifi_reconnect()` 也会重新应用，所以改完点「重连 WiFi」即可生效；
+  首次配网页默认 DHCP，选中「固定 IP」才展开地址输入框（回填当前配置，方便填错时改回来）。
 - `wifi_kick()`：非阻塞踢一次重连，供心跳使用；
 - `time_sync_start()`：SNTP（ntp.ntsc.ac.cn / ntp.aliyun.com / pool.ntp.org）；
   同时设置时区 `CST-8`（否则日志/通知里的时间会是 UTC，差 8 小时）；

@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "core/config.h"
 #include "core/log.h"
 #include "esp_http_server.h"
 #include "esp_mac.h"
@@ -15,7 +16,7 @@
 #include "net/wifi.h"
 
 #define PORTAL_AP_MAX 20
-#define PORTAL_BODY_MAX 256
+#define PORTAL_BODY_MAX 512
 
 typedef struct {
     char ssid[33];
@@ -160,6 +161,8 @@ static const char *PAGE_HEAD =
     "input{width:100%;box-sizing:border-box;background:#0f1116;border:1px solid #2b3140;color:#e6e9f0;"
     "border-radius:10px;padding:11px 12px;font-size:15px;outline:none}"
     "input:focus{border-color:#5b8cff}"
+    "select{width:100%;box-sizing:border-box;background:#0f1116;border:1px solid #2b3140;color:#e6e9f0;"
+    "border-radius:10px;padding:11px 12px;font-size:15px;outline:none}"
     "button{width:100%;margin-top:20px;padding:12px;border:0;border-radius:10px;font-size:15px;"
     "font-weight:600;color:#fff;background:linear-gradient(120deg,#5b8cff,#8b5cf6);cursor:pointer}"
     "button:active{opacity:.85}"
@@ -177,15 +180,72 @@ static const char *PAGE_TAIL_FMT =
     "</datalist>"
     "<label for=pass>WiFi 密码</label>"
     "<input id=pass name=pass type=password autocomplete=off placeholder='开放网络留空'>"
+    "%s"
     "<button type=submit>保存并重启</button>"
     "</form>"
     "<div class=tip>只支持 2.4G 网络；设备热点 %s 没有密码，配好网后会自动关闭。<br>"
     "当前设备 <span class=id>%s</span></div>"
     "</div></body></html>";
 
+/* 静态 IP 区块：默认 DHCP，选中「固定 IP」才展开输入框。
+ * 首次配网时用户通常不知道要填什么，默认 DHCP 最不容易出错。 */
+static void append_net_fields(char *buf, size_t cap)
+{
+    char ip[16] = "", gw[16] = "", mask[16] = "", dns[16] = "";
+    app_config_t *cfg = config_lock();
+    bool use_static = cfg->net_static;
+    html_escape(cfg->net_ip, ip, sizeof(ip));
+    html_escape(cfg->net_gw, gw, sizeof(gw));
+    html_escape(cfg->net_mask, mask, sizeof(mask));
+    html_escape(cfg->net_dns, dns, sizeof(dns));
+    config_unlock();
+    if (mask[0] == '\0') {
+        snprintf(mask, sizeof(mask), "255.255.255.0");
+    }
+    snprintf(buf, cap,
+             "<label for=netMode>IP 获取方式</label>"
+             "<select id=netMode name=netMode>"
+             "<option value=0%s>自动获取（DHCP，推荐）</option>"
+             "<option value=1%s>固定 IP</option></select>"
+             "<div id=netBox style='display:%s'>"
+             "<label for=netIp>IP 地址</label>"
+             "<input id=netIp name=netIp placeholder='192.168.1.50' value='%s'>"
+             "<label for=netMask>子网掩码</label>"
+             "<input id=netMask name=netMask placeholder='255.255.255.0' value='%s'>"
+             "<label for=netGw>默认网关</label>"
+             "<input id=netGw name=netGw placeholder='192.168.1.1' value='%s'>"
+             "<label for=netDns>DNS（可留空，默认用网关）</label>"
+             "<input id=netDns name=netDns placeholder='可留空' value='%s'>"
+             "</div>"
+             "<script>(function(){var m=document.getElementById('netMode'),"
+             "b=document.getElementById('netBox');"
+             "function s(){b.style.display=m.value==='1'?'':'none';}"
+             "m.addEventListener('change',s);s();})();</script>",
+             use_static ? "" : " selected", use_static ? " selected" : "",
+             use_static ? "" : "none", ip, mask, gw, dns);
+}
+
+/* 参数错误页：保留在配网页，给个返回链接继续改 */
+static void send_err_page(httpd_req_t *req, const char *msg)
+{
+    char page[640];
+    char esc[160];
+    html_escape(msg ? msg : "参数错误", esc, sizeof(esc));
+    snprintf(page, sizeof(page),
+             "<!doctype html><meta charset=utf-8>"
+             "<meta name=viewport content='width=device-width,initial-scale=1'>"
+             "<body style='background:#0f1116;color:#e6e9f0;font:15px/1.7 "
+             "-apple-system,sans-serif;padding:40px 20px;text-align:center'>"
+             "<h2 style='font-size:18px'>参数不正确</h2>"
+             "<p style='color:#8b95a8'>%s</p>"
+             "<p><a style='color:#5b8cff' href='/'>返回修改</a></p></body>", esc);
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    httpd_resp_send(req, page, HTTPD_RESP_USE_STRLEN);
+}
+
 static esp_err_t send_page(httpd_req_t *req)
 {
-    size_t cap = 2048 + (size_t)s_ap_count * 128;
+    size_t cap = 4096 + (size_t)s_ap_count * 128;
     char *page = malloc(cap);
     if (!page) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no mem");
@@ -204,7 +264,9 @@ static esp_err_t send_page(httpd_req_t *req)
             break;
         }
     }
-    snprintf(page + len, cap - len, PAGE_TAIL_FMT, s_ap_ssid, s_ap_ssid);
+    char net_fields[1400];
+    append_net_fields(net_fields, sizeof(net_fields));
+    snprintf(page + len, cap - len, PAGE_TAIL_FMT, net_fields, s_ap_ssid, s_ap_ssid);
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     esp_err_t err = httpd_resp_send(req, page, HTTPD_RESP_USE_STRLEN);
     free(page);
@@ -247,13 +309,35 @@ static esp_err_t handler_save(httpd_req_t *req)
         pass[0] = '\0';
     }
 
+    /* 静态 IP 先校验，避免 WiFi 账号写进去了、IP 却是错的 */
+    char net_mode[8] = {0};
+    char net_ip[16] = {0}, net_gw[16] = {0}, net_mask[16] = {0}, net_dns[16] = {0};
+    form_field(body, "netMode", net_mode, sizeof(net_mode));
+    form_field(body, "netIp", net_ip, sizeof(net_ip));
+    form_field(body, "netGw", net_gw, sizeof(net_gw));
+    form_field(body, "netMask", net_mask, sizeof(net_mask));
+    form_field(body, "netDns", net_dns, sizeof(net_dns));
+    bool use_static = strcmp(net_mode, "1") == 0;
+    char nerr[96] = {0};
+    if (use_static &&
+        !wifi_net_config_check(net_ip, net_gw, net_mask, net_dns, nerr, sizeof(nerr))) {
+        send_err_page(req, nerr);
+        return ESP_OK;
+    }
+
     esp_err_t err = wifi_save_credentials(ssid, pass);
     if (err != ESP_OK) {
         log_line("配网保存失败: %s", esp_err_to_name(err));
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "保存失败");
         return ESP_FAIL;
     }
-    log_line("配网完成：SSID=%s，1.5 秒后重启", ssid);
+    err = wifi_save_net_config(use_static, net_ip, net_gw, net_mask, net_dns, nerr, sizeof(nerr));
+    if (err != ESP_OK) {
+        log_line("配网保存静态 IP 失败：%s", nerr);
+        send_err_page(req, nerr);
+        return ESP_OK;
+    }
+    log_line("配网完成：SSID=%s，IP 方式=%s，1.5 秒后重启", ssid, use_static ? "固定" : "DHCP");
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_sendstr(req, "<!doctype html><meta charset=utf-8>"

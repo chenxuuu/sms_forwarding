@@ -5,6 +5,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -48,3 +49,23 @@ esp_err_t wifi_reconnect(uint32_t timeout_ms);
 
 /** 立即踢一次重连（非阻塞，供心跳自愈使用）。 */
 void wifi_kick(void);
+
+/* ---- 静态 IP ---- */
+
+/**
+ * 校验固定 IP 参数：IPv4 格式、掩码连续、IP 与网关同网段、不是网络/广播地址。
+ * @param dns 可留空（留空时用网关当 DNS）
+ * @param err 失败原因写在这里（可为 NULL）
+ */
+bool wifi_net_config_check(const char *ip, const char *gw, const char *mask, const char *dns,
+                           char *err, size_t errcap);
+
+/** 把配置里的静态 IP 应用到 netif；DHCP 模式下会重新启动 DHCP 客户端。 */
+void wifi_apply_net_config(void);
+
+/**
+ * 保存静态 IP 配置（写 NVS），下次启动或重连 WiFi 时生效。
+ * @param use_static false 表示改回 DHCP（字段保留，方便以后切回来）
+ */
+esp_err_t wifi_save_net_config(bool use_static, const char *ip, const char *gw, const char *mask,
+                               const char *dns, char *err, size_t errcap);

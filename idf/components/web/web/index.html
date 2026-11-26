@@ -470,6 +470,43 @@ body.chan-dirty main{padding-bottom:150px}
         </div>
         <div class="row"><button class="btn pri" data-save="selfphone"><span class="spinner"></span>保存本机号码</button></div>
       </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="head">网络 IP</div>
+        <div class="grid two" style="margin-top:10px">
+          <div class="field"><label>IP 获取方式</label>
+            <select id="netMode">
+              <option value="0">自动获取（DHCP）</option>
+              <option value="1">固定 IP</option>
+            </select>
+          </div>
+          <div class="field"><label>当前地址</label>
+            <input id="netCur" disabled value="--">
+          </div>
+        </div>
+        <div id="netStaticBox">
+          <div class="grid two" style="margin-top:10px">
+            <div class="field"><label>IP 地址</label>
+              <input id="netIp" placeholder="192.168.1.50" inputmode="decimal" autocomplete="off">
+            </div>
+            <div class="field"><label>子网掩码</label>
+              <input id="netMask" placeholder="255.255.255.0" inputmode="decimal" autocomplete="off">
+            </div>
+          </div>
+          <div class="grid two" style="margin-top:10px">
+            <div class="field"><label>默认网关</label>
+              <input id="netGw" placeholder="192.168.1.1" inputmode="decimal" autocomplete="off">
+            </div>
+            <div class="field"><label>DNS（可留空）</label>
+              <input id="netDns" placeholder="留空用网关" inputmode="decimal" autocomplete="off">
+            </div>
+          </div>
+        </div>
+        <div class="tip" style="margin-top:8px">默认 DHCP。改成固定 IP 后需重启设备（或在「设备 → 维护」点「重连 WiFi」）才生效；地址填错会连不上，设备连续 3 次连不上会自动开热点配网。</div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn pri" data-save="net"><span class="spinner"></span>保存网络配置</button>
+        </div>
+      </div>
     </section>
 
 <section class="page" id="p-device">
@@ -1151,6 +1188,7 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
     S.status = s;
     syncOtaDot();
     $('vIp').textContent = s.ip || '--';
+    if ($('netCur')) $('netCur').value = s.ip || '--';
     $('subIp').textContent = (s.device_name || '') + '.local';
     $('devName').textContent = s.device_name || 'ESP32-C3';
     $('ipText').textContent = 'http://' + (s.ip || '') + '/';
@@ -1194,6 +1232,10 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
     $('operPlmnRow').style.display = manual ? '' : 'none';
     $('operActRow').style.display = manual ? '' : 'none';
   }
+  /* ---------- 静态 IP：固定 IP 模式才展开输入框 ---------- */
+  function syncNetForm(){
+    $('netStaticBox').style.display = $('netMode').value === '1' ? '' : 'none';
+  }
   function loadConfig(keepChannels){
     return api('/config').then(function(cfg){
       if (!cfg || cfg.success === false) return;
@@ -1216,6 +1258,12 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
       $('apn').value = cfg.apn || '';
       $('apnUser').value = cfg.apn_user || '';
       $('apnPass').value = cfg.apn_pass || '';
+      $('netMode').value = cfg.net_static ? '1' : '0';
+      $('netIp').value = cfg.net_ip || '';
+      $('netMask').value = cfg.net_mask || '';
+      $('netGw').value = cfg.net_gw || '';
+      $('netDns').value = cfg.net_dns || '';
+      syncNetForm();
       syncOperatorForm();
       if (cfg.admin_phone) $('kAdmin').textContent = cfg.admin_phone;
       /* 保存其它分区（邮件/账号等）时不能把用户正在编辑的通道冲掉 */
@@ -1294,7 +1342,17 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
     p.append('key1', ch.key1 || '');
     p.append('key2', ch.key2 || '');
     p.append('body', ch.custom_body || '');
-    busy(btn, true);
+    if (scope === 'net' && $('netMode').value === '1') {
+      var ipOk = function(v){ return /^(\d{1,3}\.){3}\d{1,3}$/.test(v) && v.split('.').every(function(x){ return +x <= 255; }); };
+      var checks = [[$('netIp').value, '请填写正确的 IP 地址'],
+                    [$('netMask').value, '请填写正确的子网掩码'],
+                    [$('netGw').value, '请填写正确的默认网关']];
+      for (var ci = 0; ci < checks.length; ci++) {
+        if (!ipOk((checks[ci][0] || '').trim())) { toast(checks[ci][1], 'err'); return; }
+      }
+      var nd = ($('netDns').value || '').trim();
+      if (nd && !ipOk(nd)) { toast('请填写正确的 DNS 地址（可留空）', 'err'); return; }
+    }    busy(btn, true);
     api('/push_test', { method:'POST', body: p.toString() }).then(function(r){
       busy(btn, false);
       var ok = !!(r && r.success);
@@ -1380,6 +1438,13 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
       p.append('apn', ($('apn').value || '').trim());
       p.append('apnUser', ($('apnUser').value || '').trim());
       p.append('apnPass', ($('apnPass').value || '').trim());
+    }
+    if (scope === 'net') {
+      p.append('netMode', $('netMode').value);
+      p.append('netIp', ($('netIp').value || '').trim());
+      p.append('netMask', ($('netMask').value || '').trim());
+      p.append('netGw', ($('netGw').value || '').trim());
+      p.append('netDns', ($('netDns').value || '').trim());
     }
     if (scope === 'push') {
       var list = snapshotChannels();
@@ -1540,7 +1605,10 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
     api('/save?json=1', { method:'POST', body: collect(scope) }).then(function(r){
       busy(btn, false);
       if (r && r.success) {
-        toast(scope === 'operator' ? '选网与 APN 已保存，重启设备后生效' : (r.message || '已保存'), 'ok');
+        var okMsg = r.message || '已保存';
+        if (scope === 'operator') okMsg = '选网与 APN 已保存，重启设备后生效';
+        if (scope === 'net') okMsg = '网络配置已保存，重启设备或重连 WiFi 后生效';
+        toast(okMsg, 'ok');
         /* 保存通道：以设备回读为准并清除未保存标记；保存其它分区：保留正在编辑的通道 */
         loadConfig(scope !== 'push');
         loadStatus();
@@ -2453,6 +2521,23 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
     '默认自动选网、APN 自动；保存后需重启设备生效': 'Automatic network and APN by default; reboot after saving',
     'APN 只能包含字母、数字和 . - _（最多 63 个字符）': 'APN may only contain letters, digits and . - _ (up to 63 characters)',
     '选网与 APN 已保存，重启设备后生效': 'Network and APN saved; reboot the device to apply',
+    '网络 IP': 'Network IP',
+    'IP 获取方式': 'IP assignment',
+    '自动获取（DHCP）': 'Automatic (DHCP)',
+    '固定 IP': 'Static IP',
+    '当前地址': 'Current address',
+    'IP 地址': 'IP address',
+    '子网掩码': 'Subnet mask',
+    '默认网关': 'Default gateway',
+    'DNS（可留空）': 'DNS (optional)',
+    '留空用网关': 'Blank = gateway',
+    '默认 DHCP。改成固定 IP 后需重启设备（或在「设备 → 维护」点「重连 WiFi」）才生效；地址填错会连不上，设备连续 3 次连不上会自动开热点配网。': 'DHCP by default. A static IP applies after a reboot (or "Reconnect WiFi" under Device - Maintenance). A wrong address makes the device unreachable; after 3 failed boots it opens its setup hotspot automatically.',
+    '保存网络配置': 'Save network settings',
+    '网络配置已保存，重启设备或重连 WiFi 后生效': 'Network settings saved; reboot the device or reconnect WiFi to apply',
+    '请填写正确的 IP 地址': 'Enter a valid IP address',
+    '请填写正确的子网掩码': 'Enter a valid subnet mask',
+    '请填写正确的默认网关': 'Enter a valid default gateway',
+    '请填写正确的 DNS 地址（可留空）': 'Enter a valid DNS address, or leave it blank',
     'APN 用户名': 'APN username',
     'APN 密码': 'APN password',
     '通常留空': 'Usually blank',
@@ -2775,6 +2860,7 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
     $('atPick').addEventListener('change', function(){ if (this.value) $('atCmd').value = this.value; });
     $('flightSw').addEventListener('change', toggleFlight);
     $('operMode').addEventListener('change', syncOperatorForm);
+    $('netMode').addEventListener('change', syncNetForm);
     $('mailEnable').addEventListener('change', syncMailForm);
     $('mailTest').addEventListener('click', function(){ mailTest(this); });
     $('taskAdd').addEventListener('click', function(){ openTaskEditor(-1); });

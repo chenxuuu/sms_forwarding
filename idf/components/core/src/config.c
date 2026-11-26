@@ -105,6 +105,15 @@ static void load_all(void)
     load_str("apnUser", s_config.apn_user, sizeof(s_config.apn_user), "");
     load_str("apnPass", s_config.apn_pass, sizeof(s_config.apn_pass), "");
 
+    /* 静态 IP：老配置没有这些键，读出来就是 DHCP */
+    uint8_t net_static = 0;
+    nvs_get_u8(s_nvs, "netStatic", &net_static);
+    s_config.net_static = net_static != 0;
+    load_str("netIp", s_config.net_ip, sizeof(s_config.net_ip), "");
+    load_str("netGw", s_config.net_gw, sizeof(s_config.net_gw), "");
+    load_str("netMask", s_config.net_mask, sizeof(s_config.net_mask), "255.255.255.0");
+    load_str("netDns", s_config.net_dns, sizeof(s_config.net_dns), "");
+
     uint8_t cnt = 0;
     bool has_cnt = nvs_get_u8(s_nvs, "pushCount", &cnt) == ESP_OK &&
                    cnt >= PUSH_CHANNEL_MIN && cnt <= PUSH_CHANNEL_MAX;
@@ -218,6 +227,11 @@ void config_save_locked(void)
     nvs_set_str(s_nvs, "apn", s_config.apn);
     nvs_set_str(s_nvs, "apnUser", s_config.apn_user);
     nvs_set_str(s_nvs, "apnPass", s_config.apn_pass);
+    nvs_set_u8(s_nvs, "netStatic", s_config.net_static ? 1 : 0);
+    nvs_set_str(s_nvs, "netIp", s_config.net_ip);
+    nvs_set_str(s_nvs, "netGw", s_config.net_gw);
+    nvs_set_str(s_nvs, "netMask", s_config.net_mask);
+    nvs_set_str(s_nvs, "netDns", s_config.net_dns);
 
     nvs_set_u8(s_nvs, "pushCount", (uint8_t)s_config.channel_count);
     for (int i = 0; i < s_config.channel_count; i++) {

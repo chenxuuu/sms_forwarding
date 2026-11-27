@@ -24,6 +24,10 @@ python tools/serial_capture.py COM3 60  # 抓日志（直接 monitor/开串口�
 - 新增推送通道：`push_type_t` → `push.c` 的 `build_request()` → `config_push_channel_valid()` → Web 表单选项。
   推送失败的重试只看「可能没送到」（status=0 / 5xx / 429）；2xx 已送达不要重试，否则一条短信推 2~3 条。
   校验响应体要在 `HTTP_EVENT_ON_DATA` 里自己攒——`esp_http_client_perform()` 会把 body 读走。
+- **启动通知不要整体等 NTP**：只有钉钉/飞书「配了加签密钥」的通道依赖系统时间（签名要用当前
+  秒/毫秒），邮件和普通推送必须先发。加签通道最多等 30 秒（`time_sync_wait()`，
+  见 `notify_system_ex()` 的 `push_time_filter_t`），超时照发并在日志里提示签名可能被拒。
+  判断通道是否依赖时间统一用 `push_channel_needs_time()`，别在调用方重复写条件。
 - **短信 URC 依赖 +CNMI**：ML307Y 在 `AT+CFUN=1` 后约 8 秒（SIM 重新 READY）会把 `+CNMI` 清回
   `0,0,0,0,0`，此后一条 `+CMT` 都不报。`rf_cycle()` 必须等 SIM READY 再多等 3 秒才下发，
   `netmon` 每轮用 `AT+CNMI?` 兜底复核（见 `modem_sms_config_check()`）。

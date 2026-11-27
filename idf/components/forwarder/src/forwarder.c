@@ -169,10 +169,16 @@ void forwarder_init(void)
     log_line("短信转发策略已就绪");
 }
 
-void forwarder_notify_device(const char *title, const char *detail, const char *device_url)
+void forwarder_notify_device_ex(const char *title, const char *detail, const char *device_url,
+                                push_time_filter_t filter)
 {
     char body[256];
     snprintf(body, sizeof(body), "%s\n设备地址: %s", detail ? detail : "",
              device_url ? device_url : "");
-    notify_system(title, body);
+    notify_system_ex(title, body, filter);
+}
+
+void forwarder_notify_device(const char *title, const char *detail, const char *device_url)
+{
+    forwarder_notify_device_ex(title, detail, device_url, PUSH_FILTER_ALL);
 }

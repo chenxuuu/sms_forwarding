@@ -10,6 +10,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "notify/push.h"
+
 /** 启动通知任务。 */
 void notify_init(void);
 
@@ -21,6 +23,12 @@ void notify_email(const char *subject, const char *body);
 
 /** 系统通知：邮件 + 所有已启用推送通道（启动、IP 变化、网络恢复、配置更新）。 */
 void notify_system(const char *title, const char *body);
+
+/**
+ * 系统通知，按通道是否依赖系统时间筛选。
+ * filter=PUSH_FILTER_TIME_DEPENDENT 时只发钉钉/飞书加签通道，且不发邮件。
+ */
+void notify_system_ex(const char *title, const char *body, push_time_filter_t filter);
 
 /** 等待队列清空（重启前调用），返回是否已清空。 */
 bool notify_drain(uint32_t timeout_ms);

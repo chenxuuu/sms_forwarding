@@ -20,6 +20,9 @@
 #include "sched/sched.h"
 #include "web/web_server.h"
 
+/** 启动通知里的加签通道最多等 NTP 多久；超时也照发（签名可能被服务器拒绝） */
+#define BOOT_TIME_WAIT_MS 30000
+
 /**
  * 启动顺序（与旧 Arduino 固件保持一致，但 Web 更早可用）：
  *  1. 日志 + 配置（NVS）
@@ -65,23 +68,29 @@ typedef struct {
 
 static boot_notice_t s_boot_notice;
 
-static bool has_signed_push(void)
+/* 启动通知要发到哪几类通道：indep=不依赖时间（邮件/普通推送），time_dep=依赖时间（钉钉/飞书加签） */
+static void boot_notice_targets(bool *indep, bool *time_dep)
 {
     app_config_t *cfg = config_lock();
-    bool need = false;
-    for (int i = 0; !need && i < cfg->channel_count; i++) {
-        const push_channel_t *ch = &cfg->channels[i];
-        if (config_push_channel_valid(ch) &&
-            (ch->type == PUSH_TYPE_DINGTALK || ch->type == PUSH_TYPE_FEISHU) &&
-            ch->key1[0] != '\0') {
-            need = true;
+    bool i = config_mail_active(cfg);
+    bool t = false;
+    for (int n = 0; n < cfg->channel_count; n++) {
+        const push_channel_t *ch = &cfg->channels[n];
+        if (!config_push_channel_valid(ch)) {
+            continue;
+        }
+        if (push_channel_needs_time(ch)) {
+            t = true;
+        } else {
+            i = true;
         }
     }
     config_unlock();
-    return need;
+    *indep = i;
+    *time_dep = t;
 }
 
-static void send_boot_notice(void)
+static void send_boot_notice(push_time_filter_t filter)
 {
     char url[48];
     snprintf(url, sizeof(url), "http://%s/", s_boot_notice.ip);
@@ -89,11 +98,9 @@ static void send_boot_notice(void)
         char detail[96];
         snprintf(detail, sizeof(detail), "地址已变化：%s → %s", s_boot_notice.last_ip,
                  s_boot_notice.ip);
-        log_line("%s", detail);
-        forwarder_notify_device("设备网络地址已变化", detail, url);
+        forwarder_notify_device_ex("设备网络地址已变化", detail, url, filter);
     } else {
-        log_line("配置有效，发送启动通知，设备地址 %s", url);
-        forwarder_notify_device("短信转发器已启动", "设备已启动", url);
+        forwarder_notify_device_ex("短信转发器已启动", "设备已启动", url, filter);
     }
 }
 
@@ -166,12 +173,32 @@ void app_main(void)
     snprintf(s_boot_notice.last_ip, sizeof(s_boot_notice.last_ip), "%s",
              had_last ? last_ip : "");
 
-    if (has_signed_push()) {
-        if (!time_sync_ready()) {
-            log_line("已配置钉钉/飞书加签通道，等待 NTP 时间同步完成后发送启动通知");
-        }
-        time_sync_on_ready(send_boot_notice);
+    if (ip_changed) {
+        log_line("地址已变化：%s → %s", last_ip, ip);
     } else {
-        send_boot_notice();
+        log_line("配置有效，发送启动通知，设备地址 http://%s/", ip);
     }
+
+    bool indep = false, time_dep = false;
+    boot_notice_targets(&indep, &time_dep);
+
+    /* 没有加签通道，或时间已经就绪：一次发完，不用等 */
+    if (!time_dep || time_sync_ready()) {
+        send_boot_notice(PUSH_FILTER_ALL);
+        return;
+    }
+
+    /* 钉钉/飞书加签要用当前时间算签名，只有它们值得等；邮件和普通推送先发出去 */
+    if (indep) {
+        log_line("先发送不依赖时间的通道，钉钉/飞书加签通道等 NTP 同步后再发");
+        send_boot_notice(PUSH_FILTER_INDEPENDENT);
+    } else {
+        log_line("仅有钉钉/飞书加签通道，等待 NTP 时间同步后发送启动通知");
+    }
+
+    if (!time_sync_wait(BOOT_TIME_WAIT_MS)) {
+        log_line("等待 NTP 同步超时（%d 秒），加签通道仍尝试发送，签名可能被服务器拒绝",
+                 BOOT_TIME_WAIT_MS / 1000);
+    }
+    send_boot_notice(PUSH_FILTER_TIME_DEPENDENT);
 }

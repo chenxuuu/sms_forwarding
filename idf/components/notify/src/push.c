@@ -441,7 +441,18 @@ bool push_send_channel(const push_channel_t *channel, const char *title, const c
     return false;
 }
 
-void push_send_all(const char *title, const char *message, const char *timestamp, bool is_notice)
+bool push_channel_needs_time(const push_channel_t *channel)
+{
+    if (!channel) {
+        return false;
+    }
+    /* 只有配了加签密钥的钉钉/飞书用当前时间算签名；普通 webhook 发什么时间都收 */
+    return channel->key1[0] != '\0' &&
+           (channel->type == PUSH_TYPE_DINGTALK || channel->type == PUSH_TYPE_FEISHU);
+}
+
+void push_send_all_filtered(const char *title, const char *message, const char *timestamp,
+                            bool is_notice, push_time_filter_t filter)
 {
     app_config_t *cfg = config_lock();
     int total = cfg->channel_count;
@@ -453,23 +464,36 @@ void push_send_all(const char *title, const char *message, const char *timestamp
     }
     int count = 0;
     for (int i = 0; i < total; i++) {
-        if (config_push_channel_valid(&cfg->channels[i])) {
-            snap[count++] = cfg->channels[i];
+        const push_channel_t *ch = &cfg->channels[i];
+        if (!config_push_channel_valid(ch)) {
+            continue;
         }
+        const bool needs_time = push_channel_needs_time(ch);
+        if ((filter == PUSH_FILTER_INDEPENDENT && needs_time) ||
+            (filter == PUSH_FILTER_TIME_DEPENDENT && !needs_time)) {
+            continue;
+        }
+        snap[count++] = *ch;
     }
     config_unlock();
 
     if (count == 0) {
         free(snap);
-        log_line("没有启用的推送通道");
+        log_line("没有符合条件的推送通道");
         return;
     }
 
-    log_line("=== 开始多通道推送（%d 个，%s）===", count, is_notice ? "系统通知" : "短信");
+    log_line("=== 开始多通道推送（%d 个，%s）===", count,
+             is_notice ? "系统通知" : "短信");
     for (int i = 0; i < count; i++) {
         push_send_channel(&snap[i], title, message, timestamp, is_notice);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
     log_line("=== 多通道推送完成 ===");
     free(snap);
+}
+
+void push_send_all(const char *title, const char *message, const char *timestamp, bool is_notice)
+{
+    push_send_all_filtered(title, message, timestamp, is_notice, PUSH_FILTER_ALL);
 }

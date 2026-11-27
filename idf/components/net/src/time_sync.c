@@ -6,28 +6,18 @@
 #include "core/log.h"
 #include "esp_sntp.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 /* 设备面向国内使用；显式设置时区，否则日志/通知里的时间会是 UTC（差 8 小时） */
 #define DEVICE_TZ "CST-8"
 
-static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool s_synced;
-static time_sync_cb_t s_on_ready;
 
 static void on_sync(struct timeval *tv)
 {
     (void)tv;
-    time_sync_cb_t cb = NULL;
-    portENTER_CRITICAL(&s_mux);
     s_synced = true;
-    cb = s_on_ready;
-    s_on_ready = NULL;
-    portEXIT_CRITICAL(&s_mux);
-
     log_line("NTP 时间同步成功，当前 UTC 时间戳: %lld", (long long)time(NULL));
-    if (cb) {
-        cb();
-    }
 }
 
 void time_sync_start(void)
@@ -49,22 +39,11 @@ bool time_sync_ready(void)
     return s_synced || time(NULL) > 100000;
 }
 
-void time_sync_on_ready(time_sync_cb_t cb)
+bool time_sync_wait(uint32_t timeout_ms)
 {
-    if (!cb) {
-        return;
+    /* 只给启动通知这类"必须先有时间"的场景用；200ms 轮询足够，不必再加信号量 */
+    for (uint32_t waited = 0; !time_sync_ready() && waited < timeout_ms; waited += 200) {
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
-    bool already = time(NULL) > 100000;
-    bool call_now = false;
-    portENTER_CRITICAL(&s_mux);
-    if (s_synced || already) {
-        call_now = true;
-    } else {
-        s_on_ready = cb;
-    }
-    portEXIT_CRITICAL(&s_mux);
-
-    if (call_now) {
-        cb();
-    }
+    return time_sync_ready();
 }

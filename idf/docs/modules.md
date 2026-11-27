@@ -145,6 +145,8 @@ EN 引脚（GPIO5，低电平断电）与板载 LED（GPIO8，低电平点亮）
 - `wifi_kick()`：非阻塞踢一次重连，供心跳使用；
 - `time_sync_start()`：SNTP（ntp.ntsc.ac.cn / ntp.aliyun.com / pool.ntp.org）；
   同时设置时区 `CST-8`（否则日志/通知里的时间会是 UTC，差 8 小时）；
+- `time_sync_wait(ms)`：轮询等待同步完成（200ms 一次），返回是否已就绪。只给「启动通知」这类
+  必须先有准确时间的场景用，别在任务循环里等；
 - `heartbeat_start(cb, current_ip)`：周期自检（本机 Web + 外网），失败时重连/重启，并通过回调
   通知「IP 变化」「网络恢复」；配置项 `CONFIG_HEARTBEAT_HOST/PORT/INTERVAL_S`。
 **mDNS（`net/mdns.h`）**
@@ -161,6 +163,10 @@ EN 引脚（GPIO5，低电平断电）与板载 LED（GPIO8，低电平点亮）
 - 队列 + 工作任务的异步通知模型，调用方只投递；
 - `notify_sms()`：一条短信 → 邮件 + 所有有效推送通道（文案"📱短信通知"）；
 - `notify_system()`：系统事件 → 邮件 + 所有有效推送通道（文案"🔔 标题"）；
+- `notify_system_ex(title, body, filter)`：同上，但按「通道是否依赖系统时间」筛选
+  （`push_time_filter_t`）。启动通知用它拆两条：`PUSH_FILTER_INDEPENDENT`（邮件 + 普通推送）
+  立刻发，`PUSH_FILTER_TIME_DEPENDENT`（钉钉/飞书加签）等 NTP 同步后补发，后者不带邮件；
+  `push_channel_needs_time()` 即判断通道是否配了加签密钥；
 - 邮件是否发送由 `config_mail_active()` 判定：邮件开关 `mail_enabled` 打开 **且** SMTP 四项齐全；
   关闭开关后短信照常转发到推送通道，只是不再发邮件；
   用于启动、IP 变化、网络恢复、配置更新；

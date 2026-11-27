@@ -29,6 +29,7 @@ typedef struct {
     char subject[NOTIFY_SUBJECT_MAX];
     char body[NOTIFY_BODY_MAX];
     char message[NOTIFY_MESSAGE_MAX];
+    push_time_filter_t filter; /* 见 push_time_filter_t：只发依赖/不依赖系统时间的通道 */
 } notify_job_t;
 
 static QueueHandle_t s_queue;
@@ -49,7 +50,8 @@ static void notify_worker(void *arg)
             continue;
         }
         if (job->do_push) {
-            push_send_all(job->sender, job->message, job->timestamp, job->is_notice);
+            push_send_all_filtered(job->sender, job->message, job->timestamp, job->is_notice,
+                                   job->filter);
         }
         if (job->do_email) {
             email_send(job->subject, job->body);
@@ -113,13 +115,25 @@ void notify_sms(const char *sender, const char *message, const char *timestamp)
     free(job);
 }
 
-void notify_system(const char *title, const char *body)
+/* 通道是否符合本次筛选：ALL 全要，其余按是否依赖系统时间分两类 */
+static bool channel_matches(const push_channel_t *ch, push_time_filter_t filter)
+{
+    if (filter == PUSH_FILTER_ALL) {
+        return true;
+    }
+    const bool needs_time = push_channel_needs_time(ch);
+    return filter == PUSH_FILTER_TIME_DEPENDENT ? needs_time : !needs_time;
+}
+
+void notify_system_ex(const char *title, const char *body, push_time_filter_t filter)
 {
     app_config_t *cfg = config_lock();
-    bool do_email = config_mail_active(cfg);
+    /* 加签通知单独发的那一份不能再带邮件，否则一封邮件会收到两次 */
+    bool do_email = config_mail_active(cfg) && filter != PUSH_FILTER_TIME_DEPENDENT;
     bool do_push = false;
     for (int i = 0; i < cfg->channel_count && !do_push; i++) {
-        do_push = config_push_channel_valid(&cfg->channels[i]);
+        const push_channel_t *ch = &cfg->channels[i];
+        do_push = config_push_channel_valid(ch) && channel_matches(ch, filter);
     }
     config_unlock();
 
@@ -136,6 +150,7 @@ void notify_system(const char *title, const char *body)
     job->do_email = do_email;
     job->do_push = do_push;
     job->is_notice = true;
+    job->filter = filter;
     snprintf(job->sender, sizeof(job->sender), "%s", title);
     snprintf(job->subject, sizeof(job->subject), "%s", title);
     snprintf(job->body, sizeof(job->body), "%s", body);
@@ -148,6 +163,11 @@ void notify_system(const char *title, const char *body)
 
     enqueue(job);
     free(job);
+}
+
+void notify_system(const char *title, const char *body)
+{
+    notify_system_ex(title, body, PUSH_FILTER_ALL);
 }
 
 void notify_email(const char *subject, const char *body)

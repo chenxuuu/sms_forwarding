@@ -57,6 +57,46 @@ static void on_modem_event(modem_net_event_t ev, const char *detail)
     }
 }
 
+typedef struct {
+    bool ip_changed;
+    char ip[16];
+    char last_ip[16];
+} boot_notice_t;
+
+static boot_notice_t s_boot_notice;
+
+static bool has_signed_push(void)
+{
+    app_config_t *cfg = config_lock();
+    bool need = false;
+    for (int i = 0; !need && i < cfg->channel_count; i++) {
+        const push_channel_t *ch = &cfg->channels[i];
+        if (config_push_channel_valid(ch) &&
+            (ch->type == PUSH_TYPE_DINGTALK || ch->type == PUSH_TYPE_FEISHU) &&
+            ch->key1[0] != '\0') {
+            need = true;
+        }
+    }
+    config_unlock();
+    return need;
+}
+
+static void send_boot_notice(void)
+{
+    char url[48];
+    snprintf(url, sizeof(url), "http://%s/", s_boot_notice.ip);
+    if (s_boot_notice.ip_changed) {
+        char detail[96];
+        snprintf(detail, sizeof(detail), "地址已变化：%s → %s", s_boot_notice.last_ip,
+                 s_boot_notice.ip);
+        log_line("%s", detail);
+        forwarder_notify_device("设备网络地址已变化", detail, url);
+    } else {
+        log_line("配置有效，发送启动通知，设备地址 %s", url);
+        forwarder_notify_device("短信转发器已启动", "设备已启动", url);
+    }
+}
+
 void app_main(void)
 {
     log_init();
@@ -116,17 +156,22 @@ void app_main(void)
     modem_start();
     esim_init();
 
-    char url[48];
-    snprintf(url, sizeof(url), "http://%s/", ip);
-    if (ip_changed) {
-        char detail[96];
-        snprintf(detail, sizeof(detail), "地址已变化：%s → %s", last_ip, ip);
-        log_line("%s", detail);
-        forwarder_notify_device("设备网络地址已变化", detail, url);
-    } else if (config_any_valid()) {
-        log_line("配置有效，发送启动通知，设备地址 %s", url);
-        forwarder_notify_device("短信转发器已启动", "设备已启动", url);
+    if (!ip_changed && !config_any_valid()) {
+        log_line("尚未配置通知方式，请访问 http://%s/ 完成配置", ip);
+        return;
+    }
+
+    s_boot_notice.ip_changed = ip_changed;
+    snprintf(s_boot_notice.ip, sizeof(s_boot_notice.ip), "%s", ip);
+    snprintf(s_boot_notice.last_ip, sizeof(s_boot_notice.last_ip), "%s",
+             had_last ? last_ip : "");
+
+    if (has_signed_push()) {
+        if (!time_sync_ready()) {
+            log_line("已配置钉钉/飞书加签通道，等待 NTP 时间同步完成后发送启动通知");
+        }
+        time_sync_on_ready(send_boot_notice);
     } else {
-        log_line("尚未配置通知方式，请访问 %s 完成配置", url);
+        send_boot_notice();
     }
 }

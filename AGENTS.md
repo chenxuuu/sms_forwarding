@@ -28,6 +28,9 @@ python tools/serial_capture.py COM3 60  # 抓日志（直接 monitor/开串口�
   秒/毫秒），邮件和普通推送必须先发。加签通道最多等 30 秒（`time_sync_wait()`，
   见 `notify_system_ex()` 的 `push_time_filter_t`），超时照发并在日志里提示签名可能被拒。
   判断通道是否依赖时间统一用 `push_channel_needs_time()`，别在调用方重复写条件。
+- **NTP 备用源**：`CONFIG_LWIP_SNTP_MAX_SERVERS` 默认是 1，`time_sync.c` 里注册的
+  ntp.aliyun.com / pool.ntp.org 会被 lwIP 静默丢掉，主源不可达就永远对不上时；
+  `sdkconfig.defaults` 已设为 3，别改回去（改它要删 `sdkconfig` 重新生成才生效）。
 - **短信 URC 依赖 +CNMI**：ML307Y 在 `AT+CFUN=1` 后约 8 秒（SIM 重新 READY）会把 `+CNMI` 清回
   `0,0,0,0,0`，此后一条 `+CMT` 都不报。`rf_cycle()` 必须等 SIM READY 再多等 3 秒才下发，
   `netmon` 每轮用 `AT+CNMI?` 兜底复核（见 `modem_sms_config_check()`）。

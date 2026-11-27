@@ -43,6 +43,11 @@ CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4
 CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=8
 CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=8
 
+# ---- 时间同步 ----
+# lwIP 默认只保留 1 个 SNTP 服务器（SNTP_MAX_SERVERS=1），time_sync.c 里配的
+# ntp.aliyun.com / pool.ntp.org 会被静默丢弃；设成 3，主源不可达/超时才会轮到备用源。
+CONFIG_LWIP_SNTP_MAX_SERVERS=3
+
 # ---- 调试期：关闭数字掉电检测 ----
 # 4G 模组发射瞬间拉低电源会让 BOD 反复复位（串口打印 Brownout detector was triggered），
 # 调试时先关掉。模拟 BOD 由 bootloader 打开、无法关闭，真正的深压降仍会静默复位。

@@ -145,6 +145,8 @@ EN 引脚（GPIO5，低电平断电）与板载 LED（GPIO8，低电平点亮）
 - `wifi_kick()`：非阻塞踢一次重连，供心跳使用；
 - `time_sync_start()`：SNTP（ntp.ntsc.ac.cn / ntp.aliyun.com / pool.ntp.org）；
   同时设置时区 `CST-8`（否则日志/通知里的时间会是 UTC，差 8 小时）；
+  `sdkconfig.defaults` 里把 `CONFIG_LWIP_SNTP_MAX_SERVERS` 设为 3 —— lwIP 默认只存 1 个
+  服务器，后两个源会被静默丢弃，主源不可达时不会切换；
 - `time_sync_wait(ms)`：轮询等待同步完成（200ms 一次），返回是否已就绪。只给「启动通知」这类
   必须先有准确时间的场景用，别在任务循环里等；
 - `heartbeat_start(cb, current_ip)`：周期自检（本机 Web + 外网），失败时重连/重启，并通过回调

@@ -1342,17 +1342,7 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
     p.append('key1', ch.key1 || '');
     p.append('key2', ch.key2 || '');
     p.append('body', ch.custom_body || '');
-    if (scope === 'net' && $('netMode').value === '1') {
-      var ipOk = function(v){ return /^(\d{1,3}\.){3}\d{1,3}$/.test(v) && v.split('.').every(function(x){ return +x <= 255; }); };
-      var checks = [[$('netIp').value, '请填写正确的 IP 地址'],
-                    [$('netMask').value, '请填写正确的子网掩码'],
-                    [$('netGw').value, '请填写正确的默认网关']];
-      for (var ci = 0; ci < checks.length; ci++) {
-        if (!ipOk((checks[ci][0] || '').trim())) { toast(checks[ci][1], 'err'); return; }
-      }
-      var nd = ($('netDns').value || '').trim();
-      if (nd && !ipOk(nd)) { toast('请填写正确的 DNS 地址（可留空）', 'err'); return; }
-    }    busy(btn, true);
+    busy(btn, true);
     api('/push_test', { method:'POST', body: p.toString() }).then(function(r){
       busy(btn, false);
       var ok = !!(r && r.success);
@@ -1600,6 +1590,17 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
           toast('用户名/密码需为 16 字符以内的 ASCII，且不能含引号或反斜杠', 'err'); return;
         }
       }
+    }
+    if (scope === 'net' && $('netMode').value === '1') {
+      var ipOk = function(v){ return /^(\d{1,3}\.){3}\d{1,3}$/.test(v) && v.split('.').every(function(x){ return +x <= 255; }); };
+      var checks = [[$('netIp').value, '请填写正确的 IP 地址'],
+                    [$('netMask').value, '请填写正确的子网掩码'],
+                    [$('netGw').value, '请填写正确的默认网关']];
+      for (var ni = 0; ni < checks.length; ni++) {
+        if (!ipOk((checks[ni][0] || '').trim())) { toast(checks[ni][1], 'err'); return; }
+      }
+      var nd = ($('netDns').value || '').trim();
+      if (nd && !ipOk(nd)) { toast('请填写正确的 DNS 地址（可留空）', 'err'); return; }
     }
     busy(btn, true);
     api('/save?json=1', { method:'POST', body: collect(scope) }).then(function(r){

@@ -450,7 +450,7 @@ GET https://github.com/chenxuuu/sms_forwarding/releases/latest/download/latest.j
 
 ## 12. 参考
 
-- 现有异步 handler 写法：`web_api.c` 的 `mail_test_async` / `push_test_async`
+- 现有异步 handler 写法：`web_sys_api.c` 的 `mail_test_async` / `push_test_async`
 - 通知 + 等待发完再重启的写法：`forwarder.c` 的 `RESETPASS` 分支
 - 时间有效性判断：`sched.c` 里 `now < 1600000000` 的守卫
 - ESP-IDF：`esp_ota_ops.h`、`esp_app_format.h`（`esp_app_desc_t`）、`esp_https_ota`（本次只用

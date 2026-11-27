@@ -31,6 +31,10 @@ python tools/serial_capture.py COM3 60  # 抓日志（直接 monitor/开串口�
 - **短信 URC 依赖 +CNMI**：ML307Y 在 `AT+CFUN=1` 后约 8 秒（SIM 重新 READY）会把 `+CNMI` 清回
   `0,0,0,0,0`，此后一条 `+CMT` 都不报。`rf_cycle()` 必须等 SIM READY 再多等 3 秒才下发，
   `netmon` 每轮用 `AT+CNMI?` 兜底复核（见 `modem_sms_config_check()`）。
+- **Web 接口按资源分文件**：处理器分别在 `web_sms_api.c`（发短信/PDU 解码）、`web_query_api.c`
+  （查询/原始 AT）、`web_modem_api.c`（保号/飞行模式/重启/自检）、`web_sys_api.c`（WiFi/系统/测试/定时任务）、
+  `web_ota_api.c`、`web_esim_api.c`；共用工具在 `web_json.c` / `web_at.c`，声明统一写 `web_internal.h`。
+  新接口放进对应文件，别再把所有 handler 堆回一个文件。
 - **Web 接口字段名**：`/config` 里通道模板的 JSON 键是 `custom_body`（同结构体），
   而提交表单用的是 `pushNbody`；两者名字不同，改前端/后端时务必对上（issue #77 就是这么来的）。
 - **内存红线**：`CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` 不能低于 8192——服务器会把整条证书链

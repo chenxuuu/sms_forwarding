@@ -11,6 +11,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "esim_codec.h"
 #include "modem/at_client.h"
 
 /* eUICC 的 ISD-R 应用标识（GSMA SGP.22 固定值） */
@@ -41,211 +42,6 @@ static esim_err_t fail(esim_err_t code, const char *fmt, ...)
     vsnprintf(s_err, sizeof(s_err), fmt, ap);
     va_end(ap);
     return code;
-}
-
-static int hex_val(char c)
-{
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-    return -1;
-}
-
-static void bin_to_hex(const uint8_t *in, size_t len, char *out, size_t cap)
-{
-    static const char digits[] = "0123456789ABCDEF";
-    size_t n = 0;
-    for (size_t i = 0; i < len && n + 2 < cap; i++) {
-        out[n++] = digits[in[i] >> 4];
-        out[n++] = digits[in[i] & 0x0F];
-    }
-    out[n] = '\0';
-}
-
-/** 十六进制串转字节（可指定字符数）；长度必须是偶数。返回字节数，-1 表示格式错。 */
-static int hex_to_bin_n(const char *hex, size_t len, uint8_t *out, size_t cap)
-{
-    if (len % 2 != 0 || len / 2 > cap) {
-        return -1;
-    }
-    for (size_t i = 0; i < len / 2; i++) {
-        int hi = hex_val(hex[i * 2]);
-        int lo = hex_val(hex[i * 2 + 1]);
-        if (hi < 0 || lo < 0) {
-            return -1;
-        }
-        out[i] = (uint8_t)((hi << 4) | lo);
-    }
-    return (int)(len / 2);
-}
-
-static int hex_to_bin(const char *hex, uint8_t *out, size_t cap)
-{
-    return hex_to_bin_n(hex, strlen(hex), out, cap);
-}
-
-/** 复制一段可能不是 NUL 结尾、可能带控制字符的文本字段。 */
-static void copy_text(char *dst, size_t cap, const uint8_t *src, size_t len)
-{
-    size_t n = 0;
-    for (size_t i = 0; i < len && n + 1 < cap; i++) {
-        char c = (char)src[i];
-        dst[n++] = (c < 0x20 || c == 0x7F) ? ' ' : c;
-    }
-    dst[n] = '\0';
-    util_trim(dst);
-}
-
-static void bcd_to_iccid(char *out, size_t cap, const uint8_t *bcd, size_t len)
-{
-    size_t n = 0;
-    for (size_t i = 0; i < len && n + 1 < cap; i++) {
-        uint8_t lo = bcd[i] & 0x0F;
-        uint8_t hi = (bcd[i] >> 4) & 0x0F;
-        if (lo <= 9) out[n++] = (char)('0' + lo);
-        if (hi <= 9 && n + 1 < cap) out[n++] = (char)('0' + hi);
-    }
-    out[n] = '\0';
-}
-
-/** ICCID 数字串转 GSM BCD（10 字节，奇数位补 F）。 */
-static int iccid_to_bcd(const char *iccid, uint8_t out[10])
-{
-    char digits[21];
-    int n = 0;
-    for (const char *p = iccid; *p && n < 20; p++) {
-        if (*p >= '0' && *p <= '9') {
-            digits[n++] = *p;
-        } else if (*p == ' ' || *p == '-') {
-            continue;
-        } else {
-            return -1;
-        }
-    }
-    if (n < 18) {
-        return -1;
-    }
-    memset(out, 0xFF, 10);
-    for (int i = 0; i < n; i += 2) {
-        uint8_t lo = (uint8_t)(digits[i] - '0');
-        uint8_t hi = (i + 1 < n) ? (uint8_t)(digits[i + 1] - '0') : 0x0F;
-        out[i / 2] = (uint8_t)((hi << 4) | lo);
-    }
-    return 10;
-}
-
-/* ---------- DER（仅够用：定长 tag + 长度 + 值） ---------- */
-
-typedef struct {
-    uint32_t tag;
-    const uint8_t *val;
-    size_t len;
-    size_t next;
-} tlv_t;
-
-static bool tlv_read(const uint8_t *buf, size_t total, size_t off, tlv_t *out)
-{
-    if (!buf || off >= total) {
-        return false;
-    }
-    size_t pos = off;
-    uint32_t tag = buf[pos++];
-    if ((tag & 0x1F) == 0x1F) {
-        do {
-            if (pos >= total) {
-                return false;
-            }
-            tag = (tag << 8) | buf[pos];
-        } while ((buf[pos++] & 0x80) != 0);
-    }
-    if (pos >= total) {
-        return false;
-    }
-    uint8_t lb = buf[pos++];
-    size_t len = 0;
-    if ((lb & 0x80) == 0) {
-        len = lb;
-    } else {
-        uint8_t n = lb & 0x7F;
-        if (n == 0 || n > 4 || pos + n > total) {
-            return false;
-        }
-        for (uint8_t i = 0; i < n; i++) {
-            len = (len << 8) | buf[pos++];
-        }
-    }
-    if (pos + len > total) {
-        return false;
-    }
-    out->tag = tag;
-    out->val = buf + pos;
-    out->len = len;
-    out->next = pos + len;
-    return true;
-}
-
-static bool tlv_find(const uint8_t *buf, size_t total, uint32_t tag, tlv_t *out)
-{
-    size_t pos = 0;
-    tlv_t n;
-    while (tlv_read(buf, total, pos, &n)) {
-        if (n.tag == tag) {
-            if (out) {
-                *out = n;
-            }
-            return true;
-        }
-        pos = n.next;
-    }
-    return false;
-}
-
-static size_t der_len(uint8_t *p, size_t len)
-{
-    if (len < 0x80) {
-        p[0] = (uint8_t)len;
-        return 1;
-    }
-    if (len <= 0xFF) {
-        p[0] = 0x81;
-        p[1] = (uint8_t)len;
-        return 2;
-    }
-    p[0] = 0x82;
-    p[1] = (uint8_t)(len >> 8);
-    p[2] = (uint8_t)len;
-    return 3;
-}
-
-/** 追加一个 TLV，返回写入长度；放不下返回 0。 */
-static size_t der_put(uint8_t *buf, size_t cap, size_t pos, uint32_t tag, const uint8_t *val, size_t len)
-{
-    uint8_t tagbuf[3];
-    size_t taglen;
-    if (tag > 0xFFFF) {
-        tagbuf[0] = (uint8_t)(tag >> 16);
-        tagbuf[1] = (uint8_t)(tag >> 8);
-        tagbuf[2] = (uint8_t)tag;
-        taglen = 3;
-    } else if (tag > 0xFF) {
-        tagbuf[0] = (uint8_t)(tag >> 8);
-        tagbuf[1] = (uint8_t)tag;
-        taglen = 2;
-    } else {
-        tagbuf[0] = (uint8_t)tag;
-        taglen = 1;
-    }
-    uint8_t lenbuf[3];
-    size_t lenlen = der_len(lenbuf, len);
-    if (pos + taglen + lenlen + len > cap) {
-        return 0;
-    }
-    memcpy(buf + pos, tagbuf, taglen);
-    memcpy(buf + pos + taglen, lenbuf, lenlen);
-    if (len) {
-        memcpy(buf + pos + taglen + lenlen, val, len);
-    }
-    return taglen + lenlen + len;
 }
 
 /* ---------- AT + APDU 通道 ---------- */
@@ -366,7 +162,7 @@ static esim_err_t transmit(int channel, const uint8_t *tx, size_t tx_len, uint8_
                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     }
     char *tx_hex = cmd + 32;
-    bin_to_hex(tx, tx_len, tx_hex, hex_len + 1);
+    esim_bin_to_hex(tx, tx_len, tx_hex, hex_len + 1);
     snprintf(cmd, 40, "AT+CGLA=%d,%u,\"", channel, (unsigned)hex_len);
 
     /* snprintf 只写了前缀，把十六进制和收尾引号接上去 */
@@ -395,7 +191,7 @@ static esim_err_t transmit(int channel, const uint8_t *tx, size_t tx_len, uint8_
         free(line);
         return fail(ESIM_ERR_FORMAT, "APDU 应答长度异常（%u 字符）", (unsigned)chars);
     }
-    int n = hex_to_bin_n(q + 1, chars, rx, cap);
+    int n = esim_hex_to_bin_n(q + 1, chars, rx, cap);
     free(line);
     if (n < 2) {
         return fail(ESIM_ERR_FORMAT, "APDU 应答不是合法十六进制");
@@ -409,7 +205,7 @@ static esim_err_t transmit(int channel, const uint8_t *tx, size_t tx_len, uint8_
                  rx[n - 2], rx[n - 1]);
         if (((rx[n - 2] << 8) | rx[n - 1]) != 0x9000) {
             char hex[65];
-            bin_to_hex(rx, n > 32 ? 32 : (size_t)n, hex, sizeof(hex));
+            esim_bin_to_hex(rx, n > 32 ? 32 : (size_t)n, hex, sizeof(hex));
             log_line("eSIM APDU 非 9000 应答：%s", hex);
         }
     }
@@ -422,7 +218,7 @@ esim_err_t esim_transmit(int channel, const char *tx_hex, char *rx_hex, size_t c
         return ESIM_ERR_ARG;
     }
     uint8_t tx[256];
-    int tx_len = hex_to_bin(tx_hex, tx, sizeof(tx));
+    int tx_len = esim_hex_to_bin(tx_hex, tx, sizeof(tx));
     if (tx_len <= 0) {
         return fail(ESIM_ERR_ARG, "APDU 命令不是合法十六进制");
     }
@@ -444,7 +240,7 @@ esim_err_t esim_transmit(int channel, const char *tx_hex, char *rx_hex, size_t c
         if (rx_len * 2 + 1 > cap) {
             e = fail(ESIM_ERR_FORMAT, "APDU 应答过长（%u 字节）", (unsigned)rx_len);
         } else {
-            bin_to_hex(rx, rx_len, rx_hex, cap);
+            esim_bin_to_hex(rx, rx_len, rx_hex, cap);
         }
     }
     free(rx);
@@ -559,27 +355,27 @@ static esim_err_t es10x(const uint8_t *req, size_t req_len, uint8_t *out, size_t
 
 static esim_err_t parse_eid(const uint8_t *resp, size_t len, char *out, size_t cap)
 {
-    tlv_t top, eid;
-    if (!tlv_read(resp, len, 0, &top) || top.tag != 0xBF3E ||
-        !tlv_find(top.val, top.len, 0x5A, &eid)) {
+    esim_tlv_t top, eid;
+    if (!esim_tlv_read(resp, len, 0, &top) || top.tag != 0xBF3E ||
+        !esim_tlv_find(top.val, top.len, 0x5A, &eid)) {
         return fail(ESIM_ERR_FORMAT, "EID 应答解析失败");
     }
-    bin_to_hex(eid.val, eid.len, out, cap);
+    esim_bin_to_hex(eid.val, eid.len, out, cap);
     return ESIM_OK;
 }
 
 static int parse_profiles(const uint8_t *resp, size_t len, esim_profile_t *out, int max)
 {
-    tlv_t top, list;
-    if (!tlv_read(resp, len, 0, &top) || top.tag != 0xBF2D ||
-        !tlv_find(top.val, top.len, 0xA0, &list)) {
+    esim_tlv_t top, list;
+    if (!esim_tlv_read(resp, len, 0, &top) || top.tag != 0xBF2D ||
+        !esim_tlv_find(top.val, top.len, 0xA0, &list)) {
         return fail(ESIM_ERR_FORMAT, "eSIM 列表应答解析失败");
     }
 
     int count = 0;
     size_t pos = 0;
-    tlv_t node;
-    while (count < max && tlv_read(list.val, list.len, pos, &node)) {
+    esim_tlv_t node;
+    while (count < max && esim_tlv_read(list.val, list.len, pos, &node)) {
         pos = node.next;
         /* E3 = ProfileInfo（部分 eUICC 用 BF25） */
         if (node.tag != 0xE3 && node.tag != 0xBF25) {
@@ -589,15 +385,15 @@ static int parse_profiles(const uint8_t *resp, size_t len, esim_profile_t *out, 
         p->state = -1;
         p->profile_class = -1;
         size_t cpos = 0;
-        tlv_t f;
-        while (tlv_read(node.val, node.len, cpos, &f)) {
+        esim_tlv_t f;
+        while (esim_tlv_read(node.val, node.len, cpos, &f)) {
             cpos = f.next;
             switch (f.tag) {
             case 0x5A:
-                bcd_to_iccid(p->iccid, sizeof(p->iccid), f.val, f.len);
+                esim_bcd_to_iccid(p->iccid, sizeof(p->iccid), f.val, f.len);
                 break;
             case 0x4F:
-                bin_to_hex(f.val, f.len, p->aid, sizeof(p->aid));
+                esim_bin_to_hex(f.val, f.len, p->aid, sizeof(p->aid));
                 break;
             case 0x9F70: {
                 int v = 0;
@@ -608,13 +404,13 @@ static int parse_profiles(const uint8_t *resp, size_t len, esim_profile_t *out, 
                 break;
             }
             case 0x90:
-                copy_text(p->nickname, sizeof(p->nickname), f.val, f.len);
+                esim_copy_text(p->nickname, sizeof(p->nickname), f.val, f.len);
                 break;
             case 0x91:
-                copy_text(p->provider, sizeof(p->provider), f.val, f.len);
+                esim_copy_text(p->provider, sizeof(p->provider), f.val, f.len);
                 break;
             case 0x92:
-                copy_text(p->name, sizeof(p->name), f.val, f.len);
+                esim_copy_text(p->name, sizeof(p->name), f.val, f.len);
                 break;
             case 0x95: {
                 int v = 0;
@@ -886,14 +682,14 @@ esim_err_t esim_delete_profile(const char *id)
     size_t ident_val_len;
     uint32_t ident_tag;
     if (strlen(trimmed) == 32) {
-        int n = hex_to_bin(trimmed, ident_val, sizeof(ident_val));
+        int n = esim_hex_to_bin(trimmed, ident_val, sizeof(ident_val));
         if (n != 16) {
             return fail(ESIM_ERR_ARG, "AID 不是 32 位十六进制");
         }
         ident_tag = 0x4F;
         ident_val_len = (size_t)n;
     } else {
-        int n = iccid_to_bcd(trimmed, ident_val);
+        int n = esim_iccid_to_bcd(trimmed, ident_val);
         if (n != 10) {
             return fail(ESIM_ERR_ARG, "ICCID 必须是 18-20 位数字，或 32 位十六进制 AID");
         }
@@ -916,10 +712,10 @@ esim_err_t esim_delete_profile(const char *id)
      * 注意：CHOICE 直接放在 BF33 里，**不能再包一层 A0**——实测 9eSIM 收到
      * A0 包裹的形式会返回「找不到该 ICCID / AID」（结果码 1）。 */
     uint8_t ident[24];
-    size_t ident_len = der_put(ident, sizeof(ident), 0, ident_tag, ident_val, ident_val_len);
+    size_t ident_len = esim_der_put(ident, sizeof(ident), 0, ident_tag, ident_val, ident_val_len);
 
     uint8_t req[40];
-    size_t req_len = der_put(req, sizeof(req), 0, 0xBF33, ident, ident_len);
+    size_t req_len = esim_der_put(req, sizeof(req), 0, 0xBF33, ident, ident_len);
     if (!req_len) {
         s_busy = false;
         lock_give();
@@ -930,9 +726,9 @@ esim_err_t esim_delete_profile(const char *id)
     size_t len = 0;
     e = resp ? es10x(req, req_len, resp, 256, &len) : fail(ESIM_ERR_NOMEM, "内存不足");
     if (e == ESIM_OK) {
-        tlv_t top, code;
-        if (!tlv_read(resp, len, 0, &top) || top.tag != 0xBF33 ||
-            !tlv_find(top.val, top.len, 0x80, &code) || code.len < 1) {
+        esim_tlv_t top, code;
+        if (!esim_tlv_read(resp, len, 0, &top) || top.tag != 0xBF33 ||
+            !esim_tlv_find(top.val, top.len, 0x80, &code) || code.len < 1) {
             e = fail(ESIM_ERR_FORMAT, "删除应答解析失败");
         } else {
             int ret = 0;
@@ -979,7 +775,7 @@ esim_err_t esim_enable_profile(const char *id, bool refresh, int *ecc)
     size_t ident_val_len;
     uint32_t ident_tag;
     if (strlen(trimmed) == 32) {
-        int n = hex_to_bin(trimmed, ident_val, sizeof(ident_val));
+        int n = esim_hex_to_bin(trimmed, ident_val, sizeof(ident_val));
         if (n != 16) {
             s_busy = false;
             lock_give();
@@ -988,7 +784,7 @@ esim_err_t esim_enable_profile(const char *id, bool refresh, int *ecc)
         ident_tag = 0x4F;
         ident_val_len = (size_t)n;
     } else {
-        int n = iccid_to_bcd(trimmed, ident_val);
+        int n = esim_iccid_to_bcd(trimmed, ident_val);
         if (n != 10) {
             s_busy = false;
             lock_give();
@@ -1000,18 +796,18 @@ esim_err_t esim_enable_profile(const char *id, bool refresh, int *ecc)
 
     /* EnableProfileRequest ::= [49] { A0 { profileIdentifier, 81 refreshFlag } } */
     uint8_t ident[24];
-    size_t choice_len = der_put(ident, sizeof(ident), 0, ident_tag, ident_val, ident_val_len);
+    size_t choice_len = esim_der_put(ident, sizeof(ident), 0, ident_tag, ident_val, ident_val_len);
 
     uint8_t choice[32];
     memcpy(choice, ident, choice_len);
     uint8_t refresh_val = refresh ? 0xFF : 0x00;
-    choice_len += der_put(choice, sizeof(choice), choice_len, 0x81, &refresh_val, 1);
+    choice_len += esim_der_put(choice, sizeof(choice), choice_len, 0x81, &refresh_val, 1);
 
     uint8_t inner[40];
-    size_t inner_len = der_put(inner, sizeof(inner), 0, 0xA0, choice, choice_len);
+    size_t inner_len = esim_der_put(inner, sizeof(inner), 0, 0xA0, choice, choice_len);
 
     uint8_t req[48];
-    size_t req_len = der_put(req, sizeof(req), 0, 0xBF31, inner, inner_len);
+    size_t req_len = esim_der_put(req, sizeof(req), 0, 0xBF31, inner, inner_len);
     if (!req_len) {
         s_busy = false;
         lock_give();
@@ -1022,9 +818,9 @@ esim_err_t esim_enable_profile(const char *id, bool refresh, int *ecc)
     size_t len = 0;
     e = resp ? es10x(req, req_len, resp, 512, &len) : fail(ESIM_ERR_NOMEM, "内存不足");
     if (e == ESIM_OK) {
-        tlv_t top, code;
-        if (!tlv_read(resp, len, 0, &top) || top.tag != 0xBF31 ||
-            !tlv_find(top.val, top.len, 0x80, &code) || code.len < 1) {
+        esim_tlv_t top, code;
+        if (!esim_tlv_read(resp, len, 0, &top) || top.tag != 0xBF31 ||
+            !esim_tlv_find(top.val, top.len, 0x80, &code) || code.len < 1) {
             e = fail(ESIM_ERR_FORMAT, "启用应答解析失败");
         } else {
             int ret = 0;

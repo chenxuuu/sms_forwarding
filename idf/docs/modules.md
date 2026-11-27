@@ -255,10 +255,19 @@ POST JSON 多一个 `self_phone` 字段，GET 多一个 `self_phone` 查询参�
   先读列表拒删「使用中」的配置，没有 `BF34`（EuiccMemoryReset，会清空整张卡）；
 - 组件内一把互斥锁，列表/切卡整段串行；临时缓冲全部走 heap（峰值约 11 KB），不占 httpd 栈；
 - 切卡成功后由 web 层起 3 KB 任务，延迟 2 秒软重启模组（`AT+CFUN=1,1`）重新注册；
-- 透传接口 `esim_channel_open/close/transmit` 供 `/esim/apdu` 使用，单条 APDU ≤255 字节。
+- 透传接口 `esim_channel_open/close/transmit` 供 `/esim/apdu` 使用，单条 APDU ≤255 字节；
+- 十六进制/BCD/ICCID 与极简 DER 这些纯函数放在 `esim_codec.c`（不碰 AT、不持有状态），
+  `esim.c` 只留 AT 通道与 ES10b/ES10c 业务流程。
 
 ## web
 
+- 源码按资源拆分，新增接口放对应文件、处理函数统一在 `web_internal.h` 声明：
+  - `web_server.c`：路由注册、Basic 认证、表单解析、/save /config /status /log；
+  - `web_json.c`：统一 JSON 响应（`web_json_ok/fail`）与表格行；`web_at.c`：AT 应答取行/取字段；
+  - `web_sms_api.c`：发短信、PDU 解码诊断；`web_query_api.c`：ATI/信号/SIM/驻网/WiFi 查询、原始 AT；
+  - `web_modem_api.c`：保号 Ping/HTTP、飞行模式、模组重启、网络自检；
+  - `web_sys_api.c`：重连 WiFi/重启、推送与邮件测试、定时任务；
+  - `web_ota_api.c`：升级状态与上传；`web_esim_api.c`：eSIM 启停/删除/APDU 透传；
 - `web_server_start()`：80 端口，Basic 认证，5 个 socket，LRU 清理，`max_uri_handlers = 40`（当前注册 34 条）；
 - 首页：读取 `EMBED_TXTFILES` 内嵌的 `web/index.html`，替换 17 个 `%KEY%` 占位符，
   推送通道表单片段动态生成，按 2KB 分块发送；

@@ -51,6 +51,20 @@ esp_err_t web_spawn_async3(httpd_req_t *req, web_async_fn fn, const char *arg1, 
 esp_err_t web_spawn_async3_ex(httpd_req_t *req, web_async_fn fn, const char *arg1, const char *arg2,
                               const char *arg3, size_t stack);
 
+/* ---- 共用小工具（web_json.c / web_at.c） ---- */
+/** 输出 {"success":..,"message":".."}，消息按 JSON 转义。 */
+void web_json_ok(sbuf_t *out, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+void web_json_fail(sbuf_t *out, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+/** 追加一行 <tr><td>name</td><td>value</td></tr>（value 由调用方保证是安全 HTML）。 */
+void web_json_table_row(sbuf_t *out, const char *name, const char *value);
+
+/** 在 AT 应答里找包含关键字的行，返回该行起点。 */
+const char *web_at_find_line(const char *resp, const char *keyword);
+/** 取分隔符之后到行尾的内容（去引号/空格）。 */
+void web_at_take_after(const char *line, char sep, char *out, size_t cap);
+/** 取分隔符之后第 index 个逗号字段。 */
+bool web_at_take_field(const char *line, char sep, int index, char *out, size_t cap);
+
 /* ---- 路由处理器 ---- */
 esp_err_t handler_root(httpd_req_t *req);
 esp_err_t handler_push_test(httpd_req_t *req);

@@ -86,7 +86,9 @@ Lc  = DER 长度              Data = DER 请求
 ```
 components/esim/
 ├── include/esim/esim.h
-└── src/esim.c          # AT 通道 + DER 编解码 + ES10b/ES10c
+└── src/
+    ├── esim.c          # AT 通道 + ES10b/ES10c 业务
+    └── esim_codec.c    # 十六进制/BCD/DER 编解码（纯函数，无状态）
 ```
 
 对外接口（`esim.h`）：

@@ -256,6 +256,8 @@ POST JSON 多一个 `self_phone` 字段，GET 多一个 `self_phone` 查询参�
 - 组件内一把互斥锁，列表/切卡整段串行；临时缓冲全部走 heap（峰值约 11 KB），不占 httpd 栈；
 - 切卡成功后由 web 层起 3 KB 任务，延迟 2 秒软重启模组（`AT+CFUN=1,1`）重新注册；
 - 透传接口 `esim_channel_open/close/transmit` 供 `/esim/apdu` 使用，单条 APDU ≤255 字节；
+- 飞行模式（`CFUN=4`）会把 UICC 一起断电，这时 `AT+CCHO` 只回错误码；打不开逻辑通道时
+  会先查 `AT+CFUN?`，直接提示「请先关闭飞行模式」，避免被误判成没插卡；
 - 十六进制/BCD/ICCID 与极简 DER 这些纯函数放在 `esim_codec.c`（不碰 AT、不持有状态），
   `esim.c` 只留 AT 通道与 ES10b/ES10c 业务流程。
 

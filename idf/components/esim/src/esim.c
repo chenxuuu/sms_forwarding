@@ -78,6 +78,18 @@ static void lock_give(void)
     }
 }
 
+/* 飞行模式（CFUN=4）会把 UICC 一起断电，这时 CCHO 只会回错误码，
+ * 单独识别一下，免得用户以为是卡坏了 */
+static bool flight_mode_on(void)
+{
+    char line[48];
+    if (at_command_capture("AT+CFUN?", "+CFUN:", line, sizeof(line), 3000) != AT_RESULT_OK) {
+        return false;
+    }
+    const char *p = strstr(line, "+CFUN:");
+    return p && atoi(p + 6) == 4;
+}
+
 esim_err_t esim_channel_open(const char *aid_hex, int *channel)
 {
     if (!aid_hex || !channel) {
@@ -113,6 +125,10 @@ esim_err_t esim_channel_open(const char *aid_hex, int *channel)
     }
     free(line);
     if (ch <= 0) {
+        if (flight_mode_on()) {
+            return fail(ESIM_ERR_UNSUPPORTED,
+                        "模组处于飞行模式（CFUN=4），请先关闭飞行模式再管理 eSIM");
+        }
         if (busy) {
             return fail(ESIM_ERR_UNSUPPORTED,
                         "逻辑通道被占用（上次操作没关干净），请到「设备」页软重启模组后重试");

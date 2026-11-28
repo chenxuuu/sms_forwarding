@@ -17,6 +17,8 @@ typedef struct {
     char text[160];      /* 短信内容 */
     char host[64];       /* Ping 主机 */
     char url[160];       /* 访问网址 */
+    char esim_iccid[24]; /* 目标 eSIM 配置 ICCID；空=不切卡，用当前生效的配置执行 */
+    bool esim_restore;   /* 保号后切回原先启用的配置（esim_iccid 非空时有效，默认开） */
     int64_t next;        /* 下次执行时间（epoch 秒）；0=不再执行 */
     int32_t repeat_days; /* 0=不循环；N>0 表示执行后 N 天再执行 */
     int64_t last;        /* 上次执行时间（epoch 秒），0=从未执行 */

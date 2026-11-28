@@ -327,10 +327,16 @@ Bark 的 body 与钉钉/飞书/PushPlus/Server酱/Gotify/Telegram 的正文末�
 
 ```json
 {"success":true,"tasks":[{"index":0,"enabled":true,"type":2,"phone":"","text":"",
-  "host":"qq.com","url":"","next":1795417327,"repeat_days":3,"last":0}]}
+  "host":"qq.com","url":"","esim_iccid":"89445012345678901230","esim_restore":true,
+  "next":1795417327,"repeat_days":3,"last":0}]}
 ```
 
 `type`：1=发送短信，2=Ping，3=访问网址；`next`/`last` 为 epoch 秒；`repeat_days` 为 0 表示单次。
+`esim_iccid` 为空表示不切卡、用当前生效的配置执行；非空时到期先切换到该配置并等驻网
+（软重启模组 + 最长约 3 分钟等待漫游附着），驻网成功才执行保号动作，切换或驻网失败
+直接中止并推送失败通知，**不会在错的卡上执行**。`esim_restore` 为 true（默认）时
+保号结束后切回原先启用的配置并再次等驻网；切回失败会在执行结果里给出警告。
+带切卡的任务失败后不做自动重试（切卡耗时长，且失败多为配置不存在等确定性原因）。
 
 ### POST /tasks
 
@@ -345,8 +351,10 @@ Bark 的 body 与钉钉/飞书/PushPlus/Server酱/Gotify/Telegram 的正文末�
 | `repeat` | 循环天数，0=只执行一次，上限 365 |
 | `enabled` | `on`/`off` |
 | `phone` / `text` / `host` / `url` | 对应该类型的参数 |
+| `esim_iccid` | 可选，目标 eSIM 配置的 ICCID（10 位以上数字/十六进制）；空=不切卡。只在保存时校验格式，配置是否存在在执行时读卡核对 |
+| `esim_restore` | `on`/`off`，保号后是否切回原卡；新建带 `esim_iccid` 的任务不传此字段时默认 `on`，更新任务不传则保持原值 |
 
-校验：类型非法、未选时间、短信缺号码/内容、网址不以 http(s) 开头都会拒绝；
+校验：类型非法、未选时间、短信缺号码/内容、网址不以 http(s) 开头、`esim_iccid` 格式非法都会拒绝；
 时间已过时仍接受，返回「任务已保存：时间已过，会在下一轮检查时立即补执行」。
 
 /config 返回的 channels 数组长度即当前通道数（1..50，默认 5）。

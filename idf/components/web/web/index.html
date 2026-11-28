@@ -388,6 +388,18 @@ body.chan-dirty main{padding-bottom:150px}
           <div class="field" id="taskHostRow"><label>Ping 主机</label><input id="taskHost" value="qq.com"></div>
           <div class="field" id="taskUrlRow"><label>访问网址</label><input id="taskUrl" value="https://speed.cloudflare.com/__down?bytes=10"></div>
           <div class="grid two">
+            <div class="field"><label>使用 eSIM 配置</label>
+              <select id="taskEsim"><option value="">不切换（当前卡）</option></select>
+            </div>
+            <div class="field" id="taskEsimRestoreRow"><label>保号后切回原卡</label>
+              <span class="row" style="gap:8px;height:32px;align-items:center">
+                <label class="sw" style="flex:none"><input type="checkbox" id="taskEsimRestore" checked><i></i></label>
+                <span class="tip">执行完切回原先启用的配置</span>
+              </span>
+            </div>
+          </div>
+          <div class="tip" id="taskEsimTip" style="margin:2px 0 10px">选了 eSIM 配置后，到点先切到该配置并等驻网成功才执行保号；切卡或驻网失败会中止，不会在错的卡上执行</div>
+          <div class="grid two">
             <div class="field"><label>循环（天，0 = 只执行一次）</label><input id="taskRepeat" inputmode="numeric" value="0"></div>
             <div class="field"><label>启用</label>
               <span class="row" style="gap:8px;height:32px;align-items:center">
@@ -1501,6 +1513,7 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
       if (t.repeat_days > 0) meta += ' · 每 ' + t.repeat_days + ' 天';
       else meta += ' · 单次';
       if (!t.enabled && t.next) meta += ' · 已停用';
+      if (t.esim_iccid) meta += ' · eSIM …' + String(t.esim_iccid).slice(-6) + (t.esim_restore === false ? ' · 留在目标卡' : ' · 保号后切回');
       d.innerHTML = '<span class="chip">' + (TASK_NAME[t.type] || '任务') + '</span>' +
         '<span class="txt"><b>#' + (i + 1) + '</b> ' + esc(taskTarget(t)) +
         '<br><span class="tip">' + meta + '</span></span>' +
@@ -1528,6 +1541,49 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
     $('taskHostRow').style.display = tp === 2 ? '' : 'none';
     $('taskUrlRow').style.display = tp === 3 ? '' : 'none';
   }
+  function syncTaskEsimRow(){
+    var has = !!$('taskEsim').value;
+    $('taskEsimRestoreRow').style.display = has ? '' : 'none';
+    $('taskEsimTip').style.display = has ? '' : 'none';
+  }
+  function loadTaskEsimOptions(selected){
+    var sel = $('taskEsim');
+    sel.innerHTML = '';
+    var o0 = document.createElement('option');
+    o0.value = ''; o0.textContent = '不切换（当前卡）';
+    sel.appendChild(o0);
+    sel.value = '';
+    syncTaskEsimRow();
+    return apiTimeout('/esim', {}, 30000).then(function(d){
+      var found = false;
+      if (d && d.success && Array.isArray(d.profiles)) {
+        d.profiles.forEach(function(p){
+          var o = document.createElement('option');
+          o.value = p.iccid;
+          o.textContent = (p.name || p.provider || p.iccid) + (p.provider && p.name ? '（' + p.provider + '）' : '') + ' · ' + p.iccid + (p.state === 1 ? '（使用中）' : '');
+          sel.appendChild(o);
+          if (p.iccid === selected) found = true;
+        });
+      }
+      if (selected && !found) {
+        var ox = document.createElement('option');
+        ox.value = selected;
+        ox.textContent = selected + '（不在当前列表）';
+        sel.appendChild(ox);
+      }
+      sel.value = selected || '';
+      syncTaskEsimRow();
+    }).catch(function(){
+      if (selected) {
+        var ox = document.createElement('option');
+        ox.value = selected;
+        ox.textContent = selected + '（不在当前列表）';
+        sel.appendChild(ox);
+        sel.value = selected;
+      }
+      syncTaskEsimRow();
+    });
+  }
   function openTaskEditor(i){
     var t = i >= 0 ? S.tasks[i] : null;
     $('taskIndex').value = String(t ? i : -1);
@@ -1539,9 +1595,11 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
     $('taskUrl').value = t ? (t.url || '') : 'https://speed.cloudflare.com/__down?bytes=10';
     $('taskRepeat').value = String(t ? (t.repeat_days || 0) : 0);
     $('taskEnabled').checked = t ? !!t.enabled : true;
+    $('taskEsimRestore').checked = t ? t.esim_restore !== false : true;
     syncTaskForm();
     $('taskEditor').style.display = '';
     $('taskEditor').scrollIntoView({ behavior:'smooth', block:'nearest' });
+    loadTaskEsimOptions(t ? (t.esim_iccid || '') : '');
   }
   function saveTask(btn){
     var at = localInputToTs($('taskAt').value);
@@ -1557,6 +1615,8 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
     p.append('url', $('taskUrl').value.trim());
     p.append('repeat', $('taskRepeat').value || '0');
     p.append('enabled', $('taskEnabled').checked ? 'on' : 'off');
+    p.append('esim_iccid', $('taskEsim').value || '');
+    p.append('esim_restore', $('taskEsimRestore').checked ? 'on' : 'off');
     busy(btn, true);
     api('/tasks', { method:'POST', body: p.toString() }).then(function(r){
       busy(btn, false);
@@ -2370,6 +2430,11 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
     '保存全部通道': 'Save all channels',
     '保存号码': 'Save number',
     '保存后生效': 'Takes effect after saving',
+    '使用 eSIM 配置': 'eSIM profile to use',
+    '不切换（当前卡）': 'No switch (current profile)',
+    '保号后切回原卡': 'Switch back after keep-alive',
+    '执行完切回原先启用的配置': 'Switch back to the previously active profile when done',
+    '选了 eSIM 配置后，到点先切到该配置并等驻网成功才执行保号；切卡或驻网失败会中止，不会在错的卡上执行': 'With an eSIM profile selected, the task switches to it and waits for network registration before running; if switching or registration fails it aborts instead of running on the wrong profile',
     '保存本机号码': 'Save local number',
     '保存账号': 'Save account',
     '保存选网配置': 'Save network selection',
@@ -2647,6 +2712,10 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
     [' 小时 ', ' h '],
     [' 分钟 ', ' min '],
     [' 天 ', ' d ']
+    ,[' · 留在目标卡', ' · stays on target']
+    ,[' · 保号后切回', ' · switches back']
+    ,['（使用中）', ' (active)']
+    ,['（不在当前列表）', ' (not in current list)']
     ,['短信 ×', 'SMS ×']
     ,['其他 ×', 'Other ×']
     ,['通知 ×', 'Notify ×']
@@ -2867,6 +2936,7 @@ jsQR 1.4.0 — https://github.com/cozmo/jsQR — Apache License 2.0
     $('taskAdd').addEventListener('click', function(){ openTaskEditor(-1); });
     $('taskCancelBtn').addEventListener('click', function(){ $('taskEditor').style.display = 'none'; });
     $('taskType').addEventListener('change', syncTaskForm);
+    $('taskEsim').addEventListener('change', syncTaskEsimRow);
     $('taskSaveBtn').addEventListener('click', function(){ saveTask(this); });
     $('keepPingBtn').addEventListener('click', function(){ keepPing(this); });
     $('keepHttpBtn').addEventListener('click', function(){ keepHttp(this); });

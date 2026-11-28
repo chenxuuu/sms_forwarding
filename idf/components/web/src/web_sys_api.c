@@ -239,8 +239,10 @@ static void tasks_to_json(sbuf_t *out)
         append_json_str(out, "text", t.text, true);
         append_json_str(out, "host", t.host, true);
         append_json_str(out, "url", t.url, true);
-        sbuf_printf(out, "\"next\":%lld,\"repeat_days\":%d,\"last\":%lld}", (long long)t.next,
-                    (int)t.repeat_days, (long long)t.last);
+        append_json_str(out, "esim_iccid", t.esim_iccid, true);
+        sbuf_printf(out, "\"esim_restore\":%s,\"next\":%lld,\"repeat_days\":%d,\"last\":%lld}",
+                    t.esim_restore ? "true" : "false", (long long)t.next, (int)t.repeat_days,
+                    (long long)t.last);
     }
     sbuf_append(out, "]}");
 }
@@ -330,9 +332,30 @@ esp_err_t handler_tasks(httpd_req_t *req)
     if (web_form_get(body, "url", val, sizeof(val))) {
         snprintf(t.url, sizeof(t.url), "%s", val);
     }
+    if (web_form_get(body, "esim_iccid", val, sizeof(val))) {
+        snprintf(t.esim_iccid, sizeof(t.esim_iccid), "%s", val);
+    }
+    char restore_s[8] = {0};
+    if (web_form_get(body, "esim_restore", restore_s, sizeof(restore_s))) {
+        t.esim_restore = (strcmp(restore_s, "on") == 0 || strcmp(restore_s, "1") == 0);
+    } else if (index < 0 && t.esim_iccid[0]) {
+        t.esim_restore = true; /* 新任务默认保号后切回原卡 */
+    }
+
+    bool esim_id_ok = true;
+    for (const char *p = t.esim_iccid; *p; p++) {
+        if (!((*p >= '0' && *p <= '9') || (*p >= 'A' && *p <= 'F') || (*p >= 'a' && *p <= 'f'))) {
+            esim_id_ok = false;
+        }
+    }
+    if (t.esim_iccid[0] && strlen(t.esim_iccid) < 10) {
+        esim_id_ok = false;
+    }
 
     if (t.type != SCHED_TYPE_SMS && t.type != SCHED_TYPE_PING && t.type != SCHED_TYPE_HTTP) {
         web_json_fail(&out, "任务类型无效");
+    } else if (!esim_id_ok) {
+        web_json_fail(&out, "eSIM 配置 ICCID 无效");
     } else if (t.next <= 0) {
         web_json_fail(&out, "请选择执行时间");
     } else if (t.type == SCHED_TYPE_SMS && (!t.phone[0] || !t.text[0])) {

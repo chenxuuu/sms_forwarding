@@ -21,6 +21,12 @@
 #define SCHED_RETRY_GAP_MS 30000
 /* 切卡后等驻网的最长秒数：外卡漫游附着可能要几分钟（见 docs/esim-plan.md §10.5） */
 #define SCHED_ESIM_REG_WAIT_S 180
+/* 切卡类任务在「还没真正执行保号」就中止时（切卡失败/驻网超时/模组忙），
+ * 不等整个循环周期，1 小时后自动重试，最多 3 次，避免一次偶发失败就错过保号窗口 */
+#define SCHED_ESIM_ABORT_RETRY_MAX 3
+#define SCHED_ESIM_ABORT_RETRY_S 3600
+
+static uint8_t s_abort_retry[SCHED_MAX_TASKS];
 
 static sched_task_t s_tasks[SCHED_MAX_TASKS];
 static int s_count;
@@ -289,17 +295,20 @@ static bool esim_switch_to(const char *iccid)
  * 带 eSIM 切换的执行：先切到任务指定的配置，驻网成功后才做保号动作，
  * 结束后按任务设置切回原卡。任何一步失败都中止，绝不在错的卡上执行
  * （发短信/Ping/HTTP 都会花目标卡以外那张卡的钱、保错号）。
+ * 返回值：1=保号动作执行成功；0=动作已执行但失败；
+ * -1=动作未执行就中止且原因多为偶发（切卡/驻网/读卡失败），可短间隔重试；
+ * -2=动作未执行就中止且原因确定性（目标配置不在卡内等），重试无意义。
  */
-static bool run_task(const sched_task_t *t, char *detail, size_t cap)
+static int run_task(const sched_task_t *t, char *detail, size_t cap)
 {
     if (!t->esim_iccid[0]) {
-        return run_once(t, detail, cap);
+        return run_once(t, detail, cap) ? 1 : 0;
     }
 
     esim_profile_t *list = calloc(ESIM_MAX_PROFILES, sizeof(*list));
     if (!list) {
         snprintf(detail, cap, "内存不足，无法读取 eSIM 配置列表，已中止");
-        return false;
+        return -2;
     }
     char eid[40] = {0};
     int count = -1;
@@ -308,7 +317,7 @@ static bool run_task(const sched_task_t *t, char *detail, size_t cap)
         snprintf(detail, cap, "读取 eSIM 配置失败：%s，已中止（未在任何卡上执行）",
                  esim_last_error());
         free(list);
-        return false;
+        return -1;
     }
 
     char orig_iccid[ESIM_ICCID_MAX] = {0};
@@ -332,7 +341,7 @@ static bool run_task(const sched_task_t *t, char *detail, size_t cap)
     if (!target_found) {
         snprintf(detail, cap, "目标 eSIM 配置（ICCID %s）不在卡内，已中止（未在任何卡上执行）",
                  t->esim_iccid);
-        return false;
+        return -2;
     }
 
     bool switched = false;
@@ -348,7 +357,7 @@ static bool run_task(const sched_task_t *t, char *detail, size_t cap)
             }
             snprintf(detail, cap, "切换到目标 eSIM「%s」失败：%s，已中止（未在错的卡上执行）",
                      target_name, why[0] ? why : "驻网超时");
-            return false;
+            return -1;
         }
         switched = true;
     } else {
@@ -361,12 +370,20 @@ static bool run_task(const sched_task_t *t, char *detail, size_t cap)
     char tail[200] = {0};
     if (switched && t->esim_restore) {
         if (orig_iccid[0]) {
-            if (esim_switch_to(orig_iccid)) {
+            bool restored = esim_switch_to(orig_iccid);
+            if (!restored) {
+                /* 切回失败后果最重（设备停在保号卡上收不到原卡短信），多给一次机会 */
+                log_line("定时任务：切回原卡「%s」失败，15 秒后重试一次：%s",
+                         orig_name, esim_last_error());
+                vTaskDelay(pdMS_TO_TICKS(15000));
+                restored = esim_switch_to(orig_iccid);
+            }
+            if (restored) {
                 snprintf(tail, sizeof(tail), "；已切回原卡「%s」", orig_name);
             } else {
                 snprintf(tail, sizeof(tail), "；警告：切回原卡「%s」失败，请到 eSIM 页手动切回",
                          orig_name);
-                log_line("定时任务：切回原卡「%s」失败：%s", orig_name, esim_last_error());
+                log_line("定时任务：切回原卡「%s」重试后仍失败：%s", orig_name, esim_last_error());
             }
         } else {
             snprintf(tail, sizeof(tail), "；警告：执行前没有启用的配置，未能切回");
@@ -375,7 +392,7 @@ static bool run_task(const sched_task_t *t, char *detail, size_t cap)
         snprintf(tail, sizeof(tail), "；按任务设置留在目标卡「%s」", target_name);
     }
     snprintf(detail, cap, "eSIM「%s」：%s%s", target_name, action, tail);
-    return ok;
+    return ok ? 1 : 0;
 }
 
 static void sched_loop(void *arg)
@@ -417,10 +434,11 @@ static void sched_loop(void *arg)
             }
 
             char detail[420] = {0};
-            bool ok = run_task(&t, detail, sizeof(detail));
-            if (!ok && !t.esim_iccid[0]) {
+            int rc = run_task(&t, detail, sizeof(detail));
+            bool ok = rc > 0;
+            if (rc == 0 && !t.esim_iccid[0]) {
                 /* 涉及话费/流量，只谨慎重试一次；
-                 * 带切卡的任务不盲重试（切卡+驻网耗时长，失败原因多为确定性的） */
+                 * 带切卡的任务动作已在目标卡上执行过，失败也不在此盲重试 */
                 log_line("任务 #%d 失败，%d 秒后重试一次", i + 1, SCHED_RETRY_GAP_MS / 1000);
                 vTaskDelay(pdMS_TO_TICKS(SCHED_RETRY_GAP_MS));
                 ok = run_once(&t, detail, sizeof(detail));
@@ -428,20 +446,34 @@ static void sched_loop(void *arg)
 
             time_t done = time(NULL);
             int64_t next_at = 0;
+            bool abort_retry = false;
             lock();
             s_tasks[i].last = (int64_t)done;
-            if (s_tasks[i].repeat_days > 0) {
-                int64_t step = (int64_t)s_tasks[i].repeat_days * 86400;
-                int64_t next = s_tasks[i].next + step;
-                while (next <= (int64_t)done) {
-                    next += step; /* 错过的周期不补跑，避免一次性连发 */
-                }
-                s_tasks[i].next = next;
+            if (rc == -1 && s_abort_retry[i] < SCHED_ESIM_ABORT_RETRY_MAX) {
+                /* 保号动作根本没执行（切卡/驻网/读卡偶发失败）：1 小时后重试，
+                 * 不让一次偶发失败把整个循环周期（可能几十天）空转掉 */
+                s_abort_retry[i]++;
+                next_at = (int64_t)done + SCHED_ESIM_ABORT_RETRY_S;
+                s_tasks[i].next = next_at;
                 s_tasks[i].enabled = true;
-                next_at = next;
+                abort_retry = true;
             } else {
-                s_tasks[i].next = 0;
-                s_tasks[i].enabled = false;
+                if (rc >= 0 || rc == -1) {
+                    s_abort_retry[i] = 0; /* 已真正执行，或短重试次数用尽回落正常周期 */
+                }
+                if (s_tasks[i].repeat_days > 0) {
+                    int64_t step = (int64_t)s_tasks[i].repeat_days * 86400;
+                    int64_t next = s_tasks[i].next + step;
+                    while (next <= (int64_t)done) {
+                        next += step; /* 错过的周期不补跑，避免一次性连发 */
+                    }
+                    s_tasks[i].next = next;
+                    s_tasks[i].enabled = true;
+                    next_at = next;
+                } else {
+                    s_tasks[i].next = 0;
+                    s_tasks[i].enabled = false;
+                }
             }
             persist_locked();
             unlock();
@@ -449,7 +481,14 @@ static void sched_loop(void *arg)
             char when[32];
             fmt_time((int64_t)done, when, sizeof(when));
             char body[720];
-            if (next_at > 0) {
+            if (abort_retry) {
+                char nx[32];
+                fmt_time(next_at, nx, sizeof(nx));
+                snprintf(body, sizeof(body),
+                         "任务 #%d（%s）\n%s\n执行时间: %s\n保号尚未执行，将在 %s 自动重试（短重试 %d/%d 次）",
+                         i + 1, type_name(t.type), detail, when, nx,
+                         s_abort_retry[i], SCHED_ESIM_ABORT_RETRY_MAX);
+            } else if (next_at > 0) {
                 char nx[32];
                 fmt_time(next_at, nx, sizeof(nx));
                 snprintf(body, sizeof(body),
